@@ -105,15 +105,16 @@ enum PoiSourceType {
 // ── 행정구역 / 데이터 원천 ──────────────────────────────────
 
 model Region {
-  id             String      @id @default(cuid())
-  code           String      @unique // 내부 안정 식별자(통계청 행정표준코드 기준, 확인되는 대로 갱신)
-  name           String // 한글 명칭 (예: "대전광역시", "제천시")
-  level          RegionLevel
-  apiAreaCode    String? // TourAPI/지표 API 호출용 areaCode (시도 단위). 공식 문서로 확인 전까지 null 허용.
-  apiSigunguCode String? // TourAPI/지표 API 호출용 sigunguCode (시군구 단위). 확인 전까지 null 허용.
-  parentId       String?
-  parent         Region?     @relation("RegionHierarchy", fields: [parentId], references: [id])
-  children       Region[]    @relation("RegionHierarchy")
+  id              String      @id @default(cuid())
+  code            String      @unique // 내부 안정 식별자(통계청 행정표준코드 기준, 확인되는 대로 갱신)
+  name            String // 한글 명칭 (예: "대전광역시", "제천시")
+  level           RegionLevel
+  apiAreaCode     String? // 통계청 행정표준코드 시도 2자리(AreaTarDemDsService/AreaTarDivService용). 2026-07-21 실키로 확인됨.
+  apiSigunguCode  String? // 통계청 행정표준코드 시군구 5자리(같은 API들의 signguCd 파라미터용). 2026-07-21 실키로 확인됨.
+  tourApiAreaCode String? // KorService2(국문관광정보) 전용 구식 TourAPI areaCode(1~39, 시도 단위). 2026-07-21 실키로 확인됨.
+  parentId        String?
+  parent          Region?     @relation("RegionHierarchy", fields: [parentId], references: [id])
+  children        Region[]    @relation("RegionHierarchy")
 
   snapshots         DataSnapshot[]
   normalizedMetrics NormalizedMetric[]

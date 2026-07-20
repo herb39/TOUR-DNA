@@ -83,12 +83,12 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
   const regions = await prisma.region.findMany({ where: { level: "SIGUNGU" } });
 
   for (const region of regions) {
-    if (!region.apiAreaCode) {
+    if (!region.apiAreaCode || !region.apiSigunguCode) {
       results.push({
         sourceCode: `REGION:${region.code}`,
         status: "SKIPPED",
         itemCount: 0,
-        errorMessage: "apiAreaCode 미설정 — 실 지역코드 확인 전까지 이 지역은 라이브 동기화에서 제외",
+        errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 이 지역은 라이브 동기화에서 제외",
       });
       continue;
     }
@@ -99,6 +99,7 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
         serviceKey,
         baseUrl: svcSource.baseUrl,
         areaCd: region.apiAreaCode,
+        signguCd: region.apiSigunguCode,
         baseYm: params.baseYm,
       });
       if (res.status === "SUCCESS") {
@@ -124,7 +125,13 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
 
     const divSource = sourceByCode.get("TOU_DIV_IX");
     if (divSource) {
-      const res = await fetchTouDivIx({ serviceKey, baseUrl: divSource.baseUrl, areaCd: region.apiAreaCode, baseYm: params.baseYm });
+      const res = await fetchTouDivIx({
+        serviceKey,
+        baseUrl: divSource.baseUrl,
+        areaCd: region.apiAreaCode,
+        signguCd: region.apiSigunguCode,
+        baseYm: params.baseYm,
+      });
       if (res.status === "SUCCESS") {
         for (const item of res.items) {
           if (item.touDivIxVal !== undefined) {

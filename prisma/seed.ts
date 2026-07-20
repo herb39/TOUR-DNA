@@ -26,8 +26,21 @@ async function upsertRegions() {
   for (const r of parents) {
     await prisma.region.upsert({
       where: { code: r.code },
-      update: { name: r.name, level: r.level, apiAreaCode: r.apiAreaCode, apiSigunguCode: r.apiSigunguCode },
-      create: { code: r.code, name: r.name, level: r.level, apiAreaCode: r.apiAreaCode, apiSigunguCode: r.apiSigunguCode },
+      update: {
+        name: r.name,
+        level: r.level,
+        apiAreaCode: r.apiAreaCode,
+        apiSigunguCode: r.apiSigunguCode,
+        tourApiAreaCode: r.tourApiAreaCode,
+      },
+      create: {
+        code: r.code,
+        name: r.name,
+        level: r.level,
+        apiAreaCode: r.apiAreaCode,
+        apiSigunguCode: r.apiSigunguCode,
+        tourApiAreaCode: r.tourApiAreaCode,
+      },
     });
   }
   for (const r of children) {
@@ -39,6 +52,7 @@ async function upsertRegions() {
         level: r.level,
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
+        tourApiAreaCode: r.tourApiAreaCode,
         parentId: parent.id,
       },
       create: {
@@ -47,6 +61,7 @@ async function upsertRegions() {
         level: r.level,
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
+        tourApiAreaCode: r.tourApiAreaCode,
         parentId: parent.id,
       },
     });

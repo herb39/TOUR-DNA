@@ -43,17 +43,19 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 
 ## 지역(Region)
 
-| code | name | level | parentCode |
-|---|---|---|---|
-| SIDO_DAEJEON | 대전광역시 | SIDO | - |
-| SGG_DAEJEON | 대전광역시 | SIGUNGU | SIDO_DAEJEON |
-| SIDO_CHUNGBUK | 충청북도 | SIDO | - |
-| SGG_JECHEON | 제천시 | SIGUNGU | SIDO_CHUNGBUK |
-| SIDO_GANGWON | 강원특별자치도 | SIDO | - |
-| SGG_YANGYANG | 양양군 | SIGUNGU | SIDO_GANGWON |
+| code | name | level | parentCode | apiAreaCode | apiSigunguCode | tourApiAreaCode |
+|---|---|---|---|---|---|---|
+| SIDO_DAEJEON | 대전광역시 | SIDO | - | 30 | - | 3 |
+| SGG_DAEJEON | 대전광역시(유성구 대표) | SIGUNGU | SIDO_DAEJEON | 30 | 30200 | 3 |
+| SIDO_CHUNGBUK | 충청북도 | SIDO | - | 43 | - | 33 |
+| SGG_JECHEON | 제천시 | SIGUNGU | SIDO_CHUNGBUK | 43 | 43150 | 33 |
+| SIDO_GANGWON | 강원특별자치도 | SIDO | - | 51 | - | 32 |
+| SGG_YANGYANG | 양양군 | SIGUNGU | SIDO_GANGWON | 51 | 51830 | 32 |
 
-대전광역시는 광역시 자체를 분석 단위(SIGUNGU 취급)로 사용한다(자치구별 세분화는 P2). `apiAreaCode`/
-`apiSigunguCode`는 실 API 지역코드 체계가 검증되기 전까지 `null`이다(docs/public-api-status.md).
+`apiAreaCode`/`apiSigunguCode`(통계청 행정표준코드, `AreaTarDemDsService`/`AreaTarDivService`용)와
+`tourApiAreaCode`(TourAPI 구코드, `KorService2`용)는 2026-07-21 실 서비스키로 검증됐다
+(docs/public-api-status.md). 대전광역시는 자치구 단위로만 통계청 API 데이터가 제공되어, 대표
+자치구로 유성구(30200)를 쓴다(다른 4개 구로 세분화하는 것은 P2).
 
 ## 지표 코드 (NormalizedMetric.metricCode)
 
