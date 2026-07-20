@@ -1,0 +1,394 @@
+// TOUR DNA — Prisma schema
+// 데이터 원천(raw snapshot) ↔ 정규화 모델을 분리하고, 프로젝트/분석/전략/실행안을 계약대로 저장한다.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── 공통 코드 ──────────────────────────────────────────────
+
+enum RegionLevel {
+  SIDO
+  SIGUNGU
+}
+
+enum UserRole {
+  TRAVEL_AGENCY // 여행사/DMC
+  LOCAL_GOV // 지자체/관광재단
+}
+
+enum Nationality {
+  DOMESTIC
+  FOREIGN
+}
+
+enum TripDuration {
+  DAY_TRIP // 당일
+  ONE_NIGHT_TWO_DAYS // 1박 2일
+  TWO_NIGHTS_THREE_DAYS // 2박 3일
+}
+
+enum BudgetLevel {
+  LOW // 저가
+  MID // 중간
+  PREMIUM // 프리미엄
+}
+
+enum TransportMode {
+  WALK // 도보
+  PUBLIC_TRANSPORT // 대중교통
+  PRIVATE_VEHICLE // 전용차량
+  MIXED // 혼합
+}
+
+enum GroupType {
+  FIT // 개별/FIT
+  SMALL_10_20 // 10~20명
+  MEDIUM_21_40 // 21~40명
+}
+
+enum ProjectStatus {
+  DRAFT // 조건 입력만 완료
+  ANALYZED // DNA/전략 분석 완료
+  PLANNED // 실행안까지 저장 완료
+}
+
+enum DataMode {
+  LIVE
+  HYBRID
+  SNAPSHOT
+}
+
+enum AxisStatus {
+  LIVE // 이번 동기화의 공공데이터로 계산됨
+  SNAPSHOT // 이전 성공 스냅샷으로 대체됨
+  MISSING // 데이터 부족
+}
+
+enum SnapshotStatus {
+  SUCCESS
+  EMPTY // API 성공 응답이지만 0건
+  ERROR
+}
+
+enum SyncTrigger {
+  CRON
+  ADMIN
+  CLI
+}
+
+enum SyncOverallStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum PoiCategory {
+  ATTRACTION // 관광지
+  FOOD // 음식
+  LODGING // 숙박
+  EXPERIENCE // 체험
+  FESTIVAL // 축제/이벤트
+  SHOPPING // 쇼핑
+}
+
+enum PoiSourceType {
+  API
+  FIXTURE
+}
+
+// ── 행정구역 / 데이터 원천 ──────────────────────────────────
+
+model Region {
+  id             String      @id @default(cuid())
+  code           String      @unique // 내부 안정 식별자(통계청 행정표준코드 기준, 확인되는 대로 갱신)
+  name           String // 한글 명칭 (예: "대전광역시", "제천시")
+  level          RegionLevel
+  apiAreaCode    String? // TourAPI/지표 API 호출용 areaCode (시도 단위). 공식 문서로 확인 전까지 null 허용.
+  apiSigunguCode String? // TourAPI/지표 API 호출용 sigunguCode (시군구 단위). 확인 전까지 null 허용.
+  parentId       String?
+  parent         Region?     @relation("RegionHierarchy", fields: [parentId], references: [id])
+  children       Region[]    @relation("RegionHierarchy")
+
+  snapshots         DataSnapshot[]
+  normalizedMetrics NormalizedMetric[]
+  pois              Poi[]
+  projects          Project[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([level])
+}
+
+model DataSource {
+  id          String  @id @default(cuid())
+  code        String  @unique // TAR_SVC_DEM | TAR_SJRN_DS | TAR_EXP_DS | TOU_DIV_IX | TOUR_INFO | POI_RELATION
+  name        String // 한글명 (예: "지역별 관광 수요 강도")
+  baseUrl     String
+  description String?
+
+  snapshots DataSnapshot[]
+  metrics   NormalizedMetric[]
+  pois      Poi[]
+  relations PoiRelation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// 공공데이터 API 원본 응답(raw)을 그대로 보관하는 스냅샷. 정규화 이전 레이어.
+model DataSnapshot {
+  id           String         @id @default(cuid())
+  dataSourceId String
+  dataSource   DataSource     @relation(fields: [dataSourceId], references: [id])
+  regionId     String
+  region       Region         @relation(fields: [regionId], references: [id])
+  baseYm       String
+  status       SnapshotStatus
+  resultCode   String? // 공공데이터포털 루트 resultCode
+  resultMsg    String?
+  itemCount    Int            @default(0)
+  rawPayload   Json // 원본 items 배열/객체 그대로
+  fetchedAt    DateTime       @default(now())
+
+  @@unique([dataSourceId, regionId, baseYm])
+  @@index([regionId, baseYm])
+}
+
+/// 원본 스냅샷을 정규화 규칙에 따라 변환한 지표. DNA 계산과 근거 패널이 참조하는 단일 출처.
+model NormalizedMetric {
+  id              String      @id @default(cuid())
+  regionId        String
+  region          Region      @relation(fields: [regionId], references: [id])
+  baseYm          String
+  metricCode      String // tarSvcDemIxVal | tarSjrnDsIxVal | tarExpDsIxVal | touDivIxVal 등
+  rawValue        Float
+  normalizedValue Float? // 동일 행정단위·기준월·지표 코호트 내 정규화 값 (0~100)
+  unit            String
+  adminLevel      RegionLevel
+  sourceId        String
+  source          DataSource  @relation(fields: [sourceId], references: [id])
+  collectedAt     DateTime    @default(now())
+
+  @@unique([regionId, baseYm, metricCode])
+  @@index([metricCode, baseYm, adminLevel])
+}
+
+model Poi {
+  id             String        @id @default(cuid())
+  externalId     String? // API 제공 고유 ID (fixture는 null 가능)
+  regionId       String
+  region         Region        @relation(fields: [regionId], references: [id])
+  name           String
+  category       PoiCategory
+  address        String
+  lat            Float
+  lng            Float
+  operatingHours String?
+  closedDays     String?
+  sourceType     PoiSourceType
+  sourceId       String?
+  source         DataSource?   @relation(fields: [sourceId], references: [id])
+  rawPayload     Json?
+
+  centerOf  PoiRelation[] @relation("CenterPoi")
+  relatedOf PoiRelation[] @relation("RelatedPoi")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([regionId, name])
+  @@index([regionId, category])
+}
+
+model PoiRelation {
+  id           String     @id @default(cuid())
+  centerPoiId  String
+  centerPoi    Poi        @relation("CenterPoi", fields: [centerPoiId], references: [id])
+  relatedPoiId String
+  relatedPoi   Poi        @relation("RelatedPoi", fields: [relatedPoiId], references: [id])
+  relationType String // 예: "연관관광지"
+  distanceM    Float?
+  sourceId     String
+  source       DataSource @relation(fields: [sourceId], references: [id])
+
+  @@unique([centerPoiId, relatedPoiId])
+}
+
+model SyncLog {
+  id            String            @id @default(cuid())
+  baseYm        String
+  triggeredBy   SyncTrigger
+  overallStatus SyncOverallStatus
+  results       Json // [{ sourceCode, status, itemCount, errorMessage? }]
+  startedAt     DateTime
+  endedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([baseYm])
+}
+
+// ── 프로젝트 / 분석 / 전략 / 실행안 ──────────────────────────
+
+model Project {
+  id                       String        @id @default(cuid())
+  name                     String
+  role                     UserRole
+  regionId                 String // 시군구 Region
+  region                   Region        @relation(fields: [regionId], references: [id])
+  sidoCode                 String
+  sigunguCode              String
+  travelYear               Int
+  travelMonth              Int
+  status                   ProjectStatus @default(DRAFT)
+  selectedStrategyResultId String?
+
+  input          ProjectInput?
+  analysisResult AnalysisResult?
+  selectedPlan   SelectedPlan?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([regionId])
+}
+
+model ProjectInput {
+  id              String        @id @default(cuid())
+  projectId       String        @unique
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nationality     Nationality
+  ageGroups       Json          @default("[]") // 코드값 배열 (예: ["AGE_20S","AGE_30S"])
+  companionType   String // 코드값 (예: COMPANION_FRIENDS)
+  primaryGoal     String // 코드값 (예: GOAL_STAY_SPEND)
+  secondaryGoal   String?
+  duration        TripDuration
+  budgetLevel     BudgetLevel
+  transport       TransportMode
+  groupType       GroupType
+  preferredThemes Json          @default("[]")
+  excludedThemes  Json          @default("[]")
+  memo            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// DNA 5축 분석 결과. 프로젝트당 1건(재분석 시 upsert).
+model AnalysisResult {
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  demandScore     Float?
+  demandStatus    AxisStatus
+  stayScore       Float?
+  stayStatus      AxisStatus
+  spendScore      Float?
+  spendStatus     AxisStatus
+  diversityScore  Float?
+  diversityStatus AxisStatus
+  networkScore    Float?
+  networkStatus   AxisStatus
+
+  overallDataMode DataMode
+  liveAxisCount   Int // 0~5
+
+  strengths     Json // string[] (길이 2)
+  opportunities Json // string[] (길이 2)
+  cautions      Json // string[] (길이 1)
+
+  analysisKey  String // hash(sortedInput + dataVersion + modelVersion)
+  dataVersion  String // 사용된 NormalizedMetric/DataSnapshot 조합의 버전 식별자
+  modelVersion String // 예: tour-dna-v1.0.0
+
+  strategyResults StrategyResult[]
+  evidences       Evidence[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([analysisKey])
+}
+
+model StrategyResult {
+  id               String         @id @default(cuid())
+  analysisResultId String
+  analysisResult   AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
+
+  templateId             String // 예: LOCAL_FOOD_MARKET
+  rank                   Int
+  name                   String
+  concept                String
+  totalScore             Float
+  scoreBreakdown         Json // { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit }
+  reasons                Json // string[] (길이 3)
+  targetDescription      String
+  poiIds                 Json // string[] (Poi.id)
+  consumptionTouchpoints Json // { food: boolean, lodging: boolean, experience: boolean, examples: string[] }
+  risks                  Json // string[]
+  evidenceIds            Json // string[] (Evidence.id) — 조인 없이 빠른 조회용 캐시
+
+  evidences Evidence[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([analysisResultId, templateId])
+  @@index([analysisResultId, rank])
+}
+
+/// 축/전략에 연결된 개별 데이터 근거. 원값·정규화값·단위·행정단위·기준월·출처·수집일·반영규칙을 보존한다.
+model Evidence {
+  id               String          @id @default(cuid())
+  analysisResultId String?
+  analysisResult   AnalysisResult? @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
+  strategyResultId String?
+  strategyResult   StrategyResult? @relation(fields: [strategyResultId], references: [id], onDelete: Cascade)
+
+  axis            String? // Demand | Stay | Spend | Diversity | Network | null(전략 근거)
+  metricCode      String
+  rawValue        Float
+  normalizedValue Float?
+  unit            String
+  adminLevel      RegionLevel
+  regionCode      String
+  baseYm          String
+  sourceCode      String // DataSource.code
+  collectedAt     DateTime
+  appliedRule     String // 예: "SIGUNGU 코호트 내 min-max, baseYm=202509"
+
+  createdAt DateTime @default(now())
+
+  @@index([analysisResultId])
+  @@index([strategyResultId])
+}
+
+model SelectedPlan {
+  id               String  @id @default(cuid())
+  projectId        String  @unique
+  project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  strategyResultId String
+
+  productName        String
+  conceptText        String
+  background         String // 데이터 기반 기획 배경
+  targetSummary      String
+  sellingPoints      Json // string[] (길이 3)
+  course             Json // { days: [{ dayIndex, items: [{ order, poiId, timeSlot, stayMinutes, travel }] }] }
+  operationChecklist Json // string[] (예약/인원/휴무/우천/혼잡/교통)
+  risks              Json // [{ risk, mitigation }]
+  kpis               Json // [{ name, method }] (3~5개)
+  memo               String?
+  kpiMemo            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
