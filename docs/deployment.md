@@ -48,21 +48,22 @@ seed는 항상 별도 명령으로 수동/CI 스텝에서 실행한다.
 3. Build Command는 기본값(`next build`, `npm run build`) 그대로 사용 — seed를 build 훅에 넣지 않는다
 4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tourdna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
 
-## 6. Vercel Cron (선택, 사용자 수행)
+## 6. Vercel Cron
 
-`vercel.json`에 아래와 같이 등록하면 정기적으로 데이터를 동기화할 수 있다(선택 사항):
+저장소 루트의 `vercel.json`에 매월 1일 UTC 00:00(KST 09:00)에 동기화하도록 이미 등록해두었다:
 
 ```json
 {
   "crons": [
-    { "path": "/api/cron/sync-tourism-data", "schedule": "0 18 17 * *" }
+    { "path": "/api/cron/sync-tourism-data", "schedule": "0 0 1 * *" }
   ]
 }
 ```
 
-Vercel Cron은 요청에 `Authorization: Bearer $CRON_SECRET` 헤더를 자동으로 붙이지 않으므로, Vercel의
-Cron Job 설정에서 헤더를 직접 구성하거나, 별도 외부 스케줄러(GitHub Actions 등)에서
-`curl -H "Authorization: Bearer $CRON_SECRET" ...`로 호출하는 방식을 권장한다.
+Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으면 요청에
+`Authorization: Bearer $CRON_SECRET` 헤더를 **자동으로** 붙여서 호출한다(별도 외부 스케줄러 불필요).
+단, Vercel 무료(Hobby) 플랜은 Cron Job 실행 시각이 정확히 맞지 않고 다소 지연될 수 있다.
+스케줄을 바꾸려면 `vercel.json`의 `schedule` 값(표준 5필드 cron 문법, UTC 기준)을 수정 후 재배포한다.
 
 ## 7. 배포 후 확인
 
