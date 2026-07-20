@@ -3,11 +3,16 @@ import { fetchPublicDataJson } from "../client";
 import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
 
 /**
- * 한국관광공사_지역별 관광 수요 강도 (data.go.kr/data/15151868/openapi.do).
- *
- * ⚠️ 미확인 사항 (docs/public-api-status.md 참고): 정확한 오퍼레이션 경로, `tarSvcDemIxCd`/`tarSvcDemIxVal`
- * 등 필드명은 실 서비스키 발급 전까지 검증되지 않은 후보값이다. 실제 응답 구조가 다르면 이 파일의
- * itemSchema와 요청 파라미터만 수정하면 된다 (도메인 엔진은 이 값에 의존하지 않는다).
+ * 한국관광공사_지역별 관광 수요 강도 서비스 (AreaTarDemDsService).
+ * 실 서비스키로 검증된 사항(2026-07-21):
+ * - base: https://apis.data.go.kr/B551011/AreaTarDemDsService
+ * - 체류 강도: /areaTarSjrnDsList (확인됨)
+ * - 소비 강도: /areaTarExpDsList (확인됨)
+ * - 수요 강도(tarSvcDemIxVal) 오퍼레이션명은 아직 미확인 — docs/public-api-status.md 참고.
+ * - 필수 파라미터: serviceKey, MobileOS, MobileApp, areaCd, baseYm. JSON 응답은 _type=json 필요(기본 XML).
+ * - areaCd는 통계청 행정표준코드 2자리 시도코드로 보인다(서울=11 확인). 시군구 단위 코드는 미확인.
+ * - 지금까지 테스트한 모든 areaCd/baseYm 조합에서 totalCount=0 (resultCode는 0000/OK 정상) —
+ *   해당 데이터셋에 아직 실제 데이터가 채워지지 않았을 가능성이 있다.
  */
 
 const itemSchema = z.object({
@@ -30,14 +35,53 @@ export interface TarSvcDemParams {
   baseYm: string;
 }
 
-export async function fetchTarSvcDem(
-  params: TarSvcDemParams,
-): Promise<NormalizedItemsResult<TarSvcDemItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
-  const url = `${params.baseUrl}?serviceKey=${encodeURIComponent(params.serviceKey)}&areaCd=${encodeURIComponent(params.areaCd)}&baseYm=${encodeURIComponent(params.baseYm)}&numOfRows=100&pageNo=1&_type=json`;
+type AdapterResult =
+  | NormalizedItemsResult<TarSvcDemItem>
+  | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string };
 
-  const res = await fetchPublicDataJson(url, { sourceCode: "TAR_SVC_DEM" });
-  if (!res.ok) {
-    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown" };
+function buildUrl(baseUrl: string, operation: string, params: TarSvcDemParams): string {
+  const qs = new URLSearchParams({
+    serviceKey: params.serviceKey,
+    MobileOS: "ETC",
+    MobileApp: "TourDNA",
+    areaCd: params.areaCd,
+    baseYm: params.baseYm,
+    numOfRows: "100",
+    pageNo: "1",
+    _type: "json",
+  });
+  return `${baseUrl}/${operation}?${qs.toString()}`;
+}
+
+export async function fetchTarSvcDem(params: TarSvcDemParams): Promise<AdapterResult> {
+  const [stayRes, spendRes] = await Promise.all([
+    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarSjrnDsList", params), { sourceCode: "TAR_SVC_DEM:STAY" }),
+    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarExpDsList", params), { sourceCode: "TAR_SVC_DEM:SPEND" }),
+  ]);
+
+  if (!stayRes.ok && !spendRes.ok) {
+    return {
+      status: "ERROR",
+      items: [],
+      resultCode: "NETWORK_ERROR",
+      resultMsg: stayRes.errorMessage ?? spendRes.errorMessage ?? "unknown",
+    };
   }
-  return parsePublicDataEnvelope(itemSchema, res.data);
+
+  const items: TarSvcDemItem[] = [];
+  let resultCode = "0000";
+  let resultMsg = "OK";
+
+  if (stayRes.ok) {
+    const parsed = parsePublicDataEnvelope(itemSchema, stayRes.data);
+    items.push(...parsed.items);
+    resultCode = parsed.resultCode;
+    resultMsg = parsed.resultMsg;
+  }
+  if (spendRes.ok) {
+    const parsed = parsePublicDataEnvelope(itemSchema, spendRes.data);
+    items.push(...parsed.items);
+  }
+
+  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode, resultMsg };
 }

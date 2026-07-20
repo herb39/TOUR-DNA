@@ -9,9 +9,10 @@ export const DATA_SOURCE_SEED: DataSourceSeed[] = [
   {
     code: "TAR_SVC_DEM",
     name: "지역별 관광 수요 강도",
-    baseUrl: "https://www.data.go.kr/data/15151868/openapi.do",
+    baseUrl: "https://apis.data.go.kr/B551011/AreaTarDemDsService",
     description:
-      "관광 서비스 수요(11)/체류 강도(21)/소비 강도(22) 지수를 제공. 정확한 요청 파라미터/필드명은 실 서비스키 발급 후 재검증 필요(docs/public-api-status.md).",
+      "체류 강도(/areaTarSjrnDsList)·소비 강도(/areaTarExpDsList) 오퍼레이션은 실 키로 확인됨(2026-07-21). " +
+      "수요 강도(tarSvcDemIxVal) 오퍼레이션명은 아직 미확인(docs/public-api-status.md).",
   },
   {
     code: "TOU_DIV_IX",

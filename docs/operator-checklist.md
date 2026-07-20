@@ -12,11 +12,15 @@
 
 ## 공공데이터 API 실 키 발급 후 (필수 재검증)
 
-- [ ] data.go.kr Swagger UI로 6개 API의 실제 엔드포인트 경로 확인
-- [ ] `tarSvcDemIxCd`/`tarSvcDemIxVal` 등 필드명이 실제 응답과 일치하는지 확인,
-      다르면 `src/lib/public-data/adapters/*.ts`의 zod 스키마와 필드 매핑 수정
-- [ ] areaCd 코드 체계(통계청 행정표준코드 vs TourAPI areaCode/sigunguCode) 확인 후
-      `src/lib/fixtures/regions.ts`의 `apiAreaCode`/`apiSigunguCode`를 실값으로 채움
+- [x] `TOUR_API_SERVICE_KEY` 발급 완료(2026-07-21)
+- [x] "지역별 관광 수요 강도" base URL 확인: `https://apis.data.go.kr/B551011/AreaTarDemDsService`
+- [x] 체류(`/areaTarSjrnDsList`)·소비(`/areaTarExpDsList`) 오퍼레이션 확인 및 어댑터 반영
+- [ ] 수요(Demand) 오퍼레이션명 확인 필요 — Swagger UI에서 전체 오퍼레이션 목록 확인
+- [ ] 위 두 확인된 오퍼레이션이 **0건이 아닌 실제 데이터**를 반환하는 areaCd/baseYm 조합 확인
+      (2026-07-21 기준 서울/대전 추정코드 × 8개 baseYm 전부 0건이었음 — docs/public-api-status.md 참고)
+- [ ] 나머지 5개 API(다양성/자원수요/방문자수/국문관광정보/연관관광지)의 base URL·오퍼레이션명 확인
+- [ ] areaCd 코드 체계 최종 확정(현재 통계청 행정표준코드 시도 2자리로 추정, 서울=11 정상 응답으로
+      간접 확인) 후 `src/lib/fixtures/regions.ts`의 `apiAreaCode`/`apiSigunguCode`를 실값으로 채움
 - [ ] `npm run sync:tourism-data`로 실 데이터 1회 동기화 후 `SyncLog` 테이블에서 결과 확인
 - [ ] 동기화 후 `/` 화면의 "데이터 기준월/마지막 동기화" 표시와 분석 화면의 `LIVE n/5` 배지가
       기대대로 바뀌는지 확인
