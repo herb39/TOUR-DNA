@@ -82,7 +82,12 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
         const items = [...d.items];
         const target = itemIndex + direction;
         if (target < 0 || target >= items.length) return d;
-        [items[itemIndex], items[target]] = [items[target], items[itemIndex]];
+        // timeSlot/travel은 시간대(슬롯) 자체에 속한 값이라 자리를 바꾸지 않는다 — 장소 정보(poiId/poiName/
+        // category/stayMinutes)만 교환해야 이동한 장소가 새 위치의 시간대를 그대로 물려받는다.
+        const a = items[itemIndex];
+        const b = items[target];
+        items[itemIndex] = { ...a, poiId: b.poiId, poiName: b.poiName, category: b.category, stayMinutes: b.stayMinutes };
+        items[target] = { ...b, poiId: a.poiId, poiName: a.poiName, category: a.category, stayMinutes: a.stayMinutes };
         return { ...d, items: items.map((it, i) => ({ ...it, order: i + 1 })) };
       }),
     );
