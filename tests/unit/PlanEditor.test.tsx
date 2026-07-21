@@ -130,7 +130,7 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
     fireEvent.click(addButtons[1]);
     fireEvent.change(screen.getByPlaceholderText("장소 이름 검색"), { target: { value: "C" } });
 
-    const addButton = await screen.findByRole("button", { name: "추가" });
+    const addButton = await screen.findByLabelText("C장소 코스에 추가");
     fireEvent.click(addButton);
 
     expect(await screen.findByText("C장소")).toBeInTheDocument();
@@ -156,11 +156,66 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
     fireEvent.click(addButtons[0]); // 이미 4곳인 1일차에도 추가 버튼이 존재하고 눌러진다(제한 없음)
     fireEvent.change(screen.getByPlaceholderText("장소 이름 검색"), { target: { value: "E" } });
 
-    const addButton = await screen.findByRole("button", { name: "추가" });
+    const addButton = await screen.findByLabelText("E장소 코스에 추가");
     fireEvent.click(addButton);
 
     expect(await screen.findByText("E장소")).toBeInTheDocument();
     // 고정 슬롯(10:00,13:00,16:00,18:30) 다음 자리는 마지막 슬롯에서 150분씩 이어간다 → 21:00
     expect(timeInputValue("E장소")).toBe("21:00");
+  });
+
+  it("체류시간을 직접 수정할 수 있다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    const stayInput = screen.getByLabelText("A장소 체류시간(분)") as HTMLInputElement;
+    expect(stayInput.value).toBe("60");
+
+    fireEvent.change(stayInput, { target: { value: "90" } });
+
+    expect((screen.getByLabelText("A장소 체류시간(분)") as HTMLInputElement).value).toBe("90");
+  });
+});
+
+describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
+  it("운영 체크리스트 항목을 추가하고 삭제할 수 있다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("새 체크리스트 항목"), { target: { value: "우천 대비 우산 준비" } });
+    // "추가" 버튼은 체크리스트(0)/위험(1)/KPI(2) 순서로 나온다
+    fireEvent.click(screen.getAllByRole("button", { name: "추가" })[0]);
+
+    expect(screen.getByText("· 우천 대비 우산 준비")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('체크리스트 "우천 대비 우산 준비" 삭제'));
+    expect(screen.queryByText("· 우천 대비 우산 준비")).not.toBeInTheDocument();
+  });
+
+  it("위험 요인/대응안을 추가하고 삭제할 수 있다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("새 위험 요인"), { target: { value: "주차 공간 부족" } });
+    fireEvent.change(screen.getByPlaceholderText("대응안"), { target: { value: "인근 공영주차장 사전 안내" } });
+    // "추가" 버튼은 체크리스트(0)/위험(1)/KPI(2) 순서로 나온다
+    fireEvent.click(screen.getAllByRole("button", { name: "추가" })[1]);
+
+    expect(screen.getByText("주차 공간 부족")).toBeInTheDocument();
+    expect(screen.getByText(/인근 공영주차장 사전 안내/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('위험 요인 "주차 공간 부족" 삭제'));
+    expect(screen.queryByText("주차 공간 부족")).not.toBeInTheDocument();
+  });
+
+  it("KPI를 추가하고 삭제할 수 있다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("새 KPI 이름"), { target: { value: "재방문율" } });
+    fireEvent.change(screen.getByPlaceholderText("측정 방법"), { target: { value: "3개월 후 설문" } });
+    // "추가" 버튼은 체크리스트(0)/위험(1)/KPI(2) 순서로 나온다
+    fireEvent.click(screen.getAllByRole("button", { name: "추가" })[2]);
+
+    expect(screen.getByText("재방문율")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('KPI "재방문율" 삭제'));
+    expect(screen.queryByText("재방문율")).not.toBeInTheDocument();
   });
 });

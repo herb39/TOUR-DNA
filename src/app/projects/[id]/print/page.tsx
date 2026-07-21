@@ -91,21 +91,32 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <div>
           <h2 className="text-sm font-semibold">운영 체크리스트</h2>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
-            {(plan.operationChecklist as string[]).slice(0, 5).map((c, i) => (
+            {(plan.operationChecklist as string[]).map((c, i) => (
               <li key={i}>{c}</li>
             ))}
           </ul>
         </div>
         <div>
-          <h2 className="text-sm font-semibold">KPI</h2>
+          <h2 className="text-sm font-semibold">위험과 대응안</h2>
           <ul className="mt-1 space-y-0.5 text-xs text-slate-700">
-            {(plan.kpis as { name: string; method: string }[]).map((k, i) => (
+            {(plan.risks as { risk: string; mitigation: string }[]).map((r, i) => (
               <li key={i}>
-                {k.name} — {k.method}
+                {r.risk} — {r.mitigation}
               </li>
             ))}
           </ul>
         </div>
+      </section>
+
+      <section className="mt-4">
+        <h2 className="text-sm font-semibold">KPI</h2>
+        <ul className="mt-1 space-y-0.5 text-xs text-slate-700">
+          {(plan.kpis as { name: string; method: string }[]).map((k, i) => (
+            <li key={i}>
+              {k.name} — {k.method}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="mt-4">

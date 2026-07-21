@@ -46,15 +46,27 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
   const [memo, setMemo] = useState(plan.memo);
   const [kpiMemo, setKpiMemo] = useState(plan.kpiMemo);
   const [days, setDays] = useState<CourseDay[]>(plan.course.days);
+  const [operationChecklist, setOperationChecklist] = useState<string[]>(plan.operationChecklist);
+  const [risks, setRisks] = useState<PlanEditorData["risks"]>(plan.risks);
+  const [kpis, setKpis] = useState<PlanEditorData["kpis"]>(plan.kpis);
 
   const [savedSnapshot, setSavedSnapshot] = useState(
-    JSON.stringify({ productName: plan.productName, conceptText: plan.conceptText, memo: plan.memo, kpiMemo: plan.kpiMemo, days: plan.course.days }),
+    JSON.stringify({
+      productName: plan.productName,
+      conceptText: plan.conceptText,
+      memo: plan.memo,
+      kpiMemo: plan.kpiMemo,
+      days: plan.course.days,
+      operationChecklist: plan.operationChecklist,
+      risks: plan.risks,
+      kpis: plan.kpis,
+    }),
   );
   const [lastHandledSavedAt, setLastHandledSavedAt] = useState(state.savedAt);
 
   const currentSnapshot = useMemo(
-    () => JSON.stringify({ productName, conceptText, memo, kpiMemo, days }),
-    [productName, conceptText, memo, kpiMemo, days],
+    () => JSON.stringify({ productName, conceptText, memo, kpiMemo, days, operationChecklist, risks, kpis }),
+    [productName, conceptText, memo, kpiMemo, days, operationChecklist, risks, kpis],
   );
 
   // 저장이 성공하면(state.savedAt 변경) 저장 시점의 스냅샷을 기준선으로 갱신한다.
@@ -172,6 +184,16 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
     );
   }
 
+  function updateItemStayMinutes(dayIndex: number, itemIndex: number, stayMinutes: number) {
+    if (!Number.isFinite(stayMinutes) || stayMinutes < 0) return;
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.dayIndex !== dayIndex) return d;
+        return { ...d, items: d.items.map((it, i) => (i === itemIndex ? { ...it, stayMinutes } : it)) };
+      }),
+    );
+  }
+
   /** 이전 장소의 체류 종료 시각부터 이 장소 시작 시각까지의 여유가 예상 이동시간보다 부족하면 실행 불가로 본다. */
   function checkFeasibility(items: CourseItem[], itemIndex: number): { infeasible: boolean; reason: string | null } {
     if (itemIndex === 0) return { infeasible: false, reason: null };
@@ -196,6 +218,47 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
       };
     }
     return { infeasible: false, reason: null };
+  }
+
+  const [newChecklistText, setNewChecklistText] = useState("");
+  const [newRiskText, setNewRiskText] = useState("");
+  const [newMitigationText, setNewMitigationText] = useState("");
+  const [newKpiName, setNewKpiName] = useState("");
+  const [newKpiMethod, setNewKpiMethod] = useState("");
+
+  function addChecklistItem() {
+    const text = newChecklistText.trim();
+    if (!text) return;
+    setOperationChecklist((prev) => [...prev, text]);
+    setNewChecklistText("");
+  }
+
+  function removeChecklistItem(index: number) {
+    setOperationChecklist((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addRisk() {
+    const risk = newRiskText.trim();
+    if (!risk) return;
+    setRisks((prev) => [...prev, { risk, mitigation: newMitigationText.trim() }]);
+    setNewRiskText("");
+    setNewMitigationText("");
+  }
+
+  function removeRisk(index: number) {
+    setRisks((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addKpi() {
+    const name = newKpiName.trim();
+    if (!name) return;
+    setKpis((prev) => [...prev, { name, method: newKpiMethod.trim() }]);
+    setNewKpiName("");
+    setNewKpiMethod("");
+  }
+
+  function removeKpi(index: number) {
+    setKpis((prev) => prev.filter((_, i) => i !== index));
   }
 
   const trimmedPoiQuery = poiQuery.trim();
@@ -225,6 +288,9 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
   return (
     <form action={formAction} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
       <input type="hidden" name="courseJson" value={JSON.stringify({ days })} />
+      <input type="hidden" name="operationChecklistJson" value={JSON.stringify(operationChecklist)} />
+      <input type="hidden" name="risksJson" value={JSON.stringify(risks)} />
+      <input type="hidden" name="kpisJson" value={JSON.stringify(kpis)} />
 
       <div className="space-y-6">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
@@ -293,7 +359,17 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                             {item.poiName}
                           </span>
                           <span className="ml-2 text-xs text-slate-500">
-                            ({item.category}, 체류 {item.stayMinutes}분, {item.travel})
+                            ({item.category}, 체류{" "}
+                            <input
+                              type="number"
+                              min={0}
+                              step={10}
+                              value={item.stayMinutes}
+                              onChange={(e) => updateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
+                              aria-label={`${item.poiName} 체류시간(분)`}
+                              className="w-14 rounded border border-slate-300 px-1 py-0.5 text-xs"
+                            />
+                            분, {item.travel})
                           </span>
                           {feasibility.infeasible ? (
                             <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibility.reason}</p>
@@ -384,6 +460,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                               <button
                                 type="button"
                                 onClick={() => addPoiToDay(day.dayIndex, poi)}
+                                aria-label={`${poi.name} 코스에 추가`}
                                 className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100"
                               >
                                 추가
@@ -410,33 +487,129 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">운영 체크리스트</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">
-            {plan.operationChecklist.map((c, i) => (
-              <li key={i}>{c}</li>
+          <ul className="mt-2 space-y-1 text-sm text-slate-600">
+            {operationChecklist.map((c, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <span className="list-disc">· {c}</span>
+                <button
+                  type="button"
+                  onClick={() => removeChecklistItem(i)}
+                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                  aria-label={`체크리스트 "${c}" 삭제`}
+                >
+                  삭제
+                </button>
+              </li>
             ))}
           </ul>
+          <div className="no-print mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={newChecklistText}
+              onChange={(e) => setNewChecklistText(e.target.value)}
+              placeholder="새 체크리스트 항목"
+              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+            />
+            <button
+              type="button"
+              onClick={addChecklistItem}
+              className="cursor-pointer whitespace-nowrap rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+            >
+              추가
+            </button>
+          </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">위험과 대응안</h2>
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
-            {plan.risks.map((r, i) => (
-              <li key={i}>
-                <span className="font-medium text-slate-700">{r.risk}</span> — {r.mitigation}
+            {risks.map((r, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <span>
+                  <span className="font-medium text-slate-700">{r.risk}</span> — {r.mitigation}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeRisk(i)}
+                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                  aria-label={`위험 요인 "${r.risk}" 삭제`}
+                >
+                  삭제
+                </button>
               </li>
             ))}
           </ul>
+          <div className="no-print mt-2 space-y-1">
+            <input
+              type="text"
+              value={newRiskText}
+              onChange={(e) => setNewRiskText(e.target.value)}
+              placeholder="새 위험 요인"
+              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newMitigationText}
+                onChange={(e) => setNewMitigationText(e.target.value)}
+                placeholder="대응안"
+                className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+              />
+              <button
+                type="button"
+                onClick={addRisk}
+                className="cursor-pointer whitespace-nowrap rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                추가
+              </button>
+            </div>
+          </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">KPI</h2>
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
-            {plan.kpis.map((k, i) => (
-              <li key={i}>
-                <span className="font-medium text-slate-700">{k.name}</span> — {k.method}
+            {kpis.map((k, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <span>
+                  <span className="font-medium text-slate-700">{k.name}</span> — {k.method}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeKpi(i)}
+                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                  aria-label={`KPI "${k.name}" 삭제`}
+                >
+                  삭제
+                </button>
               </li>
             ))}
           </ul>
+          <div className="no-print mt-2 space-y-1">
+            <input
+              type="text"
+              value={newKpiName}
+              onChange={(e) => setNewKpiName(e.target.value)}
+              placeholder="새 KPI 이름"
+              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newKpiMethod}
+                onChange={(e) => setNewKpiMethod(e.target.value)}
+                placeholder="측정 방법"
+                className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+              />
+              <button
+                type="button"
+                onClick={addKpi}
+                className="cursor-pointer whitespace-nowrap rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                추가
+              </button>
+            </div>
+          </div>
           <label htmlFor="kpiMemo" className="mt-3 block text-sm font-medium text-slate-700">
             KPI 메모
           </label>
