@@ -64,8 +64,8 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 | tarSvcDemIxVal | 관광 서비스 수요 강도 | Demand(주지표) | TAR_SVC_DEM | 미확인 필드명(후보) |
 | touResDemIxVal | 관광자원 수요 | Demand(보조지표) | TOU_RES_DEM | 미확인 필드명(후보) |
 | visitorGrowthRateVal | 전월 대비 방문자수 증감률 | Demand(보조지표, 계산값) | VISITOR_CNT | 계산 로직은 자체 구현(원 API 필드는 visitorCnt) |
-| tarSjrnDsIxVal | 체류 강도 | Stay | TAR_SVC_DEM | 미확인 필드명(후보) |
-| tarExpDsIxVal | 소비 강도 | Spend | TAR_SVC_DEM | 미확인 필드명(후보) |
+| tarSjrnDsIxVal | 체류 강도(원지표: `tarSjrnDsIxCd=2103` "1박 방문자수") | Stay | TAR_SVC_DEM | 2026-07-21 실키 확인 |
+| tarExpDsIxVal | 소비 강도(원지표: `tarExpDsIxCd=2201` "외지인 소비액") | Spend | TAR_SVC_DEM | 2026-07-21 실키 확인 |
 | touDivIxVal | 관광 다양성 | Diversity | TOU_DIV_IX | 미확인 필드명(후보) |
 | visitorCnt | 방문자수(원값) | Demand 증감률 계산용 | VISITOR_CNT | 데이터셋 존재 확인, 필드명 미확인 |
 | poiNetworkDensity | POI/연관관광지 밀도(구조적 산식) | Network | POI_RELATION | 외부 API 지표 아님 — 자체 산식 |

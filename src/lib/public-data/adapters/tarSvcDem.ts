@@ -6,14 +6,14 @@ import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
  * 한국관광공사_지역별 관광 수요 강도 서비스 (AreaTarDemDsService).
  * 실 서비스키로 검증된 사항(2026-07-21):
  * - base: https://apis.data.go.kr/B551011/AreaTarDemDsService
- * - 체류 강도: /areaTarSjrnDsList (확인됨)
- * - 소비 강도: /areaTarExpDsList (확인됨)
+ * - 체류 강도: /areaTarSjrnDsList — 다양성 API와 마찬가지로 코드 파라미터(tarSjrnDsIxCd)가 필수였다.
+ *   `tarSjrnDsIxCd=2103`="1박 방문자수"로 확인(대전 유성구/제천/양양 3개 지역 전부 실제 값 확인).
+ * - 소비 강도: /areaTarExpDsList — `tarExpDsIxCd=2201`="외지인 소비액"로 확인(3개 지역 전부 실제 값 확인).
  * - 수요 강도(tarSvcDemIxVal) 오퍼레이션명은 아직 미확인 — docs/public-api-status.md 참고.
- * - 필수 파라미터: serviceKey, MobileOS, MobileApp, areaCd, signguCd, baseYm. JSON은 _type=json 필요(기본 XML).
+ * - 필수 파라미터: serviceKey, MobileOS, MobileApp, areaCd, signguCd, baseYm, (오퍼레이션별 코드 파라미터).
+ *   JSON은 _type=json 필요(기본 XML).
  * - areaCd/signguCd는 통계청 행정표준코드 체계로 확인됨(AreaTarDivService와 동일 체계, 서울=11/구로구=11530 확인).
- * - ⚠️ areaCd+signguCd+baseYm 조합(대전 유성구 등 다수 시도)에서도 totalCount=0 (resultCode는 0000/OK 정상) —
- *   같은 계열의 AreaTarDivService는 정상적으로 데이터가 나오는 것과 대조적. 이 데이터셋 자체가 아직
- *   비어있거나 우리가 모르는 추가 파라미터가 필요할 수 있다(docs/public-api-status.md).
+ * - 이전에 "totalCount=0"이었던 원인은 다양성 API와 동일하게 코드 파라미터 누락이었다(2026-07-21 확인).
  */
 
 const itemSchema = z.object({
@@ -42,7 +42,16 @@ type AdapterResult =
   | NormalizedItemsResult<TarSvcDemItem>
   | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string };
 
-function buildUrl(baseUrl: string, operation: string, params: TarSvcDemParams): string {
+// 확인된 코드값: 2103="1박 방문자수"(체류 강도 프록시), 2201="외지인 소비액"(소비 강도 프록시).
+const TAR_SJRN_DS_IX_CD = "2103";
+const TAR_EXP_DS_IX_CD = "2201";
+
+function buildUrl(
+  baseUrl: string,
+  operation: string,
+  params: TarSvcDemParams,
+  extra: Record<string, string>,
+): string {
   const qs = new URLSearchParams({
     serviceKey: params.serviceKey,
     MobileOS: "ETC",
@@ -53,14 +62,19 @@ function buildUrl(baseUrl: string, operation: string, params: TarSvcDemParams): 
     numOfRows: "100",
     pageNo: "1",
     _type: "json",
+    ...extra,
   });
   return `${baseUrl}/${operation}?${qs.toString()}`;
 }
 
 export async function fetchTarSvcDem(params: TarSvcDemParams): Promise<AdapterResult> {
   const [stayRes, spendRes] = await Promise.all([
-    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarSjrnDsList", params), { sourceCode: "TAR_SVC_DEM:STAY" }),
-    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarExpDsList", params), { sourceCode: "TAR_SVC_DEM:SPEND" }),
+    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarSjrnDsList", params, { tarSjrnDsIxCd: TAR_SJRN_DS_IX_CD }), {
+      sourceCode: "TAR_SVC_DEM:STAY",
+    }),
+    fetchPublicDataJson(buildUrl(params.baseUrl, "areaTarExpDsList", params, { tarExpDsIxCd: TAR_EXP_DS_IX_CD }), {
+      sourceCode: "TAR_SVC_DEM:SPEND",
+    }),
   ]);
 
   if (!stayRes.ok && !spendRes.ok) {

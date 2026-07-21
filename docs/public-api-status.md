@@ -23,16 +23,18 @@
 
 ### 서비스별 확인 상태
 
-**1) 지역별 관광 수요 강도 — `AreaTarDemDsService`**
+**1) 지역별 관광 수요 강도 — `AreaTarDemDsService` (✅ 체류/소비 실제 데이터 확인, 2026-07-21 2차 갱신)**
 - Base: `https://apis.data.go.kr/B551011/AreaTarDemDsService`
-- 확인된 오퍼레이션: `/areaTarSjrnDsList`(체류 강도), `/areaTarExpDsList`(소비 강도) — 둘 다
-  `resultCode: 0000` 정상 호출.
+- `/areaTarSjrnDsList`(체류 강도): `tarSjrnDsIxCd` 파라미터 필요(다양성 API와 동일 패턴 — 이전에
+  0건이었던 원인이 바로 이 코드 파라미터 누락이었다). 확인된 코드 `2103`="1박 방문자수". 대전 유성구
+  (88.29)/제천(71.97)/양양(71.72) 3개 지역 전부 실제 값 확인. `tarSvcDem.ts` 어댑터에 반영 완료.
+- `/areaTarExpDsList`(소비 강도): `tarExpDsIxCd` 파라미터 필요. 확인된 코드 `2201`="외지인 소비액".
+  대전 유성구(91.36)/제천(68.3)/양양(65.29) 3개 지역 전부 실제 값 확인. 어댑터에 반영 완료.
+- 다양성 지표(`touDivIxVal`, 아래 2번 항목)와 달리, "1박 방문자수"↔체류 강도, "외지인 소비액"↔소비
+  강도는 의미가 직접 대응되는 지표라 별도 재계산 로직 없이 그대로 사용해도 무방하다고 판단.
 - 미확인: 수요(Demand) 지수 오퍼레이션명. `areaTarSvcDemList`/`areaTarDemList`/`areaTarDemDsList`/
-  `areaTarSvcDemDsList` 등 시도했으나 전부 `API not found`.
-- ⚠️ **데이터 0건**: areaCd+signguCd+baseYm 여러 조합(대전 유성구, 서울 등 / baseYm 8개월치)에서
-  전부 `totalCount: 0`이었다. 호출 자체는 정상(resultCode 0000)이라, 이 데이터셋에 아직 실제 데이터가
-  없거나 우리가 모르는 추가 파라미터가 필요할 수 있다. `AreaTarDivService`(다양성)는 같은 파라미터
-  구성으로 실제 데이터가 나오는 것과 대조적이다.
+  `areaTarSvcDemDsList` 등 시도했으나 전부 `API not found`. 체류/소비와 동일하게 미확인 코드 파라미터가
+  있을 가능성이 높다.
 
 **2) 지역별 관광 다양성 — `AreaTarDivService` (✅ 실제 데이터 확인)**
 - Base: `https://apis.data.go.kr/B551011/AreaTarDivService`
@@ -74,11 +76,14 @@
 - **에러 응답은 다른 최상위 구조**로 온다: `{"responseTime":"...","resultCode":"10","resultMsg":"INVALID_REQUEST_PARAMETER_ERROR(...)"}` — `response` 래퍼가 없다. 어댑터들은 오퍼레이션별로 개별
   try/catch로 파싱해, 하나의 오퍼레이션이 이 에러 구조로 응답해도 나머지가 죽지 않게 처리했다.
 
-## 이번 구현에서 취한 조치 (2026-07-21)
+## 이번 구현에서 취한 조치 (2026-07-21, 체류/소비 코드 확인 후 2차 갱신)
 
 - `Region.apiAreaCode`/`apiSigunguCode`(통계청 코드), `Region.tourApiAreaCode`(TourAPI 구코드) 3개
   필드로 두 코드 체계를 분리 저장한다.
 - `TAR_SVC_DEM`, `TOU_DIV_IX` 어댑터를 확인된 실제 base URL·오퍼레이션·파라미터로 재작성했다.
+- `TAR_SVC_DEM`의 체류(`tarSjrnDsIxCd=2103`)/소비(`tarExpDsIxCd=2201`) 코드 파라미터를 확인해 어댑터에
+  반영, 라이브 동기화로 3개 지역 전부 실제 값이 정상 저장되는 것을 확인했다(데모 안정성을 위해 재시드로
+  fixture 값 복원함 — 다양성과 달리 의미 대응은 정확하지만, 데모 발표용 고정값 유지를 위해 동일하게 처리).
 - `TOUR_INFO` 어댑터를 `KorService2/areaBasedList2`로 재작성했으나, sync 파이프라인의 POI upsert
   연결은 아직 하지 않았다(fixture POI 유지).
 - 다양성 지표의 "단일 연령대 비율 ≠ 종합 다양성 점수" 문제 때문에, 실 동기화가 자동으로 fixture 점수를
@@ -87,7 +92,8 @@
 
 ## 다음 재검증 시 확인할 것 (사용자 수행)
 
-1. `AreaTarDemDsService`의 수요(Demand) 오퍼레이션명, 그리고 0건만 나오는 원인(추가 파라미터 필요 여부)
+1. `AreaTarDemDsService`의 수요(Demand) 오퍼레이션명 — 체류/소비와 동일하게 코드 파라미터가 필요할
+   가능성이 높으니 Swagger UI에서 전체 오퍼레이션과 코드 목록 확인
 2. `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명과, 다양성 재계산에 필요한
    `touDivIxCd` 전체 목록(연령대별 등)
 3. 지역별 관광 자원 수요·방문자수 API의 실제 base URL·오퍼레이션명

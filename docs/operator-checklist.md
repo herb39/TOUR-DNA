@@ -18,19 +18,21 @@
 - [x] `TOUR_API_SERVICE_KEY` 발급 완료
 - [x] 지역 코드 체계 확정: 통계청 행정표준코드(`AreaTarDemDsService`/`AreaTarDivService`용, 대전 유성구
       =30/30200, 제천=43/43150, 양양=51/51830) + TourAPI 구코드(`KorService2`용, 대전=3/충북=33/강원=32)
-- [x] 지역별 관광 수요 강도: 체류(`/areaTarSjrnDsList`)·소비(`/areaTarExpDsList`) 오퍼레이션 확인
+- [x] 지역별 관광 수요 강도: 체류(`/areaTarSjrnDsList`, tarSjrnDsIxCd=2103)·소비(`/areaTarExpDsList`,
+      tarExpDsIxCd=2201) 코드 파라미터까지 확인, 3개 지역(대전 유성구/제천/양양) 전부 실제 데이터 확인,
+      어댑터 반영 완료
 - [x] 지역별 관광 다양성: `/areaTouDivList`(touDivIxCd=3103) 실제 데이터 확인, 어댑터 반영
 - [x] 국문 관광정보 서비스: `KorService2/areaBasedList2` 실제 데이터 확인, 어댑터 반영(POI upsert 연결은 미완)
-- [ ] 수요(Demand) 지수 오퍼레이션명 확인 필요 — Swagger UI에서 `AreaTarDemDsService` 전체 오퍼레이션 목록 확인
-- [ ] `AreaTarDemDsService`(체류/소비)가 **0건이 아닌 실제 데이터**를 반환하는 조합 확인 — 현재 대전
-      유성구 포함 다수 조합에서 전부 0건(호출 자체는 정상)
+- [ ] 수요(Demand) 지수 오퍼레이션명 확인 필요 — 체류/소비처럼 코드 파라미터가 있을 가능성이 높음,
+      Swagger UI에서 `AreaTarDemDsService` 전체 오퍼레이션 목록 확인
 - [ ] `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명 확인
 - [ ] ⚠️ **다양성 지표 재계산 로직 필요**: 현재 `touDivIxCd=3103`("30대 방문객수") 단일 값을 그대로
       쓰는데, 이는 종합 다양성 점수가 아니다. 여러 연령/유형 코드를 모아 분산으로 재계산하기 전까지는
       `npm run sync:tourism-data`나 Cron 실행 시 데모의 다양성 점수가 의미가 다른 값으로 바뀔 수 있다.
       운영 중 이 문제를 인지하고 있을 것.
 - [ ] 지역별 관광 자원 수요·방문자수·연관관광지 API의 실제 base URL·오퍼레이션명 확인
-- [x] `npm run sync:tourism-data`로 실 데이터 1회 동기화 및 `SyncLog` 결과 확인 완료(다양성만 성공)
+- [x] `npm run sync:tourism-data`로 실 데이터 동기화 및 `SyncLog` 결과 확인 완료(다양성·체류·소비 성공,
+      확인 직후 데모 안정성을 위해 `npm run db:seed`로 fixture 값 복원)
 - [ ] `docs/public-api-status.md`의 "다음 재검증 시 확인할 것" 항목을 확인된 내용으로 갱신
 
 ## 정기 운영
