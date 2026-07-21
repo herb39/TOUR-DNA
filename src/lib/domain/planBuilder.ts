@@ -1,5 +1,8 @@
 import type { DurationCode } from "./strategy";
 import { getTemplateById } from "./strategyTemplates";
+import { orderByNearestNeighbor, haversineDistanceKm } from "./geo";
+
+export type TransportCode = "WALK" | "PUBLIC_TRANSPORT" | "PRIVATE_VEHICLE" | "MIXED";
 
 export interface PoiDetail {
   id: string;
@@ -35,17 +38,44 @@ const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
 
 const TIME_SLOTS = ["10:00", "13:00", "16:00", "18:30"];
 
-/** 전략이 선택한 POI 목록을 기간에 맞춰 결정론적으로 일자·시간대에 배치한다. 새 장소를 만들지 않는다. */
-export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode): CourseDay[] {
+const AVERAGE_SPEED_KMH: Record<TransportCode, number> = {
+  WALK: 4,
+  PUBLIC_TRANSPORT: 18,
+  PRIVATE_VEHICLE: 28,
+  MIXED: 15,
+};
+
+const TRANSPORT_LABEL: Record<TransportCode, string> = {
+  WALK: "도보",
+  PUBLIC_TRANSPORT: "대중교통",
+  PRIVATE_VEHICLE: "차량",
+  MIXED: "도보/대중교통 혼합",
+};
+
+function describeTravel(from: PoiDetail, to: PoiDetail, transport: TransportCode): string {
+  const distanceKm = haversineDistanceKm(from, to);
+  if (distanceKm < 0.3) return `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)`;
+  const minutes = Math.max(5, Math.round((distanceKm / AVERAGE_SPEED_KMH[transport]) * 60));
+  return `이동 약 ${minutes}분(약 ${distanceKm.toFixed(1)}km, ${TRANSPORT_LABEL[transport]} 기준)`;
+}
+
+/**
+ * 전략이 선택한 POI 목록을 기간에 맞춰 일자·시간대에 배치한다. 새 장소를 만들지 않는다.
+ * 최근접 이웃 순서로 재배열해 하루 동선이 실제 거리 기준으로 이어지도록 하고, 구간별 이동 텍스트도
+ * 직선거리(haversine) 기반 추정치로 계산한다(실제 도로/대중교통 경로와는 다를 수 있음).
+ */
+export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, transport: TransportCode): CourseDay[] {
   const dayCount = DAY_COUNT_BY_DURATION[duration];
   const slotsPerDay = Math.min(TIME_SLOTS.length, Math.max(1, Math.ceil(pois.length / dayCount)));
+  const ordered = orderByNearestNeighbor(pois);
 
   const days: CourseDay[] = [];
   let poiIndex = 0;
-  for (let d = 1; d <= dayCount && poiIndex < pois.length; d++) {
+  for (let d = 1; d <= dayCount && poiIndex < ordered.length; d++) {
     const items: CourseItem[] = [];
-    for (let s = 0; s < slotsPerDay && poiIndex < pois.length; s++, poiIndex++) {
-      const poi = pois[poiIndex];
+    for (let s = 0; s < slotsPerDay && poiIndex < ordered.length; s++, poiIndex++) {
+      const poi = ordered[poiIndex];
+      const prev = s === 0 ? null : ordered[poiIndex - 1];
       items.push({
         order: s + 1,
         poiId: poi.id,
@@ -53,7 +83,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode): Cou
         category: poi.category,
         timeSlot: TIME_SLOTS[s],
         stayMinutes: 60,
-        travel: s === 0 ? "숙소/집결지에서 이동" : "이동 15~20분(도보 또는 대중교통, 실제 경로 확인 필요)",
+        travel: prev ? describeTravel(prev, poi, transport) : "숙소/집결지에서 이동",
       });
     }
     days.push({ dayIndex: d, items });

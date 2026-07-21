@@ -109,5 +109,11 @@ strategyScore =
 
 - `buildDraftCourse`(`src/lib/domain/planBuilder.ts`)는 전략이 선택한 POI(`StrategyResult.poiIds`, 실제
   DB에 존재하는 장소만)를 여행 기간(당일/1박2일/2박3일)에 맞춰 고정된 시간대(`10:00,13:00,16:00,18:30`)에
-  결정론적으로 배치한다. 새 장소·좌표·수치를 생성하지 않는다.
+  배치한다. 새 장소·좌표·수치를 생성하지 않는다.
+- 2026-07-21부터 배치 전에 `orderByNearestNeighbor`(`src/lib/domain/geo.ts`)로 POI를 그리디 최근접
+  이웃 순서로 재정렬한다(외판원 문제의 근사해, 첫 POI를 시작점으로 고정해 결정론 유지). 이전에는 카테고리별
+  선택 순서 그대로 시간대에 꽂아서 같은 시/군/구 안에서도 동선이 비효율적일 수 있었다. 구간별 이동 텍스트도
+  `"이동 15~20분"` 고정 문구 대신 haversine 직선거리와 `ProjectInput.transport`(도보/대중교통/차량/혼합)별
+  평균 속도 가정으로 계산한 추정 시간(`describeTravel`)을 쓴다 — 직선거리 기반 추정치이므로 실제 도로·대중교통
+  경로와는 다를 수 있다.
 - 체크리스트/KPI/위험은 전략 템플릿에 미리 정의된 목록(`kpiTemplates`, `riskTemplates`)에서 그대로 가져온다.

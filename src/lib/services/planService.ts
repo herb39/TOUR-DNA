@@ -4,6 +4,7 @@ import {
   buildKpis,
   buildOperationChecklist,
   buildRisks,
+  type TransportCode,
 } from "@/lib/domain/planBuilder";
 import type { DurationCode } from "@/lib/domain/strategy";
 import { fetchPoiDetailsInOrder } from "./poiDetails";
@@ -33,7 +34,7 @@ export async function ensureSelectedPlan(projectId: string) {
   });
 
   const pois = await fetchPoiDetailsInOrder(strategy.poiIds as string[]);
-  const course = buildDraftCourse(pois, project.input.duration as DurationCode);
+  const course = buildDraftCourse(pois, project.input.duration as DurationCode, project.input.transport as TransportCode);
   const operationChecklist = buildOperationChecklist(strategy.templateId);
   const kpis = buildKpis(strategy.templateId);
   const risks = buildRisks(strategy.templateId);
