@@ -26,10 +26,12 @@
 - [x] 수요(Demand) 지수 오퍼레이션명 확인 완료 — Swagger UI 확인 결과 `AreaTarDemDsService`에는 체류/
       소비 2개 오퍼레이션만 존재, 별도 수요 오퍼레이션 없음(docs/public-api-status.md 참고)
 - [ ] `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명 확인
-- [ ] ⚠️ **다양성 지표 재계산 로직 필요**: 현재 `touDivIxCd=3103`("30대 방문객수") 단일 값을 그대로
-      쓰는데, 이는 종합 다양성 점수가 아니다. 여러 연령/유형 코드를 모아 분산으로 재계산하기 전까지는
-      `npm run sync:tourism-data`나 Cron 실행 시 데모의 다양성 점수가 의미가 다른 값으로 바뀔 수 있다.
-      운영 중 이 문제를 인지하고 있을 것.
+- [x] ⚠️ **다양성 지표 저장 보류 처리 완료(2026-07-21)**: `touDivIxCd=3103`("30대 방문객수")은 종합
+      다양성 점수가 아니라서, 여러 연령/유형 코드를 모아 재계산하는 로직이 준비되기 전까지
+      `syncService.ts`에서 이 값을 `NormalizedMetric`에 쓰지 않도록 막았다(SyncLog에는 API 연결
+      확인용으로 `SKIPPED` 상태로 계속 기록됨). Cron이 매월 1일 실행돼도 더 이상 fixture 다양성 점수를
+      덮어쓰지 않는다. 재계산 로직 자체는 여전히 미구현 — 나중에 여러 `touDivIxCd`를 확보하면 이 보류를
+      풀고 실제 재계산 로직으로 교체할 것.
 - [ ] 지역별 관광 자원 수요·방문자수·연관관광지 API의 실제 base URL·오퍼레이션명 확인
 - [x] `npm run sync:tourism-data`로 실 데이터 동기화 및 `SyncLog` 결과 확인 완료(다양성·체류·소비 성공,
       확인 직후 데모 안정성을 위해 `npm run db:seed`로 fixture 값 복원)
@@ -37,8 +39,8 @@
 
 ## 정기 운영
 
-- [ ] Cron이 매월 1일 정상 실행되는지 `SyncLog`로 확인 — **다양성 지표 재계산 로직 구현 전까지는
-      Cron이 데모 다양성 점수를 의미가 다른 값으로 덮어쓸 수 있음에 유의**(위 항목 참고)
+- [ ] Cron이 매월 1일 정상 실행되는지 `SyncLog`로 확인 — 다양성 지표는 재계산 로직 구현 전까지 저장을
+      의도적으로 보류 중이니 `TOU_DIV_IX` 결과가 `SKIPPED`로 나오는 것이 정상이다(위 항목 참고)
 - [ ] 부분 실패(`PARTIAL`) 발생 시 어떤 API가 실패했는지 `SyncLog.results`에서 확인,
       해당 API만 재시도(기존 성공 데이터는 유지되므로 서비스는 계속 정상 동작)
 - [ ] `TOUR_DATA_BASE_YM`을 새 기준월로 교체할 때는 새 기준월 데이터가 실제로 존재하는지

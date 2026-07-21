@@ -132,18 +132,18 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
         signguCd: region.apiSigunguCode,
         baseYm: params.baseYm,
       });
-      if (res.status === "SUCCESS") {
-        for (const item of res.items) {
-          if (item.touDivIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, item.touDivIxVal, "지수", divSource.id);
-          }
-        }
-      }
+      // touDivIxVal은 확인된 코드(touDivIxCd=3103="30대 방문객수") 단일 값이라 종합 다양성 점수가
+      // 아니다(docs/public-api-status.md). 여러 연령/유형 코드를 모아 재계산하는 로직이 준비되기
+      // 전까지는 fixture의 종합 다양성 점수를 의미가 다른 값으로 덮어쓰지 않도록 저장을 보류한다 —
+      // API 연결 자체는 계속 확인하되(SyncLog에 SKIPPED로 기록), NormalizedMetric은 건드리지 않는다.
       results.push({
         sourceCode: `TOU_DIV_IX:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+        status: res.status === "ERROR" ? "FAILED" : "SKIPPED",
         itemCount: res.items.length,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+        errorMessage:
+          res.status === "ERROR"
+            ? res.resultMsg
+            : "다양성 재계산 로직 구현 전까지 저장 보류 — 종합 점수가 아닌 단일 연령대 지표라 fixture 값 유지",
       });
     }
 
