@@ -49,6 +49,7 @@ http://localhost:3000 접속 → "데모 프로젝트 열기"로 대전 9월 시
 | `NEXT_PUBLIC_APP_URL` | 배포 URL(운영 `https://tour-dna.lib.lc`, 로컬 `http://localhost:3000`) |
 | `DATA_MODE` | `live` \| `hybrid` \| `snapshot`. `snapshot`이면 라이브 호출을 완전히 생략 |
 | `CRON_SECRET` | `/api/cron`, `/api/admin` 동기화 엔드포인트 인증용 비밀값(필수 설정, 비어있으면 모든 요청 401) |
+| `SITE_ACCESS_PASSWORD` | 사이트 전체 접근 비밀번호(계정/로그인 없음, `src/proxy.ts`). 비어 있으면 게이트가 꺼진다 — 로컬 개발/E2E는 이 값을 설정하지 않는다. 운영 배포에서는 반드시 설정할 것 |
 
 카카오맵 키는 [카카오 개발자 콘솔](https://developers.kakao.com) → 내 애플리케이션 → 앱 선택 →
 **"플랫폼 키 > JavaScript 키" 안의 "JavaScript SDK 도메인"**에 배포 도메인을 등록해야 실제로
