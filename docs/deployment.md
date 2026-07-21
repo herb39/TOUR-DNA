@@ -1,6 +1,6 @@
 # 배포 가이드 (Vercel + Neon)
 
-목표 구성: 웹은 Vercel, DB는 Neon PostgreSQL, 지도 SDK는 카카오맵, 운영 도메인은 `tourdna.lib.lc`.
+목표 구성: 웹은 Vercel, DB는 Neon PostgreSQL, 지도 SDK는 카카오맵, 운영 도메인은 `tour-dna.lib.lc`.
 
 이 문서는 Claude Code가 준비한 코드/설정을 기준으로, **실제 계정 접근이 필요한 단계는 사용자가 직접
 수행**하도록 안내한다. Claude Code는 대신 수행하지 않았다.
@@ -37,16 +37,18 @@ seed는 항상 별도 명령으로 수동/CI 스텝에서 실행한다.
 ## 4. 카카오맵 (사용자 수행)
 
 1. https://developers.kakao.com 에서 애플리케이션 생성
-2. "플랫폼 > Web"에 배포 도메인(`https://tourdna.lib.lc`, 로컬 테스트용 `http://localhost:3000`) 등록
+2. "플랫폼 > Web"에 배포 도메인(`https://tour-dna.lib.lc`, 로컬 테스트용 `http://localhost:3000`) 등록
 3. JavaScript 키를 `NEXT_PUBLIC_KAKAO_MAP_KEY`에 설정 (없으면 좌표/주소 목록 fallback으로 자동 전환)
 
 ## 5. Vercel 배포 (사용자 수행 + Claude Code 준비 완료)
 
 1. Vercel에서 이 저장소를 Import
 2. 환경변수 등록: `DATABASE_URL`, `DIRECT_URL`, `TOUR_API_SERVICE_KEY`, `TOUR_DATA_BASE_YM`,
-   `NEXT_PUBLIC_KAKAO_MAP_KEY`, `NEXT_PUBLIC_APP_URL`(운영 URL로), `DATA_MODE`, `CRON_SECRET`
+   `NEXT_PUBLIC_KAKAO_MAP_KEY`, `NEXT_PUBLIC_APP_URL`(운영 URL로), `DATA_MODE`, `CRON_SECRET`,
+   `SITE_ACCESS_PASSWORD`(사이트 전체 접근 게이트 — 비워두면 로그인 없이 전체 공개 상태가 되니 운영
+   배포에서는 반드시 강한 값으로 설정할 것)
 3. Build Command는 기본값(`next build`, `npm run build`) 그대로 사용 — seed를 build 훅에 넣지 않는다
-4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tourdna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
+4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tour-dna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
 
 ## 6. Vercel Cron
 
@@ -67,6 +69,8 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 
 ## 7. 배포 후 확인
 
-- `/` 접속 → 데모 프로젝트가 보이는지 확인
-- `curl -I https://<도메인>/api/cron/sync-tourism-data` → 인증 없이 401인지 확인
+- `/` 접속 → 데모 프로젝트가 보이는지 확인(`SITE_ACCESS_PASSWORD`를 설정했다면 먼저 `/login`으로
+  리다이렉트되는지, 비밀번호 입력 후 정상 진입하는지 확인)
+- `curl -I https://<도메인>/api/cron/sync-tourism-data` → 인증 없이 401인지 확인(사이트 게이트와 무관하게
+  항상 401이어야 한다)
 - `npm run build`가 로컬에서 통과했는지, Vercel 빌드 로그에 오류가 없는지 확인
