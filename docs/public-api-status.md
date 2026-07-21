@@ -32,9 +32,14 @@
   대전 유성구(91.36)/제천(68.3)/양양(65.29) 3개 지역 전부 실제 값 확인. 어댑터에 반영 완료.
 - 다양성 지표(`touDivIxVal`, 아래 2번 항목)와 달리, "1박 방문자수"↔체류 강도, "외지인 소비액"↔소비
   강도는 의미가 직접 대응되는 지표라 별도 재계산 로직 없이 그대로 사용해도 무방하다고 판단.
-- 미확인: 수요(Demand) 지수 오퍼레이션명. `areaTarSvcDemList`/`areaTarDemList`/`areaTarDemDsList`/
-  `areaTarSvcDemDsList` 등 시도했으나 전부 `API not found`. 체류/소비와 동일하게 미확인 코드 파라미터가
-  있을 가능성이 높다.
+- ✅ **수요(Demand) 지수 오퍼레이션 결론(2026-07-21 3차 확인, Swagger UI)**: 사용자가 Swagger UI에서
+  직접 확인한 결과 `AreaTarDemDsService`에 등록된 오퍼레이션은 `/areaTarSjrnDsList`(체류)·
+  `/areaTarExpDsList`(소비) 단 2개뿐이다. "지역별 관광 수요 강도"라는 서비스명과 달리 별도의 범용
+  수요 오퍼레이션은 애초에 존재하지 않는다 — 그동안 여러 오퍼레이션명을 추측 시도했던 것은 존재하지
+  않는 엔드포인트를 찾던 것이었다. `tarSvcDemIxVal`(METRIC_CODES.DEMAND_SERVICE)에 대응하는 실 데이터
+  소스는 없다고 결론. DNA Demand 축은 이 값 없이 나머지 두 하위지표(자원수요/방문자수 증감률)만으로
+  계산되거나, 그마저 없으면 스냅샷으로 대체된다(`src/lib/domain/dna.ts`가 이미 이렇게 방어적으로
+  설계되어 있어 코드 변경은 불필요, 문서만 갱신).
 
 **2) 지역별 관광 다양성 — `AreaTarDivService` (✅ 실제 데이터 확인)**
 - Base: `https://apis.data.go.kr/B551011/AreaTarDivService`
@@ -92,12 +97,13 @@
 
 ## 다음 재검증 시 확인할 것 (사용자 수행)
 
-1. `AreaTarDemDsService`의 수요(Demand) 오퍼레이션명 — 체류/소비와 동일하게 코드 파라미터가 필요할
-   가능성이 높으니 Swagger UI에서 전체 오퍼레이션과 코드 목록 확인
-2. `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명과, 다양성 재계산에 필요한
+1. `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명과, 다양성 재계산에 필요한
    `touDivIxCd` 전체 목록(연령대별 등)
-3. 지역별 관광 자원 수요·방문자수 API의 실제 base URL·오퍼레이션명
-4. 기초지자체 중심 관광지 및 연관 관광지 API의 정식 서비스명
+2. 지역별 관광 자원 수요·방문자수 API의 실제 base URL·오퍼레이션명
+3. 기초지자체 중심 관광지 및 연관 관광지 API의 정식 서비스명
+
+(수요(Demand) 오퍼레이션명 확인은 완료 — Swagger UI로 `AreaTarDemDsService`에 체류/소비 2개 오퍼레이션만
+있고 별도 수요 오퍼레이션은 없음을 확인함, 위 "서비스별 확인 상태" 1번 항목 참고.)
 
 ---
 

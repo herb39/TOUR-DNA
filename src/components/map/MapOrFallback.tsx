@@ -36,11 +36,13 @@ declare global {
   }
 }
 
-function FallbackList({ pois }: { pois: MapPoi[] }) {
+function FallbackList({ pois, reason }: { pois: MapPoi[]; reason: "NO_KEY" | "LOAD_FAILED" }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <p className="mb-3 text-xs text-slate-500">
-        지도 API 키가 설정되지 않아 좌표·주소 목록으로 대체 표시합니다.
+        {reason === "NO_KEY"
+          ? "지도 API 키가 설정되지 않아 좌표·주소 목록으로 대체 표시합니다."
+          : "지도를 불러오지 못해(카카오 JavaScript SDK 도메인 등록 여부 확인 필요) 좌표·주소 목록으로 대체 표시합니다."}
       </p>
       <ol className="space-y-2 text-sm">
         {pois.map((p, i) => (
@@ -107,8 +109,11 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
     }
   }, [kakaoKey, pois]);
 
-  if (!kakaoKey || mapFailed) {
-    return <FallbackList pois={pois} />;
+  if (!kakaoKey) {
+    return <FallbackList pois={pois} reason="NO_KEY" />;
+  }
+  if (mapFailed) {
+    return <FallbackList pois={pois} reason="LOAD_FAILED" />;
   }
 
   return <div ref={containerRef} className="h-80 w-full rounded-lg border border-slate-200" />;

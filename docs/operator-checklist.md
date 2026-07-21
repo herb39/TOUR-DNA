@@ -5,9 +5,9 @@
 - [x] Neon 프로젝트 생성, `DATABASE_URL`/`DIRECT_URL` 발급 및 등록
 - [x] `npm run db:migrate` 실행 확인
 - [x] `npm run db:seed` 실행 확인 (대전/제천/양양 fixture + 데모 프로젝트 생성)
-- [ ] 카카오 개발자 콘솔 애플리케이션 등록 및 배포 도메인 허용 목록 등록 — **"JavaScript 키 > JavaScript
-      SDK 도메인"**에 등록해야 지도가 실제로 뜬다("제품 링크 관리 > 웹 도메인"은 카카오톡 공유 링크용,
-      다른 설정임)
+- [x] 카카오 개발자 콘솔 애플리케이션 등록 및 배포 도메인 허용 목록 등록(**"JavaScript 키 > JavaScript
+      SDK 도메인"**에 `https://tour-dna.lib.lc` 등록 완료). ⚠️ 이 과정에서 Vercel에 잘못된 키 값이
+      설정돼 있던 것을 발견·수정함 — 아래 참고.
 - [x] `CRON_SECRET`을 임의의 강한 값으로 설정(빈 값이면 모든 sync 요청이 401 처리됨을 확인)
 - [x] `npm run build` 로컬 통과 확인
 - [ ] `npm run test:e2e` 통과 확인(개발 서버 기동 상태에서)
@@ -23,8 +23,8 @@
       어댑터 반영 완료
 - [x] 지역별 관광 다양성: `/areaTouDivList`(touDivIxCd=3103) 실제 데이터 확인, 어댑터 반영
 - [x] 국문 관광정보 서비스: `KorService2/areaBasedList2` 실제 데이터 확인, 어댑터 반영(POI upsert 연결은 미완)
-- [ ] 수요(Demand) 지수 오퍼레이션명 확인 필요 — 체류/소비처럼 코드 파라미터가 있을 가능성이 높음,
-      Swagger UI에서 `AreaTarDemDsService` 전체 오퍼레이션 목록 확인
+- [x] 수요(Demand) 지수 오퍼레이션명 확인 완료 — Swagger UI 확인 결과 `AreaTarDemDsService`에는 체류/
+      소비 2개 오퍼레이션만 존재, 별도 수요 오퍼레이션 없음(docs/public-api-status.md 참고)
 - [ ] `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명 확인
 - [ ] ⚠️ **다양성 지표 재계산 로직 필요**: 현재 `touDivIxCd=3103`("30대 방문객수") 단일 값을 그대로
       쓰는데, 이는 종합 다양성 점수가 아니다. 여러 연령/유형 코드를 모아 분산으로 재계산하기 전까지는
@@ -43,6 +43,16 @@
       해당 API만 재시도(기존 성공 데이터는 유지되므로 서비스는 계속 정상 동작)
 - [ ] `TOUR_DATA_BASE_YM`을 새 기준월로 교체할 때는 새 기준월 데이터가 실제로 존재하는지
       먼저 CLI로 확인 후 배포 환경변수를 갱신
+
+## 알려진 사고 사례
+
+- **카카오맵 JS 키 불일치(2026-07-21 발견·수정)**: Vercel `NEXT_PUBLIC_KAKAO_MAP_KEY`에 실수로 다른
+  키 값이 설정돼 있어(카카오 콘솔의 실제 "JavaScript 키"와 불일치) 배포 사이트에서 지도가 항상
+  좌표/주소 fallback으로만 표시됐다. `MapOrFallback.tsx`의 fallback 문구가 "키가 설정되지 않아"로
+  고정돼 있어 원인 진단이 어려웠던 것도 문제 — 이제 키 없음(NO_KEY)과 로드 실패(LOAD_FAILED, SDK
+  도메인 미등록 등)를 구분해 표시하도록 수정했다. 카카오 개발자 콘솔의 "JavaScript 키" 값과
+  `NEXT_PUBLIC_KAKAO_MAP_KEY`가 정확히 일치하는지 항상 재확인할 것(REST API 키 등 다른 키 종류와
+  혼동하기 쉽다).
 
 ## 사고 대응
 
