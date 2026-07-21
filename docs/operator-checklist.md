@@ -39,6 +39,18 @@
       fixture/데모 프로젝트도 갱신
 - [x] `docs/public-api-status.md`의 "다음 재검증 시 확인할 것" 항목을 확인된 내용으로 갱신
 
+## 새 지역 추가 절차 (2026-07-21부터)
+
+- [ ] `npm run verify:region -- --name <지역명> --area-cd <시도2자리> --signgu-cd <시군구5자리> --tour-api-area-code <구코드>`로
+      후보 코드를 실 API로 확인(통계청 코드는 `areaNm`/`signguNm` 응답 원본, TourAPI 코드는 `areaCode2`
+      전체 목록 대조). 코드를 추측해서 바로 fixture에 넣지 말 것 — 과거 여러 번 다른 지역 코드로 잘못
+      확인된 적이 있다.
+- [ ] 확인된 코드를 `src/lib/fixtures/regions.ts`의 `REGION_SEED`에 추가(SIDO가 새로 필요하면 SIDO 행도
+      함께 추가)
+- [ ] `npm run db:seed` 실행(Region은 upsert라 기존 데이터에 안전) → 실 동기화(`npm run sync:tourism-data`)로
+      해당 지역 지표/POI 확보 확인
+- [ ] `docs/data-dictionary.md`의 지역 표, `docs/public-api-status.md`의 코드 체계 표 갱신
+
 ## 정기 운영
 
 - [ ] Cron이 매월 1일 정상 실행되는지 `SyncLog`로 확인 — 다양성/체류/소비/자원수요/POI 전부 이제 실제로

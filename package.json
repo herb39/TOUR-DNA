@@ -16,7 +16,8 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
     "db:generate": "prisma generate",
-    "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts"
+    "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts",
+    "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

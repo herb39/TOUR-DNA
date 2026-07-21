@@ -110,6 +110,20 @@ CRON 엔드포인트를 호출합니다. Vercel은 `CRON_SECRET` 환경변수가
 정상 저장합니다(더 이상 저장을 보류하지 않습니다) — 산식은 [docs/scoring-model.md](docs/scoring-model.md)
 참고.
 
+### 새 지역 추가
+
+지역(Region)은 `src/lib/fixtures/regions.ts`의 `REGION_SEED` 배열에 코드로 등록하고 `npm run db:seed`로
+DB에 반영합니다(런타임 화면은 이 fixture가 아니라 DB에서 지역 목록을 읽으므로, 반영 후 재배포 없이 바로
+드롭다운에 나타납니다). 후보 코드(통계청 행정표준코드 areaCd/signguCd, TourAPI 구코드)가 실제로 그
+지역을 가리키는지는 아래로 먼저 확인하세요 — 사람이 curl로 확인하던 걸 자동화한 스크립트입니다:
+
+```bash
+# 예시: 이미 등록된 대전(유성구)로 실행하면 PASS가 나온다(스크립트 동작 확인용)
+npm run verify:region -- --name 대전_유성구 --area-cd 30 --signgu-cd 30200 --tour-api-area-code 3
+```
+
+절차는 [docs/operator-checklist.md](docs/operator-checklist.md)의 "새 지역 추가 절차" 참고.
+
 ## 테스트와 빌드
 
 ```bash
