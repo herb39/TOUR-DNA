@@ -117,3 +117,11 @@ strategyScore =
   평균 속도 가정으로 계산한 추정 시간(`describeTravel`)을 쓴다 — 직선거리 기반 추정치이므로 실제 도로·대중교통
   경로와는 다를 수 있다.
 - 체크리스트/KPI/위험은 전략 템플릿에 미리 정의된 목록(`kpiTemplates`, `riskTemplates`)에서 그대로 가져온다.
+- 2026-07-21부터 실행안 편집기(`PlanEditor.tsx`)에서 코스를 자유롭게 고칠 수 있다 — 같은 날짜 안 순서
+  변경/삭제/다른 날짜로 이동/같은 지역 POI 검색 후 추가(`searchAvailablePoisAction` →
+  `searchPoisInRegion`). 이 모든 편집은 `recomputeDayItems`(`planBuilder.ts`, `buildDraftCourse`와 같은
+  로직 공유)로 order/timeSlot/travel을 처음부터 다시 계산하므로, 편집 후에도 "시간대는 자리(슬롯) 기준,
+  이동 텍스트는 새 이웃 쌍의 실제 거리 기준"이라는 규칙이 항상 유지된다. 하루 최대 인원은
+  `MAX_ITEMS_PER_DAY`(=시간대 슬롯 수, 4)로 고정되어 있어 그 이상은 추가/이동할 수 없다. 이 함수는 순수
+  도메인 함수라 서버(실행안 최초 생성)와 클라이언트(편집기의 재계산) 양쪽에서 동일하게 재사용된다 —
+  로직이 두 곳에서 갈라질 위험이 없다.

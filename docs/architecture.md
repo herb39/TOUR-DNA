@@ -61,7 +61,9 @@ Bearer 인증을 그대로 쓴다(쿠키 게이트와 무관).
 /projects/[id]/plan → ensureSelectedPlan(projectId)
   → 이미 선택된 전략과 일치하는 SelectedPlan이 있으면 그대로 사용(사용자 편집 보존)
   → 없거나 전략이 바뀌었으면 buildDraftCourse/buildOperationChecklist/buildKpis/buildRisks로 재생성
-  → 사용자가 상품명/콘셉트/메모/코스 순서/KPI 메모를 편집 → savePlanAction으로 저장
+  → 사용자가 상품명/콘셉트/메모/코스(순서 변경·삭제·다른 날짜로 이동·POI 검색 후 추가)/KPI 메모를 편집
+    (코스 편집은 매번 recomputeDayItems로 order/timeSlot/travel 재계산, searchAvailablePoisAction →
+    searchPoisInRegion으로 같은 지역 POI만 검색) → savePlanAction으로 저장
 ```
 
 ### 3) 공공데이터 동기화
@@ -98,7 +100,7 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
   db.ts                  PrismaClient 싱글턴(driver adapter 사용, Prisma 7)
   buildDnaEngineInput.ts  DB → DnaEngineInput 변환
   fetchPoisByCategory.ts
-  poiDetails.ts
+  poiDetails.ts           fetchPoiDetailsInOrder, searchPoisInRegion(실행안 "장소 추가" 검색)
   analyzeProject.ts       runAnalysisForProject — 분석 실행+저장
   planService.ts          ensureSelectedPlan
   projectQueries.ts       목록/상세 조회 (읽기 전용 페이지용)

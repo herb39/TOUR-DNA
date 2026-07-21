@@ -23,11 +23,24 @@ export interface CourseItem {
   timeSlot: string;
   stayMinutes: number;
   travel: string;
+  /** 이동 텍스트 재계산용 좌표. 이 필드가 추가되기 전(2026-07-21 이전) 저장된 실행안에는 없을 수 있다. */
+  lat?: number;
+  lng?: number;
 }
 
 export interface CourseDay {
   dayIndex: number;
   items: CourseItem[];
+}
+
+/** recomputeDayItems에 넣을 입력 하나(장소 하나) — 새로 추가하는 POI도 이 모양으로 맞추면 된다. */
+export interface CourseItemInput {
+  poiId: string;
+  poiName: string;
+  category: string;
+  stayMinutes: number;
+  lat?: number;
+  lng?: number;
 }
 
 const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
@@ -37,6 +50,9 @@ const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
 };
 
 const TIME_SLOTS = ["10:00", "13:00", "16:00", "18:30"];
+
+/** 하루에 배치할 수 있는 최대 장소 수(TIME_SLOTS 개수만큼). 실행안 편집기의 추가/이동 UI도 이 한도를 따른다. */
+export const MAX_ITEMS_PER_DAY = TIME_SLOTS.length;
 
 const AVERAGE_SPEED_KMH: Record<TransportCode, number> = {
   WALK: 4,
@@ -52,11 +68,45 @@ const TRANSPORT_LABEL: Record<TransportCode, string> = {
   MIXED: "도보/대중교통 혼합",
 };
 
-function describeTravel(from: PoiDetail, to: PoiDetail, transport: TransportCode): string {
+function hasCoords(p: { lat?: number; lng?: number }): p is { lat: number; lng: number } {
+  return Number.isFinite(p.lat) && Number.isFinite(p.lng);
+}
+
+export function describeTravel(
+  from: { lat?: number; lng?: number },
+  to: { lat?: number; lng?: number },
+  transport: TransportCode,
+): string {
+  if (!hasCoords(from) || !hasCoords(to)) {
+    return "이동 시간 확인 필요(좌표 정보 없음)";
+  }
   const distanceKm = haversineDistanceKm(from, to);
   if (distanceKm < 0.3) return `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)`;
   const minutes = Math.max(5, Math.round((distanceKm / AVERAGE_SPEED_KMH[transport]) * 60));
   return `이동 약 ${minutes}분(약 ${distanceKm.toFixed(1)}km, ${TRANSPORT_LABEL[transport]} 기준)`;
+}
+
+/**
+ * 하루 분량 장소 목록의 순서/시간대/이동 텍스트를 처음부터 다시 계산한다. 장소를 추가·삭제·다른 날짜로
+ * 이동한 뒤에는 항상 이 함수로 다시 계산해야 order/timeSlot/travel이 서로 어긋나지 않는다.
+ * MAX_ITEMS_PER_DAY를 넘는 입력은 뒤에서부터 잘린다(TIME_SLOTS가 4개뿐이라 시간대를 더 만들 수 없음).
+ */
+export function recomputeDayItems(items: CourseItemInput[], transport: TransportCode): CourseItem[] {
+  const capped = items.slice(0, MAX_ITEMS_PER_DAY);
+  return capped.map((item, idx) => {
+    const prev = idx === 0 ? null : capped[idx - 1];
+    return {
+      order: idx + 1,
+      poiId: item.poiId,
+      poiName: item.poiName,
+      category: item.category,
+      timeSlot: TIME_SLOTS[idx],
+      stayMinutes: item.stayMinutes,
+      travel: prev ? describeTravel(prev, item, transport) : "숙소/집결지에서 이동",
+      lat: item.lat,
+      lng: item.lng,
+    };
+  });
 }
 
 /**
@@ -66,27 +116,21 @@ function describeTravel(from: PoiDetail, to: PoiDetail, transport: TransportCode
  */
 export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, transport: TransportCode): CourseDay[] {
   const dayCount = DAY_COUNT_BY_DURATION[duration];
-  const slotsPerDay = Math.min(TIME_SLOTS.length, Math.max(1, Math.ceil(pois.length / dayCount)));
+  const slotsPerDay = Math.min(MAX_ITEMS_PER_DAY, Math.max(1, Math.ceil(pois.length / dayCount)));
   const ordered = orderByNearestNeighbor(pois);
 
   const days: CourseDay[] = [];
   let poiIndex = 0;
   for (let d = 1; d <= dayCount && poiIndex < ordered.length; d++) {
-    const items: CourseItem[] = [];
-    for (let s = 0; s < slotsPerDay && poiIndex < ordered.length; s++, poiIndex++) {
-      const poi = ordered[poiIndex];
-      const prev = s === 0 ? null : ordered[poiIndex - 1];
-      items.push({
-        order: s + 1,
-        poiId: poi.id,
-        poiName: poi.name,
-        category: poi.category,
-        timeSlot: TIME_SLOTS[s],
-        stayMinutes: 60,
-        travel: prev ? describeTravel(prev, poi, transport) : "숙소/집결지에서 이동",
-      });
-    }
-    days.push({ dayIndex: d, items });
+    const dayPois = ordered.slice(poiIndex, poiIndex + slotsPerDay);
+    poiIndex += dayPois.length;
+    days.push({
+      dayIndex: d,
+      items: recomputeDayItems(
+        dayPois.map((p) => ({ poiId: p.id, poiName: p.name, category: p.category, stayMinutes: 60, lat: p.lat, lng: p.lng })),
+        transport,
+      ),
+    });
   }
   return days;
 }

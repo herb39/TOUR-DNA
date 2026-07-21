@@ -2,25 +2,24 @@
 
 import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { savePlanAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
+import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
+import {
+  recomputeDayItems,
+  MAX_ITEMS_PER_DAY,
+  type CourseItem,
+  type CourseDay,
+  type CourseItemInput,
+  type TransportCode,
+  type PoiDetail,
+} from "@/lib/domain/planBuilder";
 
-interface CourseItem {
-  order: number;
-  poiId: string;
-  poiName: string;
-  category: string;
-  timeSlot: string;
-  stayMinutes: number;
-  travel: string;
-}
-interface CourseDay {
-  dayIndex: number;
-  items: CourseItem[];
-}
+const POI_SEARCH_DEBOUNCE_MS = 300;
 
 export interface PlanEditorData {
   id: string;
   projectId: string;
+  regionId: string;
+  transport: TransportCode;
   productName: string;
   conceptText: string;
   background: string;
@@ -75,6 +74,24 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isDirty]);
 
+  const existingPoiIds = useMemo(() => new Set(days.flatMap((d) => d.items.map((i) => i.poiId))), [days]);
+
+  const [addingToDay, setAddingToDay] = useState<number | null>(null);
+  const [poiQuery, setPoiQuery] = useState("");
+  const [poiResults, setPoiResults] = useState<PoiDetail[]>([]);
+  const [poiSearchPending, setPoiSearchPending] = useState(false);
+
+  function toInput(item: CourseItem): CourseItemInput {
+    return {
+      poiId: item.poiId,
+      poiName: item.poiName,
+      category: item.category,
+      stayMinutes: item.stayMinutes,
+      lat: item.lat,
+      lng: item.lng,
+    };
+  }
+
   function moveItem(dayIndex: number, itemIndex: number, direction: -1 | 1) {
     setDays((prev) =>
       prev.map((d) => {
@@ -82,16 +99,90 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
         const items = [...d.items];
         const target = itemIndex + direction;
         if (target < 0 || target >= items.length) return d;
-        // timeSlot/travel은 시간대(슬롯) 자체에 속한 값이라 자리를 바꾸지 않는다 — 장소 정보(poiId/poiName/
-        // category/stayMinutes)만 교환해야 이동한 장소가 새 위치의 시간대를 그대로 물려받는다.
-        const a = items[itemIndex];
-        const b = items[target];
-        items[itemIndex] = { ...a, poiId: b.poiId, poiName: b.poiName, category: b.category, stayMinutes: b.stayMinutes };
-        items[target] = { ...b, poiId: a.poiId, poiName: a.poiName, category: a.category, stayMinutes: a.stayMinutes };
-        return { ...d, items: items.map((it, i) => ({ ...it, order: i + 1 })) };
+        // 전체 항목을 자리째 바꾼 뒤 처음부터 다시 계산한다 — timeSlot은 위치(자리) 기준으로,
+        // travel은 새로 이웃한 장소 쌍의 실제 거리 기준으로 다시 나온다.
+        [items[itemIndex], items[target]] = [items[target], items[itemIndex]];
+        return { ...d, items: recomputeDayItems(items.map(toInput), plan.transport) };
       }),
     );
   }
+
+  function removeItem(dayIndex: number, itemIndex: number) {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.dayIndex !== dayIndex) return d;
+        const items = d.items.filter((_, i) => i !== itemIndex);
+        return { ...d, items: recomputeDayItems(items.map(toInput), plan.transport) };
+      }),
+    );
+  }
+
+  function moveItemToDay(fromDayIndex: number, itemIndex: number, toDayIndex: number) {
+    if (fromDayIndex === toDayIndex) return;
+    setDays((prev) => {
+      const fromDay = prev.find((d) => d.dayIndex === fromDayIndex);
+      const toDay = prev.find((d) => d.dayIndex === toDayIndex);
+      if (!fromDay || !toDay) return prev;
+      if (toDay.items.length >= MAX_ITEMS_PER_DAY) return prev;
+      const moved = fromDay.items[itemIndex];
+      if (!moved) return prev;
+
+      return prev.map((d) => {
+        if (d.dayIndex === fromDayIndex) {
+          return { ...d, items: recomputeDayItems(d.items.filter((_, i) => i !== itemIndex).map(toInput), plan.transport) };
+        }
+        if (d.dayIndex === toDayIndex) {
+          return { ...d, items: recomputeDayItems([...d.items.map(toInput), toInput(moved)], plan.transport) };
+        }
+        return d;
+      });
+    });
+  }
+
+  function addPoiToDay(dayIndex: number, poi: PoiDetail) {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.dayIndex !== dayIndex) return d;
+        if (d.items.length >= MAX_ITEMS_PER_DAY) return d;
+        const input: CourseItemInput = {
+          poiId: poi.id,
+          poiName: poi.name,
+          category: poi.category,
+          stayMinutes: 60,
+          lat: poi.lat,
+          lng: poi.lng,
+        };
+        return { ...d, items: recomputeDayItems([...d.items.map(toInput), input], plan.transport) };
+      }),
+    );
+    setAddingToDay(null);
+    setPoiQuery("");
+    setPoiResults([]);
+  }
+
+  const trimmedPoiQuery = poiQuery.trim();
+
+  useEffect(() => {
+    if (addingToDay === null || trimmedPoiQuery.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPoiSearchPending(true);
+      const results = await searchAvailablePoisAction(plan.regionId, trimmedPoiQuery);
+      if (!cancelled) {
+        setPoiResults(results);
+        setPoiSearchPending(false);
+      }
+    }, POI_SEARCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [addingToDay, trimmedPoiQuery, plan.regionId]);
+
+  const visiblePoiResults =
+    trimmedPoiQuery.length === 0 ? [] : poiResults.filter((p) => !existingPoiIds.has(p.id));
 
   return (
     <form action={formAction} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
@@ -156,7 +247,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                           ({item.category}, 체류 {item.stayMinutes}분, {item.travel})
                         </span>
                       </div>
-                      <div className="no-print flex gap-1">
+                      <div className="no-print flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => moveItem(day.dayIndex, idx, -1)}
@@ -175,10 +266,91 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                         >
                           ↓
                         </button>
+                        {days.length > 1 ? (
+                          <select
+                            aria-label={`${item.poiName} 다른 날짜로 이동`}
+                            value={day.dayIndex}
+                            onChange={(e) => moveItemToDay(day.dayIndex, idx, Number(e.target.value))}
+                            className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+                          >
+                            {days.map((d) => (
+                              <option key={d.dayIndex} value={d.dayIndex} disabled={d.dayIndex !== day.dayIndex && d.items.length >= MAX_ITEMS_PER_DAY}>
+                                {d.dayIndex}일차
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => removeItem(day.dayIndex, idx)}
+                          className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                          aria-label={`${item.poiName} 삭제`}
+                        >
+                          삭제
+                        </button>
                       </div>
                     </li>
                   ))}
                 </ul>
+
+                <div className="no-print mt-2">
+                  {addingToDay === day.dayIndex ? (
+                    <div className="rounded-md border border-slate-200 p-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={poiQuery}
+                          onChange={(e) => setPoiQuery(e.target.value)}
+                          placeholder="장소 이름 검색"
+                          className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddingToDay(null);
+                            setPoiQuery("");
+                            setPoiResults([]);
+                          }}
+                          className="cursor-pointer whitespace-nowrap rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                        >
+                          닫기
+                        </button>
+                      </div>
+                      {poiSearchPending ? <p className="mt-1 text-xs text-slate-400">검색 중...</p> : null}
+                      {!poiSearchPending && poiQuery.trim().length > 0 && visiblePoiResults.length === 0 ? (
+                        <p className="mt-1 text-xs text-slate-400">일치하는 장소가 없습니다.</p>
+                      ) : null}
+                      {visiblePoiResults.length > 0 ? (
+                        <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto">
+                          {visiblePoiResults.map((poi) => (
+                            <li key={poi.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-slate-50">
+                              <span>
+                                {poi.name} <span className="text-slate-400">({poi.category}, {poi.address})</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => addPoiToDay(day.dayIndex, poi)}
+                                className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100"
+                              >
+                                추가
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAddingToDay(day.dayIndex)}
+                      disabled={day.items.length >= MAX_ITEMS_PER_DAY}
+                      className="cursor-pointer rounded border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {day.items.length >= MAX_ITEMS_PER_DAY ? "이 날짜는 가득 찼습니다 (최대 4곳)" : "+ 장소 추가"}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

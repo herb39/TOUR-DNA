@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { searchPoisInRegion } from "@/lib/services/poiDetails";
+import type { PoiDetail } from "@/lib/domain/planBuilder";
 
 export interface SavePlanFormState {
   success: boolean;
@@ -45,4 +47,9 @@ export async function savePlanAction(
 
 export async function backToAnalysisAction(projectId: string) {
   redirect(`/projects/${projectId}/analysis`);
+}
+
+/** 실행안 편집기의 "장소 추가" 검색창에서 호출한다. 해당 프로젝트의 지역으로 한정해 POI를 찾는다. */
+export async function searchAvailablePoisAction(regionId: string, query: string): Promise<PoiDetail[]> {
+  return searchPoisInRegion(regionId, query);
 }

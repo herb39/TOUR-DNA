@@ -42,6 +42,8 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const planData: PlanEditorData = {
     id: planRow.id,
     projectId: id,
+    regionId: project.regionId,
+    transport: project.input?.transport as PlanEditorData["transport"],
     productName: planRow.productName,
     conceptText: planRow.conceptText,
     background: planRow.background,
