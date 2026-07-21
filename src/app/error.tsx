@@ -15,7 +15,7 @@ export default function GlobalError({
         <button
           type="button"
           onClick={reset}
-          className="mt-4 rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+          className="mt-4 cursor-pointer rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
         >
           다시 시도
         </button>

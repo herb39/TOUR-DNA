@@ -386,7 +386,7 @@ export function ProjectInputForm({
         <button
           type="submit"
           disabled={isPending}
-          className="rounded-md bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+          className="cursor-pointer rounded-md bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isPending ? "분석 중..." : "분석 시작"}
         </button>

@@ -161,7 +161,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                           type="button"
                           onClick={() => moveItem(day.dayIndex, idx, -1)}
                           disabled={idx === 0}
-                          className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
                           aria-label={`${item.poiName} 위로 이동`}
                         >
                           ↑
@@ -170,7 +170,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                           type="button"
                           onClick={() => moveItem(day.dayIndex, idx, 1)}
                           disabled={idx === day.items.length - 1}
-                          className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
                           aria-label={`${item.poiName} 아래로 이동`}
                         >
                           ↓
@@ -259,7 +259,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
         <button
           type="submit"
           disabled={isPending}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+          className="w-full cursor-pointer rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isPending ? "저장 중..." : "저장"}
         </button>
