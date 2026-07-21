@@ -61,9 +61,10 @@ Bearer 인증을 그대로 쓴다(쿠키 게이트와 무관).
 /projects/[id]/plan → ensureSelectedPlan(projectId)
   → 이미 선택된 전략과 일치하는 SelectedPlan이 있으면 그대로 사용(사용자 편집 보존)
   → 없거나 전략이 바뀌었으면 buildDraftCourse/buildOperationChecklist/buildKpis/buildRisks로 재생성
-  → 사용자가 상품명/콘셉트/메모/코스(순서 변경·삭제·다른 날짜로 이동·POI 검색 후 추가)/KPI 메모를 편집
-    (코스 편집은 매번 recomputeDayItems로 order/timeSlot/travel 재계산, searchAvailablePoisAction →
-    searchPoisInRegion으로 같은 지역 POI만 검색) → savePlanAction으로 저장
+  → 사용자가 상품명/콘셉트/메모/코스(순서 변경·삭제·다른 날짜로 이동·POI 검색 후 추가·시간 직접 수정)/
+    KPI 메모를 편집(순서·추가·삭제·이동은 recomputeDayItems로 order/travel 재계산, timeSlot은 있으면
+    보존; searchAvailablePoisAction → searchPoisInRegion으로 같은 지역 POI만 검색; 이동시간이 실제
+    여유보다 길면 checkFeasibility가 빨간 경고 표시) → savePlanAction으로 저장
 ```
 
 ### 3) 공공데이터 동기화

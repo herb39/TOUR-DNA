@@ -33,7 +33,11 @@ export interface CourseDay {
   items: CourseItem[];
 }
 
-/** recomputeDayItems에 넣을 입력 하나(장소 하나) — 새로 추가하는 POI도 이 모양으로 맞추면 된다. */
+/**
+ * recomputeDayItems에 넣을 입력 하나(장소 하나) — 새로 추가하는 POI도 이 모양으로 맞추면 된다.
+ * timeSlot을 넣으면 그 값을 그대로 유지하고(사용자가 이미 편집한 시간), 비워두면 자리(index) 기준
+ * 기본값을 새로 계산한다(처음 추가되는 장소용).
+ */
 export interface CourseItemInput {
   poiId: string;
   poiName: string;
@@ -41,6 +45,7 @@ export interface CourseItemInput {
   stayMinutes: number;
   lat?: number;
   lng?: number;
+  timeSlot?: string;
 }
 
 const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
@@ -49,10 +54,9 @@ const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
   TWO_NIGHTS_THREE_DAYS: 3,
 };
 
+/** 처음 생성할 때 기본으로 쓰는 시간대. 그 이후 자리(4번째 이후)는 DEFAULT_SLOT_STEP_MINUTES 간격으로 이어간다. */
 const TIME_SLOTS = ["10:00", "13:00", "16:00", "18:30"];
-
-/** 하루에 배치할 수 있는 최대 장소 수(TIME_SLOTS 개수만큼). 실행안 편집기의 추가/이동 UI도 이 한도를 따른다. */
-export const MAX_ITEMS_PER_DAY = TIME_SLOTS.length;
+const DEFAULT_SLOT_STEP_MINUTES = 150;
 
 const AVERAGE_SPEED_KMH: Record<TransportCode, number> = {
   WALK: 4,
@@ -72,37 +76,72 @@ function hasCoords(p: { lat?: number; lng?: number }): p is { lat: number; lng: 
   return Number.isFinite(p.lat) && Number.isFinite(p.lng);
 }
 
-export function describeTravel(
+/** "HH:MM" → 자정 기준 분. 형식이 이상하면 null(검증 불가로 처리하고 오류로 보지 않는다). */
+export function parseTimeSlotToMinutes(timeSlot: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeSlot.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+/** 자정 기준 분 → "HH:MM"(24시 이상/이하로 넘어가면 하루 안으로 wrap). */
+export function minutesToTimeSlot(totalMinutes: number): string {
+  const wrapped = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** 자리(0-based index)에 대한 기본 시간대. 앞 4자리는 고정 슬롯, 그 이후는 일정 간격으로 이어간다. */
+function defaultTimeSlotFor(index: number): string {
+  if (index < TIME_SLOTS.length) return TIME_SLOTS[index];
+  const lastKnown = parseTimeSlotToMinutes(TIME_SLOTS[TIME_SLOTS.length - 1]) ?? 0;
+  return minutesToTimeSlot(lastKnown + (index - TIME_SLOTS.length + 1) * DEFAULT_SLOT_STEP_MINUTES);
+}
+
+export interface TravelEstimate {
+  /** 좌표 정보가 없어 계산할 수 없으면 null. */
+  minutes: number | null;
+  label: string;
+}
+
+/** 두 장소 사이의 예상 이동시간(직선거리·haversine 기반 추정치, 실제 도로/대중교통 경로와 다를 수 있음). */
+export function estimateTravel(
   from: { lat?: number; lng?: number },
   to: { lat?: number; lng?: number },
   transport: TransportCode,
-): string {
+): TravelEstimate {
   if (!hasCoords(from) || !hasCoords(to)) {
-    return "이동 시간 확인 필요(좌표 정보 없음)";
+    return { minutes: null, label: "이동 시간 확인 필요(좌표 정보 없음)" };
   }
   const distanceKm = haversineDistanceKm(from, to);
-  if (distanceKm < 0.3) return `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)`;
+  if (distanceKm < 0.3) {
+    return { minutes: 5, label: `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)` };
+  }
   const minutes = Math.max(5, Math.round((distanceKm / AVERAGE_SPEED_KMH[transport]) * 60));
-  return `이동 약 ${minutes}분(약 ${distanceKm.toFixed(1)}km, ${TRANSPORT_LABEL[transport]} 기준)`;
+  return { minutes, label: `이동 약 ${minutes}분(약 ${distanceKm.toFixed(1)}km, ${TRANSPORT_LABEL[transport]} 기준)` };
 }
 
 /**
- * 하루 분량 장소 목록의 순서/시간대/이동 텍스트를 처음부터 다시 계산한다. 장소를 추가·삭제·다른 날짜로
- * 이동한 뒤에는 항상 이 함수로 다시 계산해야 order/timeSlot/travel이 서로 어긋나지 않는다.
- * MAX_ITEMS_PER_DAY를 넘는 입력은 뒤에서부터 잘린다(TIME_SLOTS가 4개뿐이라 시간대를 더 만들 수 없음).
+ * 하루 분량 장소 목록의 순서/이동 텍스트를 다시 계산한다. 장소를 추가·삭제·다른 날짜로 이동한 뒤에는
+ * 항상 이 함수로 다시 계산해야 order/travel이 서로 어긋나지 않는다. timeSlot은 이미 값이 있으면(사용자가
+ * 편집했거나 기존에 있던 항목) 그대로 유지하고, 없으면(새로 추가된 항목) 자리 기준 기본값을 넣는다.
+ * 하루에 담을 수 있는 장소 수는 제한하지 않는다 — 실제로 시간이 부족한지는 timeSlot과 이동시간을
+ * 비교해서 판단해야 한다(estimateTravel + 화면의 실행 가능성 표시).
  */
 export function recomputeDayItems(items: CourseItemInput[], transport: TransportCode): CourseItem[] {
-  const capped = items.slice(0, MAX_ITEMS_PER_DAY);
-  return capped.map((item, idx) => {
-    const prev = idx === 0 ? null : capped[idx - 1];
+  return items.map((item, idx) => {
+    const prev = idx === 0 ? null : items[idx - 1];
     return {
       order: idx + 1,
       poiId: item.poiId,
       poiName: item.poiName,
       category: item.category,
-      timeSlot: TIME_SLOTS[idx],
+      timeSlot: item.timeSlot ?? defaultTimeSlotFor(idx),
       stayMinutes: item.stayMinutes,
-      travel: prev ? describeTravel(prev, item, transport) : "숙소/집결지에서 이동",
+      travel: prev ? estimateTravel(prev, item, transport).label : "숙소/집결지에서 이동",
       lat: item.lat,
       lng: item.lng,
     };
@@ -116,7 +155,7 @@ export function recomputeDayItems(items: CourseItemInput[], transport: Transport
  */
 export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, transport: TransportCode): CourseDay[] {
   const dayCount = DAY_COUNT_BY_DURATION[duration];
-  const slotsPerDay = Math.min(MAX_ITEMS_PER_DAY, Math.max(1, Math.ceil(pois.length / dayCount)));
+  const slotsPerDay = Math.max(1, Math.ceil(pois.length / dayCount));
   const ordered = orderByNearestNeighbor(pois);
 
   const days: CourseDay[] = [];

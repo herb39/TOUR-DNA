@@ -27,8 +27,28 @@ function makePlan(): PlanEditorData {
         {
           dayIndex: 1,
           items: [
-            { order: 1, poiId: "poi-a", poiName: "A장소", category: "FOOD", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" },
-            { order: 2, poiId: "poi-b", poiName: "B장소", category: "FOOD", timeSlot: "13:00", stayMinutes: 60, travel: "이동 15~20분" },
+            {
+              order: 1,
+              poiId: "poi-a",
+              poiName: "A장소",
+              category: "FOOD",
+              timeSlot: "10:00",
+              stayMinutes: 60,
+              travel: "숙소/집결지에서 이동",
+              lat: 36.35,
+              lng: 127.38,
+            },
+            {
+              order: 2,
+              poiId: "poi-b",
+              poiName: "B장소",
+              category: "FOOD",
+              timeSlot: "13:00",
+              stayMinutes: 60,
+              travel: "이동 15~20분",
+              lat: 36.4,
+              lng: 127.45,
+            },
           ],
         },
         { dayIndex: 2, items: [] },
@@ -44,43 +64,60 @@ function makePlan(): PlanEditorData {
 
 const plan = makePlan();
 
+function timeInputValue(poiName: string): string {
+  return (screen.getByLabelText(`${poiName} 시간`) as HTMLInputElement).value;
+}
+
 describe("PlanEditor 코스 순서 변경", () => {
-  it("장소를 위로 이동하면 시간대는 자리(슬롯)에 남고 장소 정보만 이동한다", () => {
+  it("위/아래로 이동하면 목록 순서만 바뀌고 각 장소가 가진 시간은 그대로 유지된다", () => {
     render(<PlanEditor plan={plan} />);
 
-    expect(screen.getByText("10:00 A장소")).toBeInTheDocument();
-    expect(screen.getByText("13:00 B장소")).toBeInTheDocument();
+    expect(timeInputValue("A장소")).toBe("10:00");
+    expect(timeInputValue("B장소")).toBe("13:00");
 
     fireEvent.click(screen.getByLabelText("B장소 위로 이동"));
 
-    // B가 첫 슬롯(10:00)으로, A가 둘째 슬롯(13:00)으로 — 시간대는 위치에 고정되고 장소만 바뀐다
-    expect(screen.getByText("10:00 B장소")).toBeInTheDocument();
-    expect(screen.getByText("13:00 A장소")).toBeInTheDocument();
+    // 순서만 바뀌고 각자의 시간은 그대로다 — B(13:00)가 A(10:00)보다 앞에 오게 되어 시간이 거꾸로
+    // 흐르므로, 실행 가능성 경고가 떠야 한다.
+    expect(timeInputValue("A장소")).toBe("10:00");
+    expect(timeInputValue("B장소")).toBe("13:00");
+    expect(screen.getByText(/전에 시작합니다/)).toBeInTheDocument();
+  });
+
+  it("시간을 직접 입력해 순서를 바로잡으면 경고가 사라진다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+    fireEvent.click(screen.getByLabelText("B장소 위로 이동"));
+    expect(screen.getByText(/전에 시작합니다/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("B장소 시간"), { target: { value: "09:00" } });
+
+    expect(timeInputValue("B장소")).toBe("09:00");
+    expect(screen.queryByText(/전에 시작합니다/)).not.toBeInTheDocument();
   });
 });
 
 describe("PlanEditor 코스 추가/삭제/이동", () => {
-  it("삭제 버튼을 누르면 목록에서 빠지고 남은 장소가 앞 슬롯으로 당겨진다", () => {
+  it("삭제 버튼을 누르면 목록에서 빠진다", () => {
     render(<PlanEditor plan={makePlan()} />);
 
     fireEvent.click(screen.getByLabelText("A장소 삭제"));
 
-    expect(screen.queryByText(/A장소/)).not.toBeInTheDocument();
-    expect(screen.getByText("10:00 B장소")).toBeInTheDocument();
+    expect(screen.queryByText("A장소")).not.toBeInTheDocument();
+    expect(screen.getByText("B장소")).toBeInTheDocument();
   });
 
-  it("다른 날짜로 이동하면 원래 날짜에서는 빠지고 대상 날짜에 나타난다", () => {
+  it("다른 날짜로 이동하면 원래 날짜에서는 빠지고, 대상 날짜에서는 원래 시간을 그대로 유지한 채 나타난다", () => {
     render(<PlanEditor plan={makePlan()} />);
 
     const select = screen.getByLabelText("A장소 다른 날짜로 이동") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "2" } });
 
-    // 1일차에는 B장소만 남아 10:00으로 당겨지고, A장소는 2일차의 첫 슬롯(10:00)으로 옮겨간다
-    expect(screen.getByText("10:00 B장소")).toBeInTheDocument();
-    expect(screen.getByText("10:00 A장소")).toBeInTheDocument();
+    expect(screen.getByText("B장소")).toBeInTheDocument();
+    expect(screen.getByText("A장소")).toBeInTheDocument();
+    expect(timeInputValue("A장소")).toBe("10:00");
   });
 
-  it("검색 결과에서 장소를 골라 추가하면 해당 날짜의 새 슬롯으로 들어간다", async () => {
+  it("검색 결과에서 장소를 골라 추가하면 해당 날짜에 새 항목으로 들어간다", async () => {
     vi.mocked(searchAvailablePoisAction).mockResolvedValueOnce([
       { id: "poi-c", name: "C장소", category: "EXPERIENCE", address: "어딘가", lat: 36.35, lng: 127.38, operatingHours: null, closedDays: null },
     ]);
@@ -96,12 +133,16 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
     const addButton = await screen.findByRole("button", { name: "추가" });
     fireEvent.click(addButton);
 
-    expect(await screen.findByText("10:00 C장소")).toBeInTheDocument();
+    expect(await screen.findByText("C장소")).toBeInTheDocument();
+    expect(timeInputValue("C장소")).toBe("10:00");
     // 추가 후에는 검색 패널이 닫히고 다시 "+ 장소 추가" 버튼으로 돌아간다
     expect(screen.getAllByRole("button", { name: "+ 장소 추가" })).toHaveLength(2);
   });
 
-  it("한 날짜에 이미 4곳(최대치)이 있으면 추가 버튼이 비활성화된다", () => {
+  it("하루에 이미 4곳이 있어도 제한 없이 더 추가할 수 있고, 5번째 장소는 기본 간격으로 이어진 시간을 받는다", async () => {
+    vi.mocked(searchAvailablePoisAction).mockResolvedValueOnce([
+      { id: "poi-e", name: "E장소", category: "EXPERIENCE", address: "어딘가", lat: 36.4, lng: 127.4, operatingHours: null, closedDays: null },
+    ]);
     const fullPlan = makePlan();
     fullPlan.course.days[0].items = [
       { order: 1, poiId: "p1", poiName: "P1", category: "FOOD", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" },
@@ -111,6 +152,15 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
     ];
     render(<PlanEditor plan={fullPlan} />);
 
-    expect(screen.getByRole("button", { name: "이 날짜는 가득 찼습니다 (최대 4곳)" })).toBeDisabled();
+    const addButtons = screen.getAllByRole("button", { name: "+ 장소 추가" });
+    fireEvent.click(addButtons[0]); // 이미 4곳인 1일차에도 추가 버튼이 존재하고 눌러진다(제한 없음)
+    fireEvent.change(screen.getByPlaceholderText("장소 이름 검색"), { target: { value: "E" } });
+
+    const addButton = await screen.findByRole("button", { name: "추가" });
+    fireEvent.click(addButton);
+
+    expect(await screen.findByText("E장소")).toBeInTheDocument();
+    // 고정 슬롯(10:00,13:00,16:00,18:30) 다음 자리는 마지막 슬롯에서 150분씩 이어간다 → 21:00
+    expect(timeInputValue("E장소")).toBe("21:00");
   });
 });

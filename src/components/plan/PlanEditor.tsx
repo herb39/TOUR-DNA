@@ -5,7 +5,9 @@ import Link from "next/link";
 import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
 import {
   recomputeDayItems,
-  MAX_ITEMS_PER_DAY,
+  estimateTravel,
+  parseTimeSlotToMinutes,
+  minutesToTimeSlot,
   type CourseItem,
   type CourseDay,
   type CourseItemInput,
@@ -89,6 +91,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
       stayMinutes: item.stayMinutes,
       lat: item.lat,
       lng: item.lng,
+      timeSlot: item.timeSlot,
     };
   }
 
@@ -123,7 +126,6 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
       const fromDay = prev.find((d) => d.dayIndex === fromDayIndex);
       const toDay = prev.find((d) => d.dayIndex === toDayIndex);
       if (!fromDay || !toDay) return prev;
-      if (toDay.items.length >= MAX_ITEMS_PER_DAY) return prev;
       const moved = fromDay.items[itemIndex];
       if (!moved) return prev;
 
@@ -132,6 +134,8 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
           return { ...d, items: recomputeDayItems(d.items.filter((_, i) => i !== itemIndex).map(toInput), plan.transport) };
         }
         if (d.dayIndex === toDayIndex) {
+          // 원래 날짜에서 쓰던 시간을 그대로 들고 온다 — 새 날짜에서 다른 일정과 겹치면 아래 실행
+          // 가능성 표시(빨간 경고)로 바로 드러나므로, 사용자가 필요할 때만 시간을 다시 조정하면 된다.
           return { ...d, items: recomputeDayItems([...d.items.map(toInput), toInput(moved)], plan.transport) };
         }
         return d;
@@ -143,7 +147,6 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
-        if (d.items.length >= MAX_ITEMS_PER_DAY) return d;
         const input: CourseItemInput = {
           poiId: poi.id,
           poiName: poi.name,
@@ -158,6 +161,41 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
     setAddingToDay(null);
     setPoiQuery("");
     setPoiResults([]);
+  }
+
+  function updateItemTime(dayIndex: number, itemIndex: number, timeSlot: string) {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.dayIndex !== dayIndex) return d;
+        return { ...d, items: d.items.map((it, i) => (i === itemIndex ? { ...it, timeSlot } : it)) };
+      }),
+    );
+  }
+
+  /** 이전 장소의 체류 종료 시각부터 이 장소 시작 시각까지의 여유가 예상 이동시간보다 부족하면 실행 불가로 본다. */
+  function checkFeasibility(items: CourseItem[], itemIndex: number): { infeasible: boolean; reason: string | null } {
+    if (itemIndex === 0) return { infeasible: false, reason: null };
+    const prev = items[itemIndex - 1];
+    const cur = items[itemIndex];
+    const prevEndMinutes = parseTimeSlotToMinutes(prev.timeSlot);
+    const curStartMinutes = parseTimeSlotToMinutes(cur.timeSlot);
+    if (prevEndMinutes === null || curStartMinutes === null) return { infeasible: false, reason: null };
+
+    const gap = curStartMinutes - (prevEndMinutes + prev.stayMinutes);
+    const travel = estimateTravel(prev, cur, plan.transport);
+    if (travel.minutes === null) return { infeasible: false, reason: null };
+
+    if (gap < travel.minutes) {
+      const prevEndLabel = minutesToTimeSlot(prevEndMinutes + prev.stayMinutes);
+      return {
+        infeasible: true,
+        reason:
+          gap < 0
+            ? `이전 일정이 ${prevEndLabel}에 끝나는데 이 장소는 그 전에 시작합니다.`
+            : `이동에 약 ${travel.minutes}분이 필요하지만(이전 일정 종료 ${prevEndLabel}), 여유는 ${gap}분뿐입니다.`,
+      };
+    }
+    return { infeasible: false, reason: null };
   }
 
   const trimmedPoiQuery = poiQuery.trim();
@@ -234,63 +272,78 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
               <div key={day.dayIndex}>
                 <p className="text-xs font-semibold text-slate-500">{day.dayIndex}일차</p>
                 <ul className="mt-2 space-y-2">
-                  {day.items.map((item, idx) => (
-                    <li
-                      key={item.poiId + item.order}
-                      className="flex items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
-                    >
-                      <div>
-                        <span className="font-medium text-slate-800">
-                          {item.timeSlot} {item.poiName}
-                        </span>
-                        <span className="ml-2 text-xs text-slate-500">
-                          ({item.category}, 체류 {item.stayMinutes}분, {item.travel})
-                        </span>
-                      </div>
-                      <div className="no-print flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => moveItem(day.dayIndex, idx, -1)}
-                          disabled={idx === 0}
-                          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label={`${item.poiName} 위로 이동`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveItem(day.dayIndex, idx, 1)}
-                          disabled={idx === day.items.length - 1}
-                          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label={`${item.poiName} 아래로 이동`}
-                        >
-                          ↓
-                        </button>
-                        {days.length > 1 ? (
-                          <select
-                            aria-label={`${item.poiName} 다른 날짜로 이동`}
-                            value={day.dayIndex}
-                            onChange={(e) => moveItemToDay(day.dayIndex, idx, Number(e.target.value))}
-                            className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  {day.items.map((item, idx) => {
+                    const feasibility = checkFeasibility(day.items, idx);
+                    return (
+                      <li
+                        key={item.poiId + item.order}
+                        className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
+                          feasibility.infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
+                        }`}
+                      >
+                        <div>
+                          <span className="font-medium text-slate-800">
+                            <input
+                              type="time"
+                              value={item.timeSlot}
+                              onChange={(e) => updateItemTime(day.dayIndex, idx, e.target.value)}
+                              aria-label={`${item.poiName} 시간`}
+                              className="mr-1 rounded border border-slate-300 px-1 py-0.5 text-sm"
+                            />
+                            {item.poiName}
+                          </span>
+                          <span className="ml-2 text-xs text-slate-500">
+                            ({item.category}, 체류 {item.stayMinutes}분, {item.travel})
+                          </span>
+                          {feasibility.infeasible ? (
+                            <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibility.reason}</p>
+                          ) : null}
+                        </div>
+                        <div className="no-print flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => moveItem(day.dayIndex, idx, -1)}
+                            disabled={idx === 0}
+                            className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={`${item.poiName} 위로 이동`}
                           >
-                            {days.map((d) => (
-                              <option key={d.dayIndex} value={d.dayIndex} disabled={d.dayIndex !== day.dayIndex && d.items.length >= MAX_ITEMS_PER_DAY}>
-                                {d.dayIndex}일차
-                              </option>
-                            ))}
-                          </select>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => removeItem(day.dayIndex, idx)}
-                          className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                          aria-label={`${item.poiName} 삭제`}
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </li>
-                  ))}
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveItem(day.dayIndex, idx, 1)}
+                            disabled={idx === day.items.length - 1}
+                            className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={`${item.poiName} 아래로 이동`}
+                          >
+                            ↓
+                          </button>
+                          {days.length > 1 ? (
+                            <select
+                              aria-label={`${item.poiName} 다른 날짜로 이동`}
+                              value={day.dayIndex}
+                              onChange={(e) => moveItemToDay(day.dayIndex, idx, Number(e.target.value))}
+                              className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+                            >
+                              {days.map((d) => (
+                                <option key={d.dayIndex} value={d.dayIndex}>
+                                  {d.dayIndex}일차
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => removeItem(day.dayIndex, idx)}
+                            className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                            aria-label={`${item.poiName} 삭제`}
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
 
                 <div className="no-print mt-2">
@@ -344,10 +397,9 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                     <button
                       type="button"
                       onClick={() => setAddingToDay(day.dayIndex)}
-                      disabled={day.items.length >= MAX_ITEMS_PER_DAY}
-                      className="cursor-pointer rounded border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="cursor-pointer rounded border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
                     >
-                      {day.items.length >= MAX_ITEMS_PER_DAY ? "이 날짜는 가득 찼습니다 (최대 4곳)" : "+ 장소 추가"}
+                      + 장소 추가
                     </button>
                   )}
                 </div>
