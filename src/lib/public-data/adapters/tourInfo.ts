@@ -73,26 +73,48 @@ export interface TourInfoParams {
   contentTypeId?: string;
 }
 
-export async function fetchTourInfo(
-  params: TourInfoParams,
-): Promise<NormalizedItemsResult<TourInfoItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
+const ROWS_PER_PAGE = 1000;
+// areaCode는 시/도 단위라 한 페이지(1000건)로는 전체를 못 덮는 도가 많다(예: 강원 3,198건). 이후 주소
+// 기반으로 시/군/구 단위까지 걸러내야 하므로, 몇 페이지 더 가져와 필터링 후 남는 양을 확보한다.
+const MAX_PAGES = 5;
+
+function buildUrl(baseUrl: string, params: TourInfoParams, pageNo: number): string {
   const qs = new URLSearchParams({
     serviceKey: params.serviceKey,
     MobileOS: "ETC",
     MobileApp: "TourDNA",
     areaCode: params.areaCode,
-    numOfRows: "100",
-    pageNo: "1",
+    numOfRows: String(ROWS_PER_PAGE),
+    pageNo: String(pageNo),
     _type: "json",
   });
   if (params.sigunguCode) qs.set("sigunguCode", params.sigunguCode);
   if (params.contentTypeId) qs.set("contentTypeId", params.contentTypeId);
+  return `${baseUrl}/areaBasedList2?${qs.toString()}`;
+}
 
-  const url = `${params.baseUrl}/areaBasedList2?${qs.toString()}`;
-
-  const res = await fetchPublicDataJson(url, { sourceCode: "TOUR_INFO" });
-  if (!res.ok) {
-    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown" };
+export async function fetchTourInfo(
+  params: TourInfoParams,
+): Promise<NormalizedItemsResult<TourInfoItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
+  const firstRes = await fetchPublicDataJson(buildUrl(params.baseUrl, params, 1), { sourceCode: "TOUR_INFO" });
+  if (!firstRes.ok) {
+    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: firstRes.errorMessage ?? "unknown" };
   }
-  return parsePublicDataEnvelope(itemSchema, res.data);
+  const first = parsePublicDataEnvelope(itemSchema, firstRes.data);
+  const items = [...first.items];
+
+  const totalCount =
+    (firstRes.data as { response?: { body?: { totalCount?: number } } })?.response?.body?.totalCount ?? items.length;
+  const totalPages = Math.min(MAX_PAGES, Math.ceil(totalCount / ROWS_PER_PAGE));
+  for (let pageNo = 2; pageNo <= totalPages; pageNo++) {
+    const res = await fetchPublicDataJson(buildUrl(params.baseUrl, params, pageNo), { sourceCode: "TOUR_INFO" });
+    if (!res.ok) break;
+    try {
+      items.push(...parsePublicDataEnvelope(itemSchema, res.data).items);
+    } catch {
+      break;
+    }
+  }
+
+  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode: first.resultCode, resultMsg: first.resultMsg };
 }

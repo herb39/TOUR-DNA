@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getProjectDetail } from "@/lib/services/projectQueries";
 import { labelForBudgetLevel, labelForDuration, labelForGroupType, labelForTransport } from "@/lib/validation/codes";
@@ -36,6 +37,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
+      <div className="no-print mb-4">
+        <Link href={`/projects/${id}/plan`} className="text-sm text-slate-600 underline hover:text-slate-900">
+          ← 실행안으로 돌아가기
+        </Link>
+      </div>
       <PrintButton />
 
       <header className="border-b border-slate-300 pb-4">

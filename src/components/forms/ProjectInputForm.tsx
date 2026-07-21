@@ -41,11 +41,16 @@ export function ProjectInputForm({
   const [secondaryGoal, setSecondaryGoal] = useState("");
   const [travelYear, setTravelYear] = useState(2026);
   const [travelMonth, setTravelMonth] = useState(9);
+  const [projectName, setProjectName] = useState("");
+  const [projectNameTouched, setProjectNameTouched] = useState(false);
 
   const sigunguOptions = useMemo(
     () => regionOptions.find((r) => r.code === sidoCode)?.sigungus ?? [],
     [regionOptions, sidoCode],
   );
+
+  const sidoName = regionOptions.find((r) => r.code === sidoCode)?.name ?? "";
+  const suggestedProjectName = `${sidoName} ${travelMonth}월 소규모 여행 기획`;
 
   const errors = state.errors ?? {};
 
@@ -69,7 +74,11 @@ export function ProjectInputForm({
                 id="projectName"
                 name="projectName"
                 type="text"
-                defaultValue="대전 9월 소규모 여행 기획"
+                value={projectNameTouched ? projectName : suggestedProjectName}
+                onChange={(e) => {
+                  setProjectNameTouched(true);
+                  setProjectName(e.target.value);
+                }}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <FieldError messages={errors.projectName} />

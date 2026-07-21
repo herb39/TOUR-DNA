@@ -35,7 +35,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     redirect(`/projects/${id}/analysis`);
   }
 
-  const planRow = project.selectedPlan ?? (await ensureSelectedPlan(id));
+  // ensureSelectedPlan은 selectedPlan.strategyResultId가 현재 선택된 전략과 다르면 새로 생성하고,
+  // 같으면 기존 값(사용자 편집분 포함)을 그대로 반환한다 — 항상 호출해야 전략 재선택이 반영된다.
+  const planRow = await ensureSelectedPlan(id);
 
   const planData: PlanEditorData = {
     id: planRow.id,

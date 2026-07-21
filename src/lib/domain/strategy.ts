@@ -134,6 +134,16 @@ function collectEvidences(
   return evidences;
 }
 
+/** 템플릿 id 기반 결정론적 해시. 같은 카테고리를 공유하는 템플릿끼리도 서로 다른 POI를 뽑도록
+ * 정렬된 목록 안에서의 시작 위치(offset)를 템플릿마다 다르게 만든다(같은 입력엔 항상 같은 결과). */
+function templateHash(templateId: string): number {
+  let hash = 0;
+  for (let i = 0; i < templateId.length; i++) {
+    hash = (hash * 31 + templateId.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
 function selectPois(
   template: StrategyTemplate,
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
@@ -141,11 +151,18 @@ function selectPois(
   const sortedCopy = (cat: PoiCategoryCode) =>
     [...(poisByCategory[cat] ?? [])].sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
+  const takeSlice = (pool: PoiLike[], count: number) => {
+    if (pool.length <= count) return pool;
+    const maxOffset = pool.length - count;
+    const offset = templateHash(template.id) % (maxOffset + 1);
+    return pool.slice(offset, offset + count);
+  };
+
   const poiIds: string[] = [];
   const selectedByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};
 
   for (const cat of template.poiCategories) {
-    const picked = sortedCopy(cat).slice(0, 2);
+    const picked = takeSlice(sortedCopy(cat), 2);
     if (picked.length > 0) {
       selectedByCategory[cat] = picked;
       poiIds.push(...picked.map((p) => p.id));
@@ -157,7 +174,7 @@ function selectPois(
   for (const cat of touchpointCats) {
     if (currentTouchpointCats.length >= 2) break;
     if (selectedByCategory[cat]) continue;
-    const picked = sortedCopy(cat).slice(0, 1);
+    const picked = takeSlice(sortedCopy(cat), 1);
     if (picked.length > 0) {
       selectedByCategory[cat] = picked;
       poiIds.push(...picked.map((p) => p.id));

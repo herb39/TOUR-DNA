@@ -9,6 +9,16 @@ import type { RegionLevel } from "@/generated/prisma/enums";
 
 export type SyncTrigger = "CRON" | "ADMIN" | "CLI";
 
+// KorService2의 areaCode는 시/도 단위(예: 강원=32, 충북=33)라 시/군/구보다 훨씬 넓은 범위를 반환한다.
+// 필터 없이 그대로 upsert하면 평창/강릉/영덕처럼 서로 먼 지역이 한 Region에 뒤섞여 코스가 비현실적으로
+// 넓어진다(2026-07-21 실제 발견). 주소(addr1)에 이 키워드가 포함된 장소만 반영해 범위를 좁힌다.
+// 대전은 Region.name이 "대전광역시"(구 단위 아님)라 대표 자치구인 "유성구"로 별도 지정한다.
+const TOUR_INFO_ADDRESS_FILTER_OVERRIDE: Record<string, string> = { SGG_DAEJEON: "유성구" };
+
+function tourInfoAddressFilterKeyword(region: { code: string; name: string }): string {
+  return TOUR_INFO_ADDRESS_FILTER_OVERRIDE[region.code] ?? region.name;
+}
+
 export interface SyncSourceResult {
   sourceCode: string;
   status: "SUCCESS" | "PARTIAL" | "FAILED" | "SKIPPED";
@@ -201,9 +211,11 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           select: { name: true, sourceType: true },
         });
         const existingByName = new Map(existing.map((e) => [e.name, e.sourceType]));
+        const addressKeyword = tourInfoAddressFilterKeyword(region);
 
         for (const item of res.items) {
           if (!item.title || !item.addr1 || item.mapx === undefined || item.mapy === undefined) continue;
+          if (!item.addr1.includes(addressKeyword)) continue;
           const category = mapContentTypeToPoiCategory(item.contenttypeid);
           if (!category) continue;
           if (existingByName.get(item.title) === "FIXTURE") continue;
