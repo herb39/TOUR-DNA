@@ -14,6 +14,7 @@ import {
   type TransportCode,
   type PoiDetail,
 } from "@/lib/domain/planBuilder";
+import { CourseMap } from "@/components/map/CourseMap";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -22,6 +23,7 @@ export interface PlanEditorData {
   projectId: string;
   regionId: string;
   transport: TransportCode;
+  kakaoKey?: string;
   productName: string;
   conceptText: string;
   background: string;
@@ -333,6 +335,9 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
+          <div className="no-print mt-3">
+            <CourseMap days={days} kakaoKey={plan.kakaoKey} />
+          </div>
           <div className="mt-3 space-y-4">
             {days.map((day) => (
               <div key={day.dayIndex}>

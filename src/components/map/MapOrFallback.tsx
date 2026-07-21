@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { loadKakaoMapsSdk } from "./kakaoLoader";
 
 export interface MapPoi {
   id: string;
@@ -8,32 +9,6 @@ export interface MapPoi {
   address: string;
   lat: number;
   lng: number;
-}
-
-interface KakaoLatLng {
-  new (lat: number, lng: number): unknown;
-}
-interface KakaoMap {
-  new (container: HTMLElement, options: { center: unknown; level: number }): unknown;
-}
-interface KakaoMarker {
-  new (options: { position: unknown; map: unknown }): unknown;
-}
-interface KakaoInfoWindow {
-  new (options: { content: string }): { open: (map: unknown, marker: unknown) => void };
-}
-interface KakaoMapsNamespace {
-  load: (cb: () => void) => void;
-  LatLng: KakaoLatLng;
-  Map: KakaoMap;
-  Marker: KakaoMarker;
-  InfoWindow: KakaoInfoWindow;
-  event: { addListener: (target: unknown, type: string, handler: () => void) => void };
-}
-declare global {
-  interface Window {
-    kakao?: { maps: KakaoMapsNamespace };
-  }
 }
 
 function FallbackList({ pois, reason }: { pois: MapPoi[]; reason: "NO_KEY" | "LOAD_FAILED" }) {
@@ -70,14 +45,14 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
   useEffect(() => {
     if (!kakaoKey || pois.length === 0) return;
 
-    function initMap() {
-      const kakao = window.kakao;
-      if (!kakao?.maps || !containerRef.current) {
-        setMapFailed(true);
-        return;
-      }
-      kakao.maps.load(() => {
-        if (!containerRef.current) return;
+    loadKakaoMapsSdk(
+      kakaoKey,
+      () => {
+        const kakao = window.kakao;
+        if (!kakao?.maps || !containerRef.current) {
+          setMapFailed(true);
+          return;
+        }
         const center = new kakao.maps.LatLng(pois[0].lat, pois[0].lng);
         const map = new kakao.maps.Map(containerRef.current, { center, level: 6 });
         pois.forEach((p, i) => {
@@ -87,26 +62,9 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
           });
           kakao.maps.event.addListener(marker, "click", () => info.open(map, marker));
         });
-      });
-    }
-
-    if (window.kakao?.maps) {
-      initMap();
-      return;
-    }
-
-    const scriptId = "kakao-map-sdk";
-    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
-    if (!script) {
-      script = document.createElement("script");
-      script.id = scriptId;
-      script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&autoload=false`;
-      script.onerror = () => setMapFailed(true);
-      script.addEventListener("load", initMap);
-      document.head.appendChild(script);
-    } else {
-      script.addEventListener("load", initMap);
-    }
+      },
+      () => setMapFailed(true),
+    );
   }, [kakaoKey, pois]);
 
   if (!kakaoKey) {

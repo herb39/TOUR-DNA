@@ -44,6 +44,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     projectId: id,
     regionId: project.regionId,
     transport: project.input?.transport as PlanEditorData["transport"],
+    kakaoKey: process.env.NEXT_PUBLIC_KAKAO_MAP_KEY,
     productName: planRow.productName,
     conceptText: planRow.conceptText,
     background: planRow.background,

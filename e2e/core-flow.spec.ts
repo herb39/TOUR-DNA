@@ -79,6 +79,7 @@ test.describe("TOUR DNA 핵심 플로우 (신규 프로젝트, 상태 변경 포
     await page.getByRole("button", { name: "이 전략 선택" }).first().click();
     await page.waitForURL(/\/projects\/.+\/plan/);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
+    await expect(page.getByTestId("course-map-container")).toBeVisible();
     await expect(page.getByRole("heading", { name: "운영 체크리스트" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "KPI" })).toBeVisible();
 
