@@ -10,9 +10,11 @@ export interface MetricFixture {
 }
 
 /**
- * 대전/제천/양양 각 2개 기준월(202508, 202509) fixture.
- * 실 API 응답을 아직 확보하지 못했으므로, 지역별 관광 특성(대전=광역 도심형, 제천=호반 중견관광지,
- * 양양=여름 서핑 성수기형)을 반영한 추정치다. 실 서비스키 발급 후 교체해야 한다.
+ * 대전/제천/양양 각 4개 기준월(202508, 202509, 202605, 202606) fixture.
+ * 202508/202509: 실 서비스키 발급 전 지역별 관광 특성(대전=광역 도심형, 제천=호반 중견관광지, 양양=여름
+ * 서핑 성수기형)을 반영해 추정한 값 — 과거 참고용으로 남겨둔다.
+ * 202605/202606: 2026-07-21 실 서비스키로 확인한 실제 값을 스냅샷 기준값으로 반영했다(단,
+ * touResDemIxVal/visitorCnt는 여전히 API 미확인이라 추정치 이월). DEFAULT_BASE_YM은 202606을 가리킨다.
  */
 export const METRIC_FIXTURES: MetricFixture[] = [
   {
@@ -75,6 +77,71 @@ export const METRIC_FIXTURES: MetricFixture[] = [
     touResDemIxVal: 62,
     visitorCnt: 305_000,
   },
+  // 202605/202606: 2026-07-21 실 서비스키로 확인한 실제 값(tarSvcDemIxVal/tarSjrnDsIxVal/
+  // tarExpDsIxVal/touDivIxVal, docs/public-api-status.md 참고)을 그대로 스냅샷 기준값으로 옮겼다.
+  // touResDemIxVal(문화자원수요)·visitorCnt(방문자수)는 여전히 API 미확인이라 202509 추정치를 그대로
+  // 이월했다(임의로 새 숫자를 만들지 않음 — 202605/202606 두 기준월의 값이 같으므로 방문자수 증감률
+  // 축은 0%로 계산된다).
+  {
+    regionCode: "SGG_DAEJEON",
+    baseYm: "202605",
+    tarSvcDemIxVal: 72.88,
+    tarSjrnDsIxVal: 87.1,
+    tarExpDsIxVal: 92.33,
+    touDivIxVal: 85.24,
+    touResDemIxVal: 65,
+    visitorCnt: 1_980_000,
+  },
+  {
+    regionCode: "SGG_DAEJEON",
+    baseYm: "202606",
+    tarSvcDemIxVal: 72.88,
+    tarSjrnDsIxVal: 87.1,
+    tarExpDsIxVal: 92.33,
+    touDivIxVal: 85.24,
+    touResDemIxVal: 65,
+    visitorCnt: 1_980_000,
+  },
+  {
+    regionCode: "SGG_JECHEON",
+    baseYm: "202605",
+    tarSvcDemIxVal: 75.14,
+    tarSjrnDsIxVal: 72.86,
+    tarExpDsIxVal: 68.82,
+    touDivIxVal: 91.84,
+    touResDemIxVal: 55,
+    visitorCnt: 345_000,
+  },
+  {
+    regionCode: "SGG_JECHEON",
+    baseYm: "202606",
+    tarSvcDemIxVal: 75.14,
+    tarSjrnDsIxVal: 72.86,
+    tarExpDsIxVal: 68.82,
+    touDivIxVal: 91.84,
+    touResDemIxVal: 55,
+    visitorCnt: 345_000,
+  },
+  {
+    regionCode: "SGG_YANGYANG",
+    baseYm: "202605",
+    tarSvcDemIxVal: 104.57,
+    tarSjrnDsIxVal: 77.14,
+    tarExpDsIxVal: 66.78,
+    touDivIxVal: 91.88,
+    touResDemIxVal: 62,
+    visitorCnt: 305_000,
+  },
+  {
+    regionCode: "SGG_YANGYANG",
+    baseYm: "202606",
+    tarSvcDemIxVal: 104.57,
+    tarSjrnDsIxVal: 77.14,
+    tarExpDsIxVal: 66.78,
+    touDivIxVal: 91.88,
+    touResDemIxVal: 62,
+    visitorCnt: 305_000,
+  },
 ];
 
-export const DEFAULT_BASE_YM = "202509";
+export const DEFAULT_BASE_YM = "202606";

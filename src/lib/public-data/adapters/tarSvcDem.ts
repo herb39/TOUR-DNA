@@ -10,10 +10,9 @@ import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
  *   `tarSjrnDsIxCd=2103`="1박 방문자수"로 확인(대전 유성구/제천/양양 3개 지역 전부 실제 값 확인).
  * - 소비 강도: /areaTarExpDsList — `tarExpDsIxCd=2201`="외지인 소비액"로 확인(3개 지역 전부 실제 값 확인).
  * - Swagger UI로 확인 결과(2026-07-21) 이 서비스에 등록된 오퍼레이션은 위 2개(체류/소비)가 전부다.
- *   "지역별 관광 수요 강도"라는 서비스명과 달리 별도의 범용 수요(Demand) 오퍼레이션은 존재하지 않는다 —
- *   `tarSvcDemIxVal`(METRIC_CODES.DEMAND_SERVICE)에 대응하는 실 데이터 소스가 없다는 뜻이다. DNA
- *   Demand 축은 이 값 없이 나머지 두 하위지표(자원수요/방문자수 증감률, 둘 다 별도 서비스이며 아직
- *   base URL 미확인)만으로 계산되거나, 그마저 없으면 스냅샷으로 대체된다(dna.ts 참고).
+ *   "지역별 관광 수요 강도"라는 서비스명과 달리 이 서비스에는 별도의 범용 수요(Demand) 오퍼레이션이
+ *   없다. `tarSvcDemIxVal`(METRIC_CODES.DEMAND_SERVICE)은 이후 확인 결과 이 서비스가 아니라
+ *   AreaTarResDemService(TOU_RES_DEM, touResDem.ts)의 `/areaTarSvcDemList` 오퍼레이션에 있었다.
  * - 필수 파라미터: serviceKey, MobileOS, MobileApp, areaCd, signguCd, baseYm, (오퍼레이션별 코드 파라미터).
  *   JSON은 _type=json 필요(기본 XML).
  * - areaCd/signguCd는 통계청 행정표준코드 체계로 확인됨(AreaTarDivService와 동일 체계, 서울=11/구로구=11530 확인).
@@ -24,8 +23,6 @@ const itemSchema = z.object({
   areaCd: z.string().nullable().optional(),
   signguCd: z.string().nullable().optional(),
   baseYm: z.string(),
-  tarSvcDemIxCd: z.string().optional(),
-  tarSvcDemIxVal: z.coerce.number().optional(),
   tarSjrnDsIxCd: z.string().optional(),
   tarSjrnDsIxVal: z.coerce.number().optional(),
   tarExpDsIxCd: z.string().optional(),

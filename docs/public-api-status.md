@@ -1,8 +1,20 @@
 # 공공데이터 API 연동 현황
 
-> 작성일: 2026-07-20, 2026-07-21 두 차례 갱신. 2026-07-21에 실 서비스키(`TOUR_API_SERVICE_KEY`)를
-> 발급받아 여러 API를 실제로 호출해 검증했다. 아래 "2026-07-21 실키 검증 결과"가 최신 확인 사실이며,
-> 맨 아래 "실키 발급 전 웹 조사 결과(2026-07-20)" 섹션은 그 이전의 추정치로 참고용으로만 남겨둔다.
+> 작성일: 2026-07-20, 2026-07-21 세 차례 갱신(1차: 지역코드/다양성/국문관광정보, 2차: 체류·소비 코드,
+> 3차: 자원수요 서비스·다양성 전체 코드 체계·데이터 기준월 최신화). 아래 "2026-07-21 실키 검증 결과"가
+> 최신 확인 사실이며, 맨 아래 "실키 발급 전 웹 조사 결과(2026-07-20)" 섹션은 그 이전의 추정치로
+> 참고용으로만 남겨둔다.
+
+## 데이터 기준월(baseYm) 최신화 (2026-07-21 3차 확인)
+
+`TOUR_DATA_BASE_YM`이 오랫동안 `202509`(2025년 9월)로 고정돼 있었던 이유는, 실 서비스키 발급 직후
+확인 작업을 그 달 기준으로 시작했고 이후 갱신하지 않았기 때문이다. 실제로는 훨씬 최신 데이터가 존재하는지
+확인이 안 되어 있었다. 이번에 여러 baseYm으로 실 API를 호출해 확인한 결과, **202509~202606(2026년
+6월)까지 매달 데이터가 존재**하고 202607(호출 시점의 이번 달)만 아직 비어 있었다(당연한 결과). 즉
+**9개월 치 더 최신 데이터가 이미 사용 가능한 상태**였다. `DEFAULT_BASE_YM`/`TOUR_DATA_BASE_YM`을
+`202606`으로 갱신했고(로컬 `.env.local`, Vercel 환경변수, `src/lib/fixtures/metrics.ts`의 fixture),
+데모 프로젝트의 분석 결과도 202606 기준으로 재생성했다. 향후에도 이 값은 수동으로 유지보수해야 한다 —
+API가 최신 baseYm을 자동으로 알려주지 않는다.
 
 ## 2026-07-21 실키 검증 결과
 
@@ -41,35 +53,48 @@
   계산되거나, 그마저 없으면 스냅샷으로 대체된다(`src/lib/domain/dna.ts`가 이미 이렇게 방어적으로
   설계되어 있어 코드 변경은 불필요, 문서만 갱신).
 
-**2) 지역별 관광 다양성 — `AreaTarDivService` (✅ 실제 데이터 확인)**
+**2) 지역별 관광 다양성 — `AreaTarDivService` (✅ 실제 데이터 확인, 2026-07-21 3차 갱신: 코드 체계 전체 확인)**
 - Base: `https://apis.data.go.kr/B551011/AreaTarDivService`
-- `/areaTouDivList`(관광객 다양성): `touDivIxCd` 파라미터 필요. 확인된 코드 `3103`="30대 방문객수".
-  실제 데이터 확인됨(예: 대전 유성구 202509월 `touDivIxVal: 95.99`).
-- `/areaExpDivList`(관광 소비 다양성), `/areaIntlDivList`(국제적 다양성): `touDivIxCd`를 붙이면
-  `INVALID_REQUEST_PARAMETER_ERROR(touDivIxCd)` 발생 — 이 두 오퍼레이션은 다른 이름의 코드 파라미터를
-  쓴다(미확인). 코드 파라미터 없이 호출하면 정상 응답하지만 0건.
-- ⚠️ **의미론적 주의**: `touDivIxCd=3103`은 "30대 방문객수" 단일 지표이지 종합 다양성 점수가 아니다.
-  우리 도메인 엔진이 기대하는 "다양성(여러 연령/국적/소비 유형에 걸친 분산)"을 계산하려면 여러
-  `touDivIxCd`(연령대별로 추정: 3101~3106 등, 국적/소비 다양성은 다른 오퍼레이션의 코드) 값을 모두
-  가져와 분산·표준편차 등으로 재계산해야 한다. 이 재계산 로직은 아직 구현하지 않았다.
-- ✅ **저장 보류 조치(2026-07-21)**: 재계산 로직 없이 그대로 라이브 동기화를 돌리면 fixture의 종합
-  다양성 점수를 의미가 다른 단일 지표로 덮어쓰는 것을 실제로 확인했다(당시 데모 안정성을 위해 즉시
-  fixture로 재시드 복원). 이제는 `syncService.ts`가 이 값을 `NormalizedMetric`에 아예 쓰지 않도록
-  막아뒀다 — API 호출/파싱은 계속하고 `SyncLog`에 `SKIPPED`로 기록해 연결 상태는 계속 확인하지만,
-  Cron이 매월 자동 실행돼도 더 이상 데모 점수가 바뀌지 않는다. 재계산 로직이 준비되면 이 보류를 풀 것.
+- `/areaTouDivList`(관광객 다양성): `touDivIxCd` **3101~3106 전체 확인** = 10대~60대 방문객수 지수
+  (6개 연령대 전부 실 데이터 확인, 예: 대전 유성구 202606월 10대=96/20대=93.12/.../60대=101.59).
+- `/areaExpDivList`(관광 소비 다양성): `expDivIxCd` **3201~3206 전체 확인** = 10대~60대 소비액 지수
+  (6개 연령대 전부 실 데이터 확인).
+- `/areaIntlDivList`(국제적 다양성): `intlDivIxCd` **3301~3303 확인** = 3301"외국인 소비액"/
+  3302"외국인 방문자수"/3303"외국인 방문객 국적 다양성"(이미 그 자체로 다양성 지수).
+- ✅ **재계산 로직 구현 완료(2026-07-21)**: `touDivIxCd`/`expDivIxCd` 각 6개 값의 변동계수(CV=표준편차/
+  평균)를 "evenness"(고르게 분포할수록 높은 값)로 변환하고, `intlDivIxCd=3303`(국적 다양성)과 함께 3개를
+  단순 평균해 최종 `touDivIxVal`을 합성한다(`src/lib/public-data/adapters/touDivIx.ts`,
+  scoring-model.md의 공식 참고). 저장 보류(SKIPPED) 조치는 해제했다 — 이제 실제 합성 점수를
+  `NormalizedMetric`에 정상 저장한다(대전 202606월 합성 점수 85.24 등, 기존 fixture 81과 유사한 범위).
 
-**3) 국문 관광정보 서비스 — `KorService2` (✅ 실제 데이터 확인)**
+**3) 지역별 관광 자원 수요 — `AreaTarResDemService` (✅ 관광서비스수요 실제 데이터 확인, 2026-07-21 3차 확인)**
+- Base: `https://apis.data.go.kr/B551011/AreaTarResDemService` (기존에 알려지지 않았던 base — 사용자가
+  실 호출 예시로 제공, `TOU_RES_DEM` 데이터소스에 반영).
+- `/areaTarSvcDemList`(관광 서비스 수요): `tarSvcDemIxCd` 파라미터 필요. 확인된 코드 `1101`="레포츠여행
+  유형 SNS언급량". 3개 지역 전부 실제 값 확인(대전 72.88/제천 75.14/양양 104.57, 202606월).
+  ⚠️ **정정**: 이 값(`tarSvcDemIxVal`, METRIC_CODES.DEMAND_SERVICE)은 원래 `AreaTarDemDsService`
+  (TAR_SVC_DEM)에 있을 것으로 추정했으나, 실제로는 이 서비스(TOU_RES_DEM/AreaTarResDemService)
+  소속이었다. `touResDem.ts`/`syncService.ts`를 이 사실에 맞게 수정했다.
+- `/areaCulResDemList`(문화 자원 수요): 파라미터명은 `culResDemIxCd`로 확인됨(다른 이름을 쓰면
+  `INVALID_REQUEST_PARAMETER_ERROR` 발생, 이 이름은 에러 없이 수락됨)이지만, 유효한 코드값은 찾지
+  못했다(1101~1110 등 다수 시도, 전부 0건). `METRIC_CODES.DEMAND_RESOURCE`(touResDemIxVal)의 실제
+  출처일 가능성이 높으나, 유효 코드 확인 전까지는 호출하지 않는다(추측성 호출 지양).
+
+**4) 국문 관광정보 서비스 — `KorService2` (✅ 실제 데이터 확인, POI 파이프라인 연결 완료)**
 - Base: `https://apis.data.go.kr/B551011/KorService2`
 - `/areaBasedList2`(지역기반 목록): 대전(areaCode=3)에서 실제 POI("갑천" 등) 정상 조회 확인.
-- `/searchFestival2`(축제 검색): 실제 축제 데이터 정상 조회 확인(사용자가 예시 제공).
 - `contentTypeId`(공식 문서 기준): 12=관광지, 14=문화시설, 15=축제공연행사, 25=여행코스, 28=레포츠,
-  32=숙박, 38=쇼핑, 39=음식점.
-- 아직 실제 sync 파이프라인에 POI upsert 로직으로는 연결하지 않았다(어댑터만 준비됨, `syncService.ts`는
-  여전히 SKIPPED로 기록 — fixture POI를 계속 사용). 연결은 추후 과제.
+  32=숙박, 38=쇼핑, 39=음식점 → `PoiCategory` 매핑(`mapContentTypeToPoiCategory`, 25=여행코스는
+  개별 장소가 아니라서 제외).
+- ✅ **POI upsert 파이프라인 연결 완료(2026-07-21)**: `syncService.ts`가 이제 실제로 지역당 최대
+  100건까지 조회해 `Poi` 테이블에 upsert한다. **큐레이션된 FIXTURE POI는 절대 덮어쓰지 않는다** —
+  이름이 겹치면 라이브 데이터(운영시간/휴무일 정보 없음)가 데모용 큐레이션 정보를 지울 수 있어, 기존
+  레코드가 `sourceType=FIXTURE`이면 건너뛴다. 실제 동기화로 3개 지역 총 281건의 실제 장소가 새로 반영된
+  것을 확인했다(기존 fixture 23건은 그대로 유지).
 
-**4) 지역별 관광 자원 수요, 5) 지역별 방문자수** — 여전히 미확인. `https://www.data.go.kr/data/...`
-소개 페이지 URL로 호출하면 `invalid JSON response`(게이트웨이 주소가 아님). `AreaTarDemDsService`/
-`AreaTarDivService`처럼 `Area{Xxx}Service` 패턴을 추정 시도했으나 확인하지 못했다. Swagger UI 확인 필요.
+**5) 지역별 방문자수** — 여전히 미확인. `https://www.data.go.kr/data/...` 소개 페이지 URL로 호출하면
+`invalid JSON response`(게이트웨이 주소가 아님). `Area{Xxx}Service` 패턴을 추정 시도했으나 확인하지
+못했다. Swagger UI 확인 필요.
 
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 
@@ -83,29 +108,30 @@
 - **에러 응답은 다른 최상위 구조**로 온다: `{"responseTime":"...","resultCode":"10","resultMsg":"INVALID_REQUEST_PARAMETER_ERROR(...)"}` — `response` 래퍼가 없다. 어댑터들은 오퍼레이션별로 개별
   try/catch로 파싱해, 하나의 오퍼레이션이 이 에러 구조로 응답해도 나머지가 죽지 않게 처리했다.
 
-## 이번 구현에서 취한 조치 (2026-07-21, 체류/소비 코드 확인 후 2차 갱신)
+## 이번 구현에서 취한 조치 (2026-07-21, 3차 갱신 — 자원수요/다양성 전체 코드/POI 파이프라인/baseYm 최신화)
 
 - `Region.apiAreaCode`/`apiSigunguCode`(통계청 코드), `Region.tourApiAreaCode`(TourAPI 구코드) 3개
   필드로 두 코드 체계를 분리 저장한다.
-- `TAR_SVC_DEM`, `TOU_DIV_IX` 어댑터를 확인된 실제 base URL·오퍼레이션·파라미터로 재작성했다.
-- `TAR_SVC_DEM`의 체류(`tarSjrnDsIxCd=2103`)/소비(`tarExpDsIxCd=2201`) 코드 파라미터를 확인해 어댑터에
-  반영, 라이브 동기화로 3개 지역 전부 실제 값이 정상 저장되는 것을 확인했다(데모 안정성을 위해 재시드로
-  fixture 값 복원함 — 다양성과 달리 의미 대응은 정확하지만, 데모 발표용 고정값 유지를 위해 동일하게 처리).
-- `TOUR_INFO` 어댑터를 `KorService2/areaBasedList2`로 재작성했으나, sync 파이프라인의 POI upsert
-  연결은 아직 하지 않았다(fixture POI 유지).
-- 다양성 지표의 "단일 연령대 비율 ≠ 종합 다양성 점수" 문제 때문에, 실 동기화가 자동으로 fixture 점수를
-  의미가 다른 값으로 덮어쓸 수 있음을 문서화했다. 재계산 로직 구현 전까지는 `npm run sync:tourism-data`
-  또는 Cron 실행 후 다양성 점수가 바뀔 수 있다는 점을 운영자가 인지해야 한다(operator-checklist.md).
+- `TAR_SVC_DEM`, `TOU_DIV_IX`, `TOU_RES_DEM` 어댑터를 확인된 실제 base URL·오퍼레이션·파라미터로
+  재작성했다. `TOU_RES_DEM`의 base URL이 이번에 처음 확인됐다(`AreaTarResDemService`).
+- 다양성 지표의 전체 코드 체계(연령대별 방문객/소비 각 6종 + 국적 다양성)를 확인하고, 변동계수 기반
+  evenness 산식으로 종합 점수를 재계산하는 로직을 구현했다 — 더 이상 저장을 보류하지 않는다.
+- `TOU_RES_DEM`(관광서비스수요)이 실제로는 METRIC_CODES.DEMAND_SERVICE의 출처였음을 확인하고
+  `syncService.ts`의 저장 위치를 바로잡았다(이전에는 `TAR_SVC_DEM` 쪽에서 찾고 있었음).
+- `TOUR_INFO`(국문관광정보) 어댑터를 실제 sync 파이프라인의 POI upsert 로직에 연결했다 — 큐레이션된
+  FIXTURE POI는 보호하고 신규 장소만 반영한다.
+- `TOUR_DATA_BASE_YM`을 202509 → 202606으로 최신화하고(실제로 202606까지 데이터 존재 확인),
+  fixture/데모 프로젝트도 이 기준월로 갱신했다.
 
-## 다음 재검증 시 확인할 것 (사용자 수행)
+## 다음 재검증 시 확인할 것 (사용자 수행, Swagger UI 복구 후)
 
-1. `AreaTarDivService`의 `areaExpDivList`/`areaIntlDivList` 코드 파라미터명과, 다양성 재계산에 필요한
-   `touDivIxCd` 전체 목록(연령대별 등)
-2. 지역별 관광 자원 수요·방문자수 API의 실제 base URL·오퍼레이션명
+1. `AreaTarResDemService`의 `/areaCulResDemList`(문화 자원 수요) 유효 코드값 — 파라미터명(`culResDemIxCd`)
+   은 확인됐으나 코드값을 찾지 못했다(METRIC_CODES.DEMAND_RESOURCE의 유력한 출처)
+2. 지역별 방문자수 API의 실제 base URL·오퍼레이션명
 3. 기초지자체 중심 관광지 및 연관 관광지 API의 정식 서비스명
 
-(수요(Demand) 오퍼레이션명 확인은 완료 — Swagger UI로 `AreaTarDemDsService`에 체류/소비 2개 오퍼레이션만
-있고 별도 수요 오퍼레이션은 없음을 확인함, 위 "서비스별 확인 상태" 1번 항목 참고.)
+(수요 오퍼레이션명·다양성 전체 코드 체계·자원수요 서비스 확인은 모두 완료 — 위 "서비스별 확인 상태"
+1~4번 항목 참고.)
 
 ---
 

@@ -17,8 +17,20 @@
 | Demand | tarSvcDemIxVal + touResDemIxVal + visitorGrowthRateVal(선택) | 존재하는 지표만 단순 평균 |
 | Stay | tarSjrnDsIxVal | 단일 지표 |
 | Spend | tarExpDsIxVal | 단일 지표 |
-| Diversity | touDivIxVal | 단일 지표 |
+| Diversity | touDivIxVal(아래 재계산 산식으로 합성) | 3개 하위 지표 조합 |
 | Network | 구조적 산식(아래) | 외부 지표 아님 |
+
+**다양성(touDivIxVal) 재계산 산식(2026-07-21 구현, `src/lib/public-data/adapters/touDivIx.ts`)**:
+관광 다양성 API의 개별 코드(예: `touDivIxCd=3103`="30대 방문객수")는 그 자체로는 종합 다양성 점수가
+아니라 연령대 하나의 단일 값이다. 아래처럼 여러 코드를 조합해 재계산한다.
+```
+visitorAgeEvenness = 100 * (1 - CV(touDivIxCd 3101~3106 6개 값))   // 연령대별 방문객 지수의 변동계수
+spendAgeEvenness   = 100 * (1 - CV(expDivIxCd 3201~3206 6개 값))   // 연령대별 소비 지수의 변동계수
+nationalityDiversity = intlDivIxCd 3303 값("외국인 방문객 국적 다양성", 이미 지수화됨)
+touDivIxVal(합성) = mean(visitorAgeEvenness, spendAgeEvenness, nationalityDiversity)  // 0~100 clamp
+```
+CV(변동계수) = 표준편차/평균 — 연령대별 값이 고르게 분포할수록(변동계수가 작을수록) evenness가 높다.
+이 산식은 공공데이터 API가 제공하는 공식 다양성 점수가 아니라 원자료로부터 도출한 자체 방법론이다.
 
 **방문자수 증감률 → Demand 보조지표 변환**: `growthRatePercent = (current - previous) / previous * 100`,
 `normalized = clamp(50 + growthRatePercent, 0, 100)` (0%→50, +50%p→100, -50%p→0, 구간 밖은 clamp).

@@ -38,6 +38,32 @@ export const CONTENT_TYPE_ID = {
   FOOD: "39",
 } as const;
 
+/**
+ * contentTypeId → PoiCategory(schema.prisma) 매핑. "여행코스"(25)는 개별 장소가 아니라 여러 장소를
+ * 묶은 코스라서 POI로 upsert하지 않는다(null 반환).
+ */
+export function mapContentTypeToPoiCategory(
+  contentTypeId: string | undefined,
+): "ATTRACTION" | "FOOD" | "LODGING" | "EXPERIENCE" | "FESTIVAL" | "SHOPPING" | null {
+  switch (contentTypeId) {
+    case CONTENT_TYPE_ID.ATTRACTION:
+    case CONTENT_TYPE_ID.CULTURE:
+      return "ATTRACTION";
+    case CONTENT_TYPE_ID.FESTIVAL:
+      return "FESTIVAL";
+    case CONTENT_TYPE_ID.LEISURE_SPORTS:
+      return "EXPERIENCE";
+    case CONTENT_TYPE_ID.LODGING:
+      return "LODGING";
+    case CONTENT_TYPE_ID.SHOPPING:
+      return "SHOPPING";
+    case CONTENT_TYPE_ID.FOOD:
+      return "FOOD";
+    default:
+      return null;
+  }
+}
+
 export interface TourInfoParams {
   serviceKey: string;
   baseUrl: string;

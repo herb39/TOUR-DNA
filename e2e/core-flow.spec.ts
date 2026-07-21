@@ -50,14 +50,15 @@ test.describe("TOUR DNA 핵심 플로우 (읽기 전용, 데모 프로젝트 사
     await expect(firstDetails.getByText("반영 규칙")).toBeVisible();
   });
 
-  test("지도 API 키가 없으면 좌표/주소 목록 fallback이 표시된다", async ({ page }) => {
+  test("카카오맵 키가 설정되어 있으면 좌표/주소 fallback 대신 지도 컨테이너가 렌더링된다", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: /데모 프로젝트 열기/ }).click();
     await page.waitForURL(/\/projects\/.+\/(analysis|plan)/);
     if (!page.url().includes("/analysis")) {
       await page.goto(page.url().replace("/plan", "/analysis"));
     }
-    await expect(page.getByText("지도 API 키가 설정되지 않아")).toBeVisible();
+    await expect(page.getByTestId("kakao-map-container")).toBeVisible();
+    await expect(page.getByText("지도 API 키가 설정되지 않아")).not.toBeVisible();
   });
 
   test("Cron 동기화 엔드포인트는 인증 없이 호출하면 401을 반환한다", async ({ request }) => {

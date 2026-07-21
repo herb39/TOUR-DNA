@@ -3,6 +3,7 @@ import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
 import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchVisitorCnt } from "@/lib/public-data/adapters/visitorCnt";
+import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
 import { METRIC_CODES } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
@@ -104,9 +105,6 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       });
       if (res.status === "SUCCESS") {
         for (const item of res.items) {
-          if (item.tarSvcDemIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", svcSource.id);
-          }
           if (item.tarSjrnDsIxVal !== undefined) {
             await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.STAY, item.tarSjrnDsIxVal, "지수", svcSource.id);
           }
@@ -132,28 +130,32 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
         signguCd: region.apiSigunguCode,
         baseYm: params.baseYm,
       });
-      // touDivIxVal은 확인된 코드(touDivIxCd=3103="30대 방문객수") 단일 값이라 종합 다양성 점수가
-      // 아니다(docs/public-api-status.md). 여러 연령/유형 코드를 모아 재계산하는 로직이 준비되기
-      // 전까지는 fixture의 종합 다양성 점수를 의미가 다른 값으로 덮어쓰지 않도록 저장을 보류한다 —
-      // API 연결 자체는 계속 확인하되(SyncLog에 SKIPPED로 기록), NormalizedMetric은 건드리지 않는다.
+      // 연령대별 방문객/소비 다양성 + 국적 다양성을 조합한 종합 점수(touDivIx.ts의 evenness 산식 참고).
+      if (res.status === "SUCCESS" && res.composite !== null) {
+        await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", divSource.id);
+      }
       results.push({
         sourceCode: `TOU_DIV_IX:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SKIPPED",
-        itemCount: res.items.length,
-        errorMessage:
-          res.status === "ERROR"
-            ? res.resultMsg
-            : "다양성 재계산 로직 구현 전까지 저장 보류 — 종합 점수가 아닌 단일 연령대 지표라 fixture 값 유지",
+        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+        itemCount: res.status === "ERROR" ? 0 : 1,
+        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
       });
     }
 
     const resDemSource = sourceByCode.get("TOU_RES_DEM");
     if (resDemSource) {
-      const res = await fetchTouResDem({ serviceKey, baseUrl: resDemSource.baseUrl, areaCd: region.apiAreaCode, baseYm: params.baseYm });
+      const res = await fetchTouResDem({
+        serviceKey,
+        baseUrl: resDemSource.baseUrl,
+        areaCd: region.apiAreaCode,
+        signguCd: region.apiSigunguCode,
+        baseYm: params.baseYm,
+      });
       if (res.status === "SUCCESS") {
         for (const item of res.items) {
-          if (item.touResDemIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_RESOURCE, item.touResDemIxVal, "지수", resDemSource.id);
+          // areaTarSvcDemList("관광 서비스 수요")가 실제 METRIC_CODES.DEMAND_SERVICE의 출처였다(touResDem.ts 참고).
+          if (item.tarSvcDemIxVal !== undefined) {
+            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", resDemSource.id);
           }
         }
       }
@@ -183,14 +185,70 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       });
     }
 
-    // TOUR_INFO(국문 관광정보), POI_RELATION은 POI/연관관광지 데이터로 fixture가 이미 대체하고 있고,
-    // 실 baseUrl/스키마가 미확인이므로 이번 sync 사이클에서는 상태만 SKIPPED로 기록한다.
-    results.push({
-      sourceCode: `TOUR_INFO:${region.code}`,
-      status: "SKIPPED",
-      itemCount: 0,
-      errorMessage: "실 엔드포인트 미확인 — fixture POI 데이터 사용 중",
-    });
+    const tourInfoSource = sourceByCode.get("TOUR_INFO");
+    if (tourInfoSource && region.tourApiAreaCode) {
+      const res = await fetchTourInfo({
+        serviceKey,
+        baseUrl: tourInfoSource.baseUrl,
+        areaCode: region.tourApiAreaCode,
+      });
+      let upserted = 0;
+      if (res.status === "SUCCESS") {
+        // 이미 있는 장소(특히 큐레이션된 FIXTURE 데모 데이터)는 덮어쓰지 않는다 — 이름이 우연히
+        // 겹치면 라이브 데이터(운영시간/휴무일 정보 없음)가 데모용 큐레이션 정보를 지워버릴 수 있다.
+        const existing = await prisma.poi.findMany({
+          where: { regionId: region.id },
+          select: { name: true, sourceType: true },
+        });
+        const existingByName = new Map(existing.map((e) => [e.name, e.sourceType]));
+
+        for (const item of res.items) {
+          if (!item.title || !item.addr1 || item.mapx === undefined || item.mapy === undefined) continue;
+          const category = mapContentTypeToPoiCategory(item.contenttypeid);
+          if (!category) continue;
+          if (existingByName.get(item.title) === "FIXTURE") continue;
+
+          await prisma.poi.upsert({
+            where: { regionId_name: { regionId: region.id, name: item.title } },
+            update: {
+              category,
+              address: item.addr1,
+              lat: item.mapy,
+              lng: item.mapx,
+              sourceType: "API",
+              sourceId: tourInfoSource.id,
+              rawPayload: item,
+            },
+            create: {
+              externalId: item.contentid,
+              regionId: region.id,
+              name: item.title,
+              category,
+              address: item.addr1,
+              lat: item.mapy,
+              lng: item.mapx,
+              sourceType: "API",
+              sourceId: tourInfoSource.id,
+              rawPayload: item,
+            },
+          });
+          upserted++;
+        }
+      }
+      results.push({
+        sourceCode: `TOUR_INFO:${region.code}`,
+        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+        itemCount: upserted,
+        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+      });
+    } else {
+      results.push({
+        sourceCode: `TOUR_INFO:${region.code}`,
+        status: "SKIPPED",
+        itemCount: 0,
+        errorMessage: "tourApiAreaCode 미설정 — fixture POI 데이터 사용 중",
+      });
+    }
     results.push({
       sourceCode: `POI_RELATION:${region.code}`,
       status: "SKIPPED",

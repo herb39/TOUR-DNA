@@ -44,7 +44,7 @@ http://localhost:3000 접속 → "데모 프로젝트 열기"로 대전 9월 시
 | `DATABASE_URL` | PostgreSQL 연결 문자열(Neon 권장, 풀링 연결) |
 | `DIRECT_URL` | 마이그레이션용 direct(non-pooled) 연결 문자열 |
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 공공데이터포털 서비스키. 비어 있으면 자동으로 스냅샷 모드로 동작 |
-| `TOUR_DATA_BASE_YM` | 분석에 사용할 기준월(YYYYMM). 기본값 `202509` |
+| `TOUR_DATA_BASE_YM` | 분석에 사용할 기준월(YYYYMM). 기본값 `202606`. API가 최신월을 알려주지 않으므로 수동 유지보수 필요(운영자 체크리스트 참고) |
 | `NEXT_PUBLIC_KAKAO_MAP_KEY` | 카카오맵 JavaScript 키. 비어 있으면 좌표/주소 목록 fallback 사용 |
 | `NEXT_PUBLIC_APP_URL` | 배포 URL(운영 `https://tour-dna.lib.lc`, 로컬 `http://localhost:3000`) |
 | `DATA_MODE` | `live` \| `hybrid` \| `snapshot`. `snapshot`이면 라이브 호출을 완전히 생략 |
@@ -99,16 +99,16 @@ CRON 엔드포인트를 호출합니다. Vercel은 `CRON_SECRET` 환경변수가
 
 | API | 상태 |
 |---|---|
-| 지역별 관광 다양성 | ✅ 실제 데이터 확인(`/areaTouDivList`) |
-| 국문 관광정보 서비스 | ✅ 실제 데이터 확인(`KorService2/areaBasedList2`), POI 파이프라인 연결은 미완 |
+| 지역별 관광 다양성 | ✅ 전체 코드 체계 확인 + 변동계수 기반 종합 점수 재계산 로직 구현 완료 |
+| 국문 관광정보 서비스 | ✅ 실제 데이터 확인, POI 라이브 동기화 파이프라인 연결 완료(큐레이션 데이터 보호) |
 | 지역별 관광 수요 강도(체류·소비) | ✅ 실제 데이터 확인(체류 `tarSjrnDsIxCd=2103`, 소비 `tarExpDsIxCd=2201`) |
-| 지역별 관광 수요 강도(수요 지수) | ✅ Swagger UI로 확인 — 별도 오퍼레이션 자체가 존재하지 않음(체류/소비 2개뿐) |
-| 지역별 관광 자원 수요 / 방문자수 / 연관관광지 | 여전히 base URL·오퍼레이션명 미확인 |
+| 지역별 관광 자원 수요(관광서비스수요) | ✅ 실제 데이터 확인(`AreaTarResDemService/areaTarSvcDemList`, tarSvcDemIxCd=1101) |
+| 지역별 관광 자원 수요(문화자원수요) | 파라미터명만 확인, 유효 코드값 미확인 |
+| 지역별 방문자수 / 연관관광지 | 여전히 base URL·오퍼레이션명 미확인 |
 
-⚠️ **다양성 지표 재계산 로직 미구현**: 확인된 단일 코드(`touDivIxCd=3103`, "30대 방문객수")는 종합
-다양성 점수가 아니라서, 재계산 로직이 준비되기 전까지는 라이브 동기화가 이 값을 저장하지 않도록 막아뒀습니다
-(SyncLog에는 `SKIPPED`로 계속 기록됨). 그래서 Cron/CLI를 돌려도 데모의 다양성 점수는 더 이상 바뀌지
-않습니다 — 자세한 내용은 [docs/operator-checklist.md](docs/operator-checklist.md) 참고.
+다양성 지표는 이제 연령대별 방문객/소비 지수 6종씩 + 국적 다양성 지수를 조합해 종합 점수를 계산하고
+정상 저장합니다(더 이상 저장을 보류하지 않습니다) — 산식은 [docs/scoring-model.md](docs/scoring-model.md)
+참고.
 
 ## 테스트와 빌드
 
@@ -140,12 +140,16 @@ npm run build
 
 ## 알려진 제한사항
 
-- 지역별 관광 자원수요·방문자수·연관관광지 API는 base URL·오퍼레이션명이 아직 미확인이다. 다양성·체류·
-  소비·국문관광정보는 실제 데이터로 확인됐고, 수요(Demand) 지수는 Swagger UI 확인 결과 별도 오퍼레이션
-  자체가 존재하지 않는 것으로 결론 내렸다(docs/public-api-status.md).
-- 다양성 지표의 실 동기화 결과는 종합 점수가 아닌 단일 세부 지표값이라, 재계산 로직 구현 전까지 Cron/CLI
-  동기화 시 데모 점수가 바뀔 수 있다(위 "라이브 API 동기화" 절 참고).
+- 문화자원수요(`AreaTarResDemService/areaCulResDemList`)·방문자수·연관관광지 API는 base URL·오퍼레이션명
+  또는 유효 코드값이 아직 미확인이다. 그 외(다양성·체류·소비·관광서비스수요·국문관광정보)는 실제 데이터로
+  확인됐다(docs/public-api-status.md).
+- `TOUR_DATA_BASE_YM`은 API가 자동으로 최신월을 알려주지 않아 수동으로 유지보수해야 한다 — 방치하면
+  실제로는 더 최신 데이터가 있는데도 오래된 기준월을 계속 쓰게 된다(2026-07-21에 9개월 밀려 있던 것을
+  발견해 202606으로 갱신함).
 - `Region.apiSigunguCode`는 대전은 유성구(30200) 하나만 대표로 사용한다 — 다른 자치구 세분화는 P2.
+- POI 라이브 동기화는 이름이 겹치는 경우 큐레이션된 fixture 데이터(`sourceType=FIXTURE`)는 절대
+  덮어쓰지 않는다. 다만 더 이상 API에 나타나지 않는 장소(폐업 등)를 자동으로 삭제하는 로직은 없다 —
+  한 번 반영된 라이브 POI는 계속 남아있는다.
 - 카카오맵 JavaScript SDK 도메인 등록 여부에 따라 실제 지도 렌더링 결과가 달라진다(좌표/주소 fallback UI는 검증됨).
 - 실행안 코스 순서 편집은 같은 날짜 안에서의 위/아래 이동만 지원한다(날짜 간 이동, 드래그 앤 드롭 미지원).
 - "저장하지 않은 변경 이탈 경고"는 브라우저 새로고침/닫기(`beforeunload`)만 감지하며, 앱 내부 라우트

@@ -61,12 +61,12 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 
 | metricCode | 설명 | DNA 축 | 출처(DataSource.code) | 확인 상태 |
 |---|---|---|---|---|
-| tarSvcDemIxVal | 관광 서비스 수요 강도 | Demand(주지표) | TAR_SVC_DEM | 미확인 필드명(후보) |
-| touResDemIxVal | 관광자원 수요 | Demand(보조지표) | TOU_RES_DEM | 미확인 필드명(후보) |
+| tarSvcDemIxVal | 관광 서비스 수요 강도(원지표: `tarSvcDemIxCd=1101` "레포츠여행유형 SNS언급량") | Demand(주지표) | TOU_RES_DEM | 2026-07-21 실키 확인(`AreaTarResDemService/areaTarSvcDemList`) |
+| touResDemIxVal | 문화 자원 수요 | Demand(보조지표) | TOU_RES_DEM | 파라미터명(`culResDemIxCd`)만 확인, 유효 코드값 미확인 |
 | visitorGrowthRateVal | 전월 대비 방문자수 증감률 | Demand(보조지표, 계산값) | VISITOR_CNT | 계산 로직은 자체 구현(원 API 필드는 visitorCnt) |
 | tarSjrnDsIxVal | 체류 강도(원지표: `tarSjrnDsIxCd=2103` "1박 방문자수") | Stay | TAR_SVC_DEM | 2026-07-21 실키 확인 |
 | tarExpDsIxVal | 소비 강도(원지표: `tarExpDsIxCd=2201` "외지인 소비액") | Spend | TAR_SVC_DEM | 2026-07-21 실키 확인 |
-| touDivIxVal | 관광 다양성 | Diversity | TOU_DIV_IX | 미확인 필드명(후보) |
+| touDivIxVal | 관광 다양성(방문객 연령 evenness+소비 연령 evenness+국적 다양성의 합성값, scoring-model.md 참고) | Diversity | TOU_DIV_IX | 2026-07-21 실키 확인, 재계산 로직 구현 완료 |
 | visitorCnt | 방문자수(원값) | Demand 증감률 계산용 | VISITOR_CNT | 데이터셋 존재 확인, 필드명 미확인 |
 | poiNetworkDensity | POI/연관관광지 밀도(구조적 산식) | Network | POI_RELATION | 외부 API 지표 아님 — 자체 산식 |
 
@@ -74,11 +74,11 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 
 | code | 정식 서비스명 | 확인 상태 |
 |---|---|---|
-| TAR_SVC_DEM | 한국관광공사_지역별 관광 수요 강도 | data.go.kr 페이지 확인, 스키마 미확인 |
-| TOU_DIV_IX | 한국관광공사_지역별 관광 다양성 | data.go.kr 페이지 확인, 스키마 미확인 |
-| TOU_RES_DEM | 한국관광공사_지역별 관광 자원 수요 | 데이터셋 존재만 확인 |
+| TAR_SVC_DEM | 한국관광공사_지역별 관광 수요 강도 | 실 키 확인(2026-07-21) — 체류/소비 2개 오퍼레이션이 전부, 별도 수요 오퍼레이션 없음(Swagger UI로 확정) |
+| TOU_DIV_IX | 한국관광공사_지역별 관광 다양성 | 실 키 확인(2026-07-21) — 3개 오퍼레이션 전부, 연령대별 코드(6종×2) + 국적 다양성 코드까지 확인 |
+| TOU_RES_DEM | 한국관광공사_지역별 관광 자원 수요 | 실 키 확인(2026-07-21) — `AreaTarResDemService`. `/areaTarSvcDemList`(관광서비스수요) 확인, `/areaCulResDemList`(문화자원수요)는 파라미터명만 확인 |
 | VISITOR_CNT | 한국관광공사_빅데이터_지역별 방문자수_GW | 데이터셋 존재만 확인 |
-| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 데이터셋 존재만 확인 |
+| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인(2026-07-21) — `areaBasedList2`로 POI 라이브 동기화 파이프라인 연결 완료(syncService.ts) |
 | POI_RELATION | 기초지자체 중심 관광지 및 연관 관광지 | 정식 서비스명/URL 미확인 |
 
 ## POI 카테고리 (PoiCategory)

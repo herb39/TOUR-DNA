@@ -116,5 +116,5 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
     return <FallbackList pois={pois} reason="LOAD_FAILED" />;
   }
 
-  return <div ref={containerRef} className="h-80 w-full rounded-lg border border-slate-200" />;
+  return <div ref={containerRef} data-testid="kakao-map-container" className="h-80 w-full rounded-lg border border-slate-200" />;
 }
