@@ -51,11 +51,22 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 | SGG_JECHEON | 제천시 | SIGUNGU | SIDO_CHUNGBUK | 43 | 43150 | 33 |
 | SIDO_GANGWON | 강원특별자치도 | SIDO | - | 51 | - | 32 |
 | SGG_YANGYANG | 양양군 | SIGUNGU | SIDO_GANGWON | 51 | 51830 | 32 |
+| SGG_GANGNEUNG | 강릉시 | SIGUNGU | SIDO_GANGWON | 51 | 51150 | 32 |
+| SIDO_GYEONGBUK | 경상북도 | SIDO | - | 47 | - | 35 |
+| SGG_GYEONGJU | 경주시 | SIGUNGU | SIDO_GYEONGBUK | 47 | 47130 | 35 |
+| SIDO_JEJU | 제주특별자치도 | SIDO | - | 50 | - | 39 |
+| SGG_JEJU | 제주시 | SIGUNGU | SIDO_JEJU | 50 | 50110 | 39 |
+| SIDO_GYEONGNAM | 경상남도 | SIDO | - | 48 | - | 36 |
+| SGG_TONGYEONG | 통영시 | SIGUNGU | SIDO_GYEONGNAM | 48 | 48220 | 36 |
 
 `apiAreaCode`/`apiSigunguCode`(통계청 행정표준코드, `AreaTarDemDsService`/`AreaTarDivService`용)와
 `tourApiAreaCode`(TourAPI 구코드, `KorService2`용)는 2026-07-21 실 서비스키로 검증됐다
 (docs/public-api-status.md). 대전광역시는 자치구 단위로만 통계청 API 데이터가 제공되어, 대표
 자치구로 유성구(30200)를 쓴다(다른 4개 구로 세분화하는 것은 P2).
+
+**2026-07-21 지역 확장**: DNA 축 정규화(min-max)가 SIGUNGU 코호트 안에서 이뤄지는데 코호트가 3개뿐이면
+최댓값/최솟값 지역이 항상 정확히 100/0으로 나와 신뢰도가 떨어진다는 문제가 있었다. 비교 표본을 7개로
+늘리기 위해 강릉시·경주시·제주시·통영시를 추가했다(area/signguNm 응답으로 직접 대조해 코드 확인).
 
 ## 지표 코드 (NormalizedMetric.metricCode)
 
