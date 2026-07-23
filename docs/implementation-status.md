@@ -4,16 +4,16 @@
 > 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
-## Phase 1. 데이터 출처 및 상태 모델 정비 — `NOT_STARTED`
+## Phase 1. 데이터 출처 및 상태 모델 정비 — `IN_PROGRESS` (1-A만 `DONE`)
 
 | 하위 항목 | 상태 | 근거 |
 |---|---|---|
-| 1-1 provenance 모델(`LIVE_API/CACHED_API/CURATED/ESTIMATED/MISSING`) | NOT_STARTED | `schema.prisma`에 `AxisStatus`(`LIVE\|SNAPSHOT\|MISSING`)만 존재, `NormalizedMetric`/`Evidence`/`Poi`에 provenance 컬럼 없음 |
-| 1-2 `isSnapshotFallback: false` 하드코딩 제거 | NOT_STARTED | [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23), [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45), [dna.ts:105](../src/lib/domain/dna.ts#L105) 3곳 모두 여전히 `false` 고정 — 마스터 문서가 지목한 문제가 그대로 재현됨 |
-| 1-3 Network 근거 분리(POI 수 vs 관계 수) | NOT_STARTED | [buildDnaEngineInput.ts:43](../src/lib/services/buildDnaEngineInput.ts#L43) `sourceCode: "POI_RELATION"` 단일값, Evidence 1행으로 병합 |
-| 1-4 실제 raw snapshot 저장 | **NOT_STARTED(추적 완료)** | `src/lib/services/syncService.ts`의 `runTourismDataSync()`를 끝까지 추적함. 이 함수는 5개 어댑터(`fetchTarSvcDem`/`fetchTouDivIx`/`fetchTouResDem`/`fetchVisitorCnt`/`fetchTourInfo`) 응답을 받아 `upsertMetric()`(→`prisma.normalizedMetric.upsert`, [syncService.ts:41-55](../src/lib/services/syncService.ts#L41-L55))과 `prisma.poi.upsert()`([syncService.ts:228-251](../src/lib/services/syncService.ts#L228-L251))만 호출하고, **`prisma.dataSnapshot.*` 호출이 파일 전체에 단 한 번도 없다.** `DataSnapshot.rawPayload`를 실제로 쓰는 곳은 저장소 전체에서 `prisma/seed.ts`의 `upsertSnapshotAndMetric()`([seed.ts:86-120](../prisma/seed.ts#L86-L120)) 단 한 곳뿐이며, 이마저 `resultCode: "0000"`/`resultMsg: "NORMAL SERVICE."`를 **하드코딩으로 만들어낸 가짜 성공 envelope**다(실제 API가 이 값을 준 적 없음 — 마스터 문서 1-4절이 경고한 "fixture가 공식 API 응답처럼 보이는 가짜 envelope" 문제가 정확히 여기 있음). `src/lib/services/projectQueries.ts:19`가 `prisma.dataSnapshot.findFirst`로 이 값을 읽어 화면에 쓰므로, **실제 운영 동기화가 수백 번 성공해도 화면에는 seed 시점의 fixture 스냅샷만 계속 보인다.** |
+| **1-A provenance 컬럼 추가(스키마만)** | **DONE (2026-07-23)** | `DataProvenance` enum(`LIVE_API/CACHED_API/CURATED/ESTIMATED/MISSING`) 추가, `NormalizedMetric.provenance`/`Evidence.provenance` nullable 컬럼 추가. Migration `20260723000000_add_data_provenance`(미적용, additive). 앱 로직(`isSnapshotFallback` 등)은 이번 단위에서 손대지 않음 — 컬럼은 존재하지만 아직 아무것도 채우지 않는다 |
+| 1-2 `isSnapshotFallback: false` 하드코딩 제거 | NOT_STARTED(Phase 1-C 예정) | [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23), [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45), [dna.ts:105](../src/lib/domain/dna.ts#L105) 3곳 모두 여전히 `false` 고정 — 1-A는 컬럼만 추가했을 뿐 이 로직은 아직 그대로임 |
+| 1-3 Network 근거 분리(POI 수 vs 관계 수) | NOT_STARTED(Phase 1-E 예정) | [buildDnaEngineInput.ts:43](../src/lib/services/buildDnaEngineInput.ts#L43) `sourceCode: "POI_RELATION"` 단일값, Evidence 1행으로 병합 |
+| 1-4 실제 raw snapshot 저장 | NOT_STARTED(Phase 1-B 예정, 추적 완료) | `src/lib/services/syncService.ts`의 `runTourismDataSync()`를 끝까지 추적함. 이 함수는 5개 어댑터(`fetchTarSvcDem`/`fetchTouDivIx`/`fetchTouResDem`/`fetchVisitorCnt`/`fetchTourInfo`) 응답을 받아 `upsertMetric()`(→`prisma.normalizedMetric.upsert`, [syncService.ts:41-55](../src/lib/services/syncService.ts#L41-L55))과 `prisma.poi.upsert()`([syncService.ts:228-251](../src/lib/services/syncService.ts#L228-L251))만 호출하고, **`prisma.dataSnapshot.*` 호출이 파일 전체에 단 한 번도 없다.** `DataSnapshot.rawPayload`를 실제로 쓰는 곳은 저장소 전체에서 `prisma/seed.ts`의 `upsertSnapshotAndMetric()`([seed.ts:86-120](../prisma/seed.ts#L86-L120)) 단 한 곳뿐이며, 이마저 `resultCode: "0000"`/`resultMsg: "NORMAL SERVICE."`를 **하드코딩으로 만들어낸 가짜 성공 envelope**다(실제 API가 이 값을 준 적 없음 — 마스터 문서 1-4절이 경고한 "fixture가 공식 API 응답처럼 보이는 가짜 envelope" 문제가 정확히 여기 있음). `src/lib/services/projectQueries.ts:19`가 `prisma.dataSnapshot.findFirst`로 이 값을 읽어 화면에 쓰므로, **실제 운영 동기화가 수백 번 성공해도 화면에는 seed 시점의 fixture 스냅샷만 계속 보인다.** 1-A 완료로 이 서브유닛의 착수 조건(컬럼 존재)은 갖춰졌다 |
 
-**완료 조건 충족 여부**: 미충족. 추정값이 포함된 데모에서 `LIVE 5/5`가 나오지 않는다는 조건을 현재 코드는 보장하지 못한다.
+**완료 조건 충족 여부**: 아직 미충족(전체 Phase 1 기준). 1-A는 스키마 기반만 마련했을 뿐, `LIVE 5/5` 오표시를 실제로 막으려면 1-B(실제 snapshot 저장)와 1-C(하드코딩 제거)가 이어져야 한다.
 
 ## Phase 2. 갱신형 DB 캐시와 최신 데이터 자동 반영 — `NOT_STARTED`
 
@@ -90,7 +90,7 @@
 
 | Phase | 상태 | 우선순위(재조정) |
 |---|---|---|
-| 1. Provenance 모델 + 실제 snapshot 저장 | NOT_STARTED(추적 완료) | **P0-1** |
+| 1. Provenance 모델 + 실제 snapshot 저장 | IN_PROGRESS(1-A DONE, 1-B/1-C/1-E 남음) | **P0-1** |
 | 5. 다채널 홍보 초안 | NOT_STARTED | **P0-2** |
 | 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-3** |
 | (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-4** |

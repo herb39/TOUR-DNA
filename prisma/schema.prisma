@@ -70,6 +70,18 @@ enum AxisStatus {
   MISSING // 데이터 부족
 }
 
+/// 개별 지표/근거 값의 데이터 출처 상태(Phase 1-A, 2026-07-23).
+/// 기존 레코드는 이 값을 판정할 근거가 없으므로 컬럼을 nullable로 두고 NULL(미분류)로 남긴다 —
+/// 어떤 기존 데이터에도 이 5개 값 중 하나를 추측해 배정하지 않는다(Phase 1-B/1-C에서 실제 동기화
+/// 경로에 DataSnapshot 연결이 붙은 뒤에야 신뢰성 있게 채울 수 있다).
+enum DataProvenance {
+  LIVE_API // 실제 API에서 이번 동기화로 받은 값
+  CACHED_API // 과거 실제 API 성공 응답을 재사용한 값
+  CURATED // 사람이 검수해 만든 POI/관계 데이터
+  ESTIMATED // 추정·가공 데모 값
+  MISSING // 사용할 수 있는 값 없음
+}
+
 enum SnapshotStatus {
   SUCCESS
   EMPTY // API 성공 응답이지만 0건
@@ -164,9 +176,9 @@ model DataSnapshot {
 
 /// 원본 스냅샷을 정규화 규칙에 따라 변환한 지표. DNA 계산과 근거 패널이 참조하는 단일 출처.
 model NormalizedMetric {
-  id              String      @id @default(cuid())
+  id              String          @id @default(cuid())
   regionId        String
-  region          Region      @relation(fields: [regionId], references: [id])
+  region          Region          @relation(fields: [regionId], references: [id])
   baseYm          String
   metricCode      String // tarSvcDemIxVal | tarSjrnDsIxVal | tarExpDsIxVal | touDivIxVal 등
   rawValue        Float
@@ -174,8 +186,9 @@ model NormalizedMetric {
   unit            String
   adminLevel      RegionLevel
   sourceId        String
-  source          DataSource  @relation(fields: [sourceId], references: [id])
-  collectedAt     DateTime    @default(now())
+  source          DataSource      @relation(fields: [sourceId], references: [id])
+  collectedAt     DateTime        @default(now())
+  provenance      DataProvenance? // Phase 1-A: nullable, 기존 레코드는 NULL(미분류) — Phase 1-B/1-C에서 채운다
 
   @@unique([regionId, baseYm, metricCode])
   @@index([metricCode, baseYm, adminLevel])
@@ -365,6 +378,7 @@ model Evidence {
   sourceCode      String // DataSource.code
   collectedAt     DateTime
   appliedRule     String // 예: "SIGUNGU 코호트 내 min-max, baseYm=202509"
+  provenance      DataProvenance? // Phase 1-A: 분석 당시 provenance 복사본. nullable, 기존 레코드는 NULL(미분류)
 
   createdAt DateTime @default(now())
 
