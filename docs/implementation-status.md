@@ -4,6 +4,31 @@
 > 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
+## Phase 1 배포 전 마이그레이션 점검 (2026-07-23, 코드/설정 감사만 — DB 미접속)
+
+- **현재 migration 실행 구조**: 저장소·문서 근거로 확인한 결과 **"C. 수동 migration 적용을 전제로 함"**이다.
+  `package.json`의 `build`는 `next build`뿐이고(`prisma migrate deploy` 없음), `postinstall`은
+  `prisma generate`만 실행한다. `docs/deployment.md` 5절("Build Command는 기본값... seed를 build 훅에
+  넣지 않는다")과 `README.md`("마이그레이션은 배포 파이프라인에서 자동 실행되지 않으며 `npm run db:migrate`로
+  수동 적용")가 이를 명시적으로 문서화하고 있다. `.github/workflows`는 존재하지 않아 별도 CI/CD 단계도 없다.
+  단, Vercel 대시보드에서 Build Command가 저장소 기본값과 다르게 수동으로 덮어써졌을 가능성은 저장소만으로는
+  배제할 수 없다(그 부분은 사람이 Vercel 대시보드에서 직접 확인 필요).
+- **핵심 위험**: `main` push는 GitHub 연동으로 Vercel 자동 배포를 트리거한다(README "GitHub main 브랜치
+  push 시 자동 배포"). Migration이 자동 적용되지 않으므로, **이 세션의 Phase 1 커밋을 push만 하고 `npm run
+  db:migrate`를 실행하지 않으면**, 배포된 새 코드가 `NormalizedMetric`/`Evidence` 테이블에 없는
+  `provenance` 컬럼을 조회·저장하려다 실행 시점(runtime)에 실패한다 — 프로젝트 생성/분석 실행, 기존
+  프로젝트의 분석 결과 열람이 전부 영향을 받는다. 모든 주요 페이지가 `export const dynamic =
+  "force-dynamic"`이라 `next build` 자체는 이 문제로 실패하지 않는다(런타임에서만 드러남).
+- **안전한 배포 순서(권장)**: ① 이 세션의 커밋을 push하기 **전에** 또는 push 직후 배포가 완료되기 전에
+  `npm run db:migrate`(=`prisma migrate deploy`)를 대상 Neon DB에 먼저 실행 → ② 그 다음에 Vercel 배포가
+  해당 커밋을 반영하도록 한다. Migration은 전부 additive(컬럼/타입 추가)라 안전하게 먼저 적용해도 이전
+  코드와 호환된다.
+- **기존 가짜 DataSnapshot 정리와는 무관**: migration 4개(`init`/`add_kpi_memo`/`add_tour_api_area_code`/
+  `add_data_provenance`) 중 어느 것도 DELETE/TRUNCATE를 포함하지 않는다 — 가짜 DataSnapshot 정리는 별도의
+  수동 작업이며 migration 적용 여부와 독립적이다(정리하지 않아도 migration 자체는 그대로 적용 가능).
+- 상세 근거(빌드 명령 경로, migration SQL 전문 검토, Preview/Production DB 분리 확인 불가 사유, Vercel
+  대시보드에서 사람이 확인할 항목 등)는 이번 대화의 감사 보고 참고.
+
 ## Phase 1. 데이터 출처 및 상태 모델 정비 — `DONE` (1-A~1-E 전부 완료)
 
 | 하위 항목 | 상태 | 근거 |
