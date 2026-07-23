@@ -6,6 +6,7 @@ import { POI_SEED, POI_RELATION_SEED } from "../src/lib/fixtures/pois";
 import { METRIC_CODES } from "../src/lib/domain/types";
 import { runAnalysisForProject } from "../src/lib/services/analyzeProject";
 import { ensureSelectedPlan } from "../src/lib/services/planService";
+import { classifyVerifiedMetricProvenance, upsertSeedMetric } from "../src/lib/services/seedMetrics";
 
 async function upsertDataSources() {
   for (const ds of DATA_SOURCE_SEED) {
@@ -69,190 +70,88 @@ async function upsertRegions() {
   console.log(`  Region ${REGION_SEED.length}건 반영`);
 }
 
-function envelope(item: unknown, resultCode = "0000", resultMsg = "NORMAL SERVICE.") {
-  return {
-    response: {
-      header: { resultCode, resultMsg },
-      body: {
-        items: { item },
-        numOfRows: Array.isArray(item) ? item.length : item === "" ? 0 : 1,
-        pageNo: 1,
-        totalCount: Array.isArray(item) ? item.length : item === "" ? 0 : 1,
-      },
-    },
-  };
-}
-
-async function upsertSnapshotAndMetric(params: {
-  sourceCode: string;
-  regionCode: string;
-  baseYm: string;
-  metricCode: string;
-  rawValue: number;
-  unit: string;
-  rawPayload: unknown;
-  itemCount: number;
-  status: "SUCCESS" | "EMPTY" | "ERROR";
-}) {
-  const source = await prisma.dataSource.findUniqueOrThrow({ where: { code: params.sourceCode } });
-  const region = await prisma.region.findUniqueOrThrow({ where: { code: params.regionCode } });
-
-  await prisma.dataSnapshot.upsert({
-    where: {
-      dataSourceId_regionId_baseYm: { dataSourceId: source.id, regionId: region.id, baseYm: params.baseYm },
-    },
-    update: {
-      status: params.status,
-      resultCode: "0000",
-      resultMsg: "NORMAL SERVICE.",
-      itemCount: params.itemCount,
-      rawPayload: params.rawPayload as object,
-      fetchedAt: new Date(),
-    },
-    create: {
-      dataSourceId: source.id,
-      regionId: region.id,
-      baseYm: params.baseYm,
-      status: params.status,
-      resultCode: "0000",
-      resultMsg: "NORMAL SERVICE.",
-      itemCount: params.itemCount,
-      rawPayload: params.rawPayload as object,
-    },
-  });
-
-  if (params.status !== "SUCCESS") return;
-
-  await prisma.normalizedMetric.upsert({
-    where: {
-      regionId_baseYm_metricCode: { regionId: region.id, baseYm: params.baseYm, metricCode: params.metricCode },
-    },
-    update: { rawValue: params.rawValue, unit: params.unit, adminLevel: region.level, sourceId: source.id },
-    create: {
-      regionId: region.id,
-      baseYm: params.baseYm,
-      metricCode: params.metricCode,
-      rawValue: params.rawValue,
-      unit: params.unit,
-      adminLevel: region.level,
-      sourceId: source.id,
-    },
-  });
-}
-
 async function seedMetrics() {
   for (const m of METRIC_FIXTURES) {
-    // 대전 202508의 관광자원 수요(TOU_RES_DEM)는 "빈 items" 응답 사례를 재현한다.
+    // 대전 202508의 관광자원 수요(TOU_RES_DEM)는 "값 자체가 없는" 사례를 재현한다 — 가짜 EMPTY snapshot
+    // 대신, 이 지표의 NormalizedMetric을 아예 만들지 않아 기존 MISSING 축 처리를 그대로 타게 한다.
     const isEmptyCase = m.regionCode === "SGG_JECHEON" && m.baseYm === "202508";
+    // CURATED/ESTIMATED 판정 규칙은 src/lib/services/seedMetrics.ts의 순수 함수로 분리되어 있다
+    // (DB 없이 단위테스트 가능 — tests/unit/seedMetrics.test.ts 참고).
+    const humanVerifiedProvenance = classifyVerifiedMetricProvenance(m.baseYm);
 
-    await upsertSnapshotAndMetric({
+    await upsertSeedMetric({
       sourceCode: "TAR_SVC_DEM",
       regionCode: m.regionCode,
       baseYm: m.baseYm,
       metricCode: METRIC_CODES.DEMAND_SERVICE,
       rawValue: m.tarSvcDemIxVal,
       unit: "지수",
-      itemCount: 3,
-      status: "SUCCESS",
-      rawPayload: envelope([
-        { areaCd: null, baseYm: m.baseYm, tarSvcDemIxCd: "11", tarSvcDemIxVal: String(m.tarSvcDemIxVal) },
-        { areaCd: null, baseYm: m.baseYm, tarSjrnDsIxCd: "21", tarSjrnDsIxVal: String(m.tarSjrnDsIxVal) },
-        { areaCd: null, baseYm: m.baseYm, tarExpDsIxCd: "22", tarExpDsIxVal: String(m.tarExpDsIxVal) },
-      ]),
+      provenance: humanVerifiedProvenance,
     });
-    // 체류/소비 강도는 같은 원본 응답(TAR_SVC_DEM)에서 나오는 별도 지표이므로 NormalizedMetric만 추가 반영
-    await prisma.normalizedMetric.upsert({
-      where: {
-        regionId_baseYm_metricCode: {
-          regionId: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).id,
-          baseYm: m.baseYm,
-          metricCode: METRIC_CODES.STAY,
-        },
-      },
-      update: { rawValue: m.tarSjrnDsIxVal },
-      create: {
-        regionId: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).id,
-        baseYm: m.baseYm,
-        metricCode: METRIC_CODES.STAY,
-        rawValue: m.tarSjrnDsIxVal,
-        unit: "지수",
-        adminLevel: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).level,
-        sourceId: (await prisma.dataSource.findUniqueOrThrow({ where: { code: "TAR_SVC_DEM" } })).id,
-      },
+    await upsertSeedMetric({
+      sourceCode: "TAR_SVC_DEM",
+      regionCode: m.regionCode,
+      baseYm: m.baseYm,
+      metricCode: METRIC_CODES.STAY,
+      rawValue: m.tarSjrnDsIxVal,
+      unit: "지수",
+      provenance: humanVerifiedProvenance,
     });
-    await prisma.normalizedMetric.upsert({
-      where: {
-        regionId_baseYm_metricCode: {
-          regionId: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).id,
-          baseYm: m.baseYm,
-          metricCode: METRIC_CODES.SPEND,
-        },
-      },
-      update: { rawValue: m.tarExpDsIxVal },
-      create: {
-        regionId: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).id,
-        baseYm: m.baseYm,
-        metricCode: METRIC_CODES.SPEND,
-        rawValue: m.tarExpDsIxVal,
-        unit: "지수",
-        adminLevel: (await prisma.region.findUniqueOrThrow({ where: { code: m.regionCode } })).level,
-        sourceId: (await prisma.dataSource.findUniqueOrThrow({ where: { code: "TAR_SVC_DEM" } })).id,
-      },
+    await upsertSeedMetric({
+      sourceCode: "TAR_SVC_DEM",
+      regionCode: m.regionCode,
+      baseYm: m.baseYm,
+      metricCode: METRIC_CODES.SPEND,
+      rawValue: m.tarExpDsIxVal,
+      unit: "지수",
+      provenance: humanVerifiedProvenance,
     });
-
-    await upsertSnapshotAndMetric({
+    await upsertSeedMetric({
       sourceCode: "TOU_DIV_IX",
       regionCode: m.regionCode,
       baseYm: m.baseYm,
       metricCode: METRIC_CODES.DIVERSITY,
       rawValue: m.touDivIxVal,
       unit: "지수",
-      itemCount: 1,
-      status: "SUCCESS",
-      rawPayload: envelope({ areaCd: null, baseYm: m.baseYm, touDivIxCd: "31", touDivIxVal: String(m.touDivIxVal) }),
+      provenance: humanVerifiedProvenance,
     });
 
-    if (isEmptyCase) {
-      await upsertSnapshotAndMetric({
-        sourceCode: "TOU_RES_DEM",
-        regionCode: m.regionCode,
-        baseYm: m.baseYm,
-        metricCode: METRIC_CODES.DEMAND_RESOURCE,
-        rawValue: 0,
-        unit: "지수",
-        itemCount: 0,
-        status: "EMPTY",
-        rawPayload: envelope(""),
-      });
-    } else {
-      await upsertSnapshotAndMetric({
+    if (!isEmptyCase) {
+      // touResDemIxVal(문화자원수요)은 baseYm과 무관하게 항상 ESTIMATED다 — API 자체가 여전히
+      // 미확인이라(docs/public-api-status.md) "사람이 검증한 값"이라고 부를 근거가 없다.
+      await upsertSeedMetric({
         sourceCode: "TOU_RES_DEM",
         regionCode: m.regionCode,
         baseYm: m.baseYm,
         metricCode: METRIC_CODES.DEMAND_RESOURCE,
         rawValue: m.touResDemIxVal,
         unit: "지수",
-        itemCount: 1,
-        status: "SUCCESS",
-        rawPayload: envelope({ areaCd: null, baseYm: m.baseYm, touResDemIxVal: String(m.touResDemIxVal) }),
+        provenance: "ESTIMATED",
       });
     }
 
-    await upsertSnapshotAndMetric({
+    // 방문자수 API도 필드 의미가 미확인이라(Phase 1-C와 동일 정책) 항상 ESTIMATED다.
+    await upsertSeedMetric({
       sourceCode: "VISITOR_CNT",
       regionCode: m.regionCode,
       baseYm: m.baseYm,
       metricCode: METRIC_CODES.VISITOR_CNT,
       rawValue: m.visitorCnt,
       unit: "명",
-      itemCount: 1,
-      status: "SUCCESS",
-      rawPayload: envelope({ areaCd: null, baseYm: m.baseYm, visitorCnt: String(m.visitorCnt) }),
+      provenance: "ESTIMATED",
     });
   }
-  console.log(`  DataSnapshot/NormalizedMetric ${METRIC_FIXTURES.length}개 지역×기준월 반영`);
+  console.log(
+    `  NormalizedMetric ${METRIC_FIXTURES.length}개 지역×기준월 반영(DataSnapshot 미생성 — 실제 API 호출이 없었으므로 가짜 성공 응답을 만들지 않는다)`,
+  );
 }
 
+/**
+ * seed POI는 항상 `sourceType: "FIXTURE"`로 만든다(Phase 1-D 재확인, 2026-07-23) — 사람이 직접 고른
+ * 큐레이션 장소이며 API 성공 응답으로 만들어진 적이 없다. `buildDnaEngineInput.ts`의 Network provenance
+ * 판정이 `sourceType !== "API"`를 fallback(CURATED) 신호로 쓰므로, 이 값은 그 규칙과 이미 일치한다
+ * (변경 불필요 — 처음부터 올바르게 구현돼 있었음).
+ */
 async function seedPois() {
   const keyToId = new Map<string, string>();
   const tourInfoSource = await prisma.dataSource.findUniqueOrThrow({ where: { code: "TOUR_INFO" } });
@@ -286,6 +185,10 @@ async function seedPois() {
     keyToId.set(p.key, row.id);
   }
 
+  // PoiRelation은 사람이 구성한 데모 관계다. 정식 서비스명조차 미확인인 실제 연관관광지 API를
+  // syncService.ts가 절대 호출하지 않으므로(항상 POI_RELATION:SKIPPED), 존재하는 PoiRelation 행은
+  // 전부 이 seed에서만 만들어진다 — `buildDnaEngineInput.ts`가 `relatedPoiCount > 0`을 CURATED 신호로
+  // 쓰는 것과 정확히 일치한다(변경 불필요, 코드 경로로 이미 명확함).
   const poiRelationSource = await prisma.dataSource.findUniqueOrThrow({ where: { code: "POI_RELATION" } });
   for (const rel of POI_RELATION_SEED) {
     const centerId = keyToId.get(rel.centerKey);
