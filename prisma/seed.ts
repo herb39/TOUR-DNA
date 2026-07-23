@@ -79,8 +79,13 @@ async function seedMetrics() {
     // (DB 없이 단위테스트 가능 — tests/unit/seedMetrics.test.ts 참고).
     const humanVerifiedProvenance = classifyVerifiedMetricProvenance(m.baseYm);
 
+    // DEMAND_SERVICE(tarSvcDemIxVal)의 실제 출처는 TOU_RES_DEM(AreaTarResDemService/areaTarSvcDemList)이다
+    // — TAR_SVC_DEM(AreaTarDemDsService)에는 이 오퍼레이션 자체가 없다(docs/public-api-status.md
+    // "이전에는 TAR_SVC_DEM 쪽에서 찾고 있었는데 실제로는 TOU_RES_DEM 소속이었다", syncService.ts도
+    // 이미 TOU_RES_DEM 블록에서 이 metricCode를 upsert한다). seed는 이 정정 이전 attribution이
+    // 남아있었다 — 실제 파이프라인과 일치하도록 바로잡는다.
     await upsertSeedMetric({
-      sourceCode: "TAR_SVC_DEM",
+      sourceCode: "TOU_RES_DEM",
       regionCode: m.regionCode,
       baseYm: m.baseYm,
       metricCode: METRIC_CODES.DEMAND_SERVICE,
