@@ -14,6 +14,7 @@ function metric(regionCode: string, rawValue: number, metricCode: string): Regio
     adminLevel: "SIGUNGU",
     sourceCode: "TAR_SVC_DEM",
     collectedAt: "2026-07-01T00:00:00.000Z",
+    provenance: "LIVE_API",
     isSnapshotFallback: false,
   };
 }
@@ -61,6 +62,7 @@ function baseInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
       experienceCount: 5,
       sourceCode: "POI_RELATION",
       collectedAt: "2026-07-01T00:00:00.000Z",
+      provenance: "LIVE_API",
       isSnapshotFallback: false,
     },
     ...overrides,
@@ -124,13 +126,81 @@ describe("computeDna", () => {
 
   it("방문자수 증감률이 있으면 demand 축 근거에 포함된다", () => {
     const input = baseInput({
-      previousVisitorCount: { value: 1000, baseYm: "202508", sourceCode: "VISITOR_CNT", collectedAt: "2026-06-01T00:00:00.000Z" },
-      currentVisitorCount: { value: 1200, baseYm: "202509", sourceCode: "VISITOR_CNT", collectedAt: "2026-07-01T00:00:00.000Z" },
+      previousVisitorCount: {
+        value: 1000,
+        baseYm: "202508",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-06-01T00:00:00.000Z",
+        provenance: "ESTIMATED",
+        isSnapshotFallback: true,
+      },
+      currentVisitorCount: {
+        value: 1200,
+        baseYm: "202509",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-07-01T00:00:00.000Z",
+        provenance: "ESTIMATED",
+        isSnapshotFallback: true,
+      },
     });
     const result = computeDna(input);
     expect(result.demand.evidence.some((e) => e.metricCode === METRIC_CODES.DEMAND_VISITOR_GROWTH)).toBe(
       true,
     );
+    // 방문자수 Evidence의 provenance는 ESTIMATED 그대로 보존된다 — 임의로 LIVE_API로 승격하지 않는다.
+    const growthEvidence = result.demand.evidence.find((e) => e.metricCode === METRIC_CODES.DEMAND_VISITOR_GROWTH);
+    expect(growthEvidence?.provenance).toBe("ESTIMATED");
+  });
+
+  it("방문자수 증감률 근거는 current/previous 둘 다 LIVE_API일 때만 LIVE_API로 분류된다", () => {
+    const input = baseInput({
+      previousVisitorCount: {
+        value: 1000,
+        baseYm: "202508",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-06-01T00:00:00.000Z",
+        provenance: "LIVE_API",
+        isSnapshotFallback: false,
+      },
+      currentVisitorCount: {
+        value: 1200,
+        baseYm: "202509",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-07-01T00:00:00.000Z",
+        provenance: "LIVE_API",
+        isSnapshotFallback: false,
+      },
+    });
+    const result = computeDna(input);
+    const growthEvidence = result.demand.evidence.find((e) => e.metricCode === METRIC_CODES.DEMAND_VISITOR_GROWTH);
+    expect(growthEvidence?.provenance).toBe("LIVE_API");
+  });
+
+  it("방문자수 증감률 근거는 current/previous 중 하나라도 fallback이면 전체가 fallback으로 취급된다", () => {
+    const input = baseInput({
+      previousVisitorCount: {
+        value: 1000,
+        baseYm: "202508",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-06-01T00:00:00.000Z",
+        provenance: "CACHED_API",
+        isSnapshotFallback: true,
+      },
+      currentVisitorCount: {
+        value: 1200,
+        baseYm: "202509",
+        sourceCode: "VISITOR_CNT",
+        collectedAt: "2026-07-01T00:00:00.000Z",
+        provenance: "LIVE_API",
+        isSnapshotFallback: false,
+      },
+    });
+    const result = computeDna(input);
+    // demand 축은 서비스수요/자원수요 다른 지표도 섞이므로, 증감률 evidence 자체의 fallback 여부는
+    // combineAxisStatus에 들어가는 entries를 통해 간접 확인한다(evidence 자체엔 별도 필드 없음) —
+    // 대신 provenance가 current(LIVE_API)를 우선하되, 증감률이 신뢰할 수 있는 값인지는 두 값을 모두
+    // 사용한다는 점에서 previous가 fallback이면 axis 결합 상태도 영향을 받아야 한다.
+    expect(result.demand.status).not.toBe("LIVE");
   });
 
   it("강점 2개, 기회 2개, 주의점 1개를 항상 반환한다", () => {

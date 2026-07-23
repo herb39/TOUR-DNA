@@ -4,16 +4,28 @@
 > 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
-## Phase 1. 데이터 출처 및 상태 모델 정비 — `IN_PROGRESS` (1-A, 1-B `DONE`)
+## Phase 1. 데이터 출처 및 상태 모델 정비 — `IN_PROGRESS` (1-A, 1-B, 1-C `DONE`)
 
 | 하위 항목 | 상태 | 근거 |
 |---|---|---|
-| **1-A provenance 컬럼 추가(스키마만)** | **DONE (2026-07-23)** | `DataProvenance` enum(`LIVE_API/CACHED_API/CURATED/ESTIMATED/MISSING`) 추가, `NormalizedMetric.provenance`/`Evidence.provenance` nullable 컬럼 추가. Migration `20260723000000_add_data_provenance`(미적용, additive). 앱 로직(`isSnapshotFallback` 등)은 이번 단위에서 손대지 않음 — 컬럼은 존재하지만 아직 아무것도 채우지 않는다 |
-| **1-B 실제 raw snapshot 저장** | **DONE (2026-07-23, 보완 완료)** | `src/lib/services/syncService.ts`의 `runTourismDataSync()`에 5개 지표+POI 호출 지점마다 `upsertSnapshot()`(신규 helper, `prisma.dataSnapshot.upsert`)을 추가했다. 각 어댑터(`tarSvcDem`/`touDivIx`/`touResDem`/`visitorCnt`/`tourInfo`)가 실제로 받은 응답 객체(`res.data`, HTTP 클라이언트가 JSON으로 파싱한 실제 응답 — 원문 문자열/파싱 전 byte 아님)를 어댑터 반환 타입에 `raw` 필드로 추가해 syncService까지 전달한다(기존엔 `parsePublicDataEnvelope` 이후 버려졌음). 네트워크/timeout/JSON파싱 실패로 실제 본문이 전혀 없으면 `upsertSnapshot()` 자체를 호출하지 않는다(rawPayload가 스키마상 NOT NULL이라 지어낸 값 없이는 표현 불가 — 스키마는 이 단위에서 변경하지 않음). `prisma/seed.ts`의 가짜 envelope는 이번 단위에서 손대지 않았다(Phase 1-D 몫). **보완(같은 날 발견·수정)**: 최초 구현은 기존 SUCCESS/EMPTY 스냅샷이 있어도 다음 실행이 API 에러 본문(HTTP는 성공, resultCode만 오류)이면 `update` 분기가 마지막 정상 rawPayload/메타데이터를 무조건 덮어쓰는 결함이 있었다. `upsertSnapshot()`에 `prisma.dataSnapshot.findUnique` 선조회를 추가해, 기존이 SUCCESS/EMPTY이고 이번 응답이 ERROR면 쓰기 자체를 건너뛰도록 고쳤다(기존 ERROR나 최초 호출에는 실제 ERROR 본문을 그대로 저장, 이후 정상 응답이 오면 정상적으로 갱신). `NormalizedMetric`은 애초에 `res.status==="SUCCESS"`일 때만 upsert되므로 이 결함의 영향을 받지 않았다(코드로 확인, 테스트로 검증) |
-| 1-2 `isSnapshotFallback: false` 하드코딩 제거 | NOT_STARTED(Phase 1-C 예정) | [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23), [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45), [dna.ts:105](../src/lib/domain/dna.ts#L105) 3곳 모두 여전히 `false` 고정 — 1-A/1-B는 컬럼 추가와 snapshot 저장만 했을 뿐 이 로직은 아직 그대로임. `NormalizedMetric.provenance`/`Evidence.provenance`도 1-B에서 채우지 않았다(1-B 정의에 명시되지 않아 NULL 정책 유지, Phase 1-C 몫) |
-| 1-3 Network 근거 분리(POI 수 vs 관계 수) | NOT_STARTED(Phase 1-E 예정) | [buildDnaEngineInput.ts:43](../src/lib/services/buildDnaEngineInput.ts#L43) `sourceCode: "POI_RELATION"` 단일값, Evidence 1행으로 병합 |
+| **1-A provenance 컬럼 추가(스키마만)** | **DONE (2026-07-23)** | `DataProvenance` enum(`LIVE_API/CACHED_API/CURATED/ESTIMATED/MISSING`) 추가, `NormalizedMetric.provenance`/`Evidence.provenance` nullable 컬럼 추가. Migration `20260723000000_add_data_provenance`(미적용, additive). |
+| **1-B 실제 raw snapshot 저장** | **DONE (2026-07-23, 보완 완료)** | `src/lib/services/syncService.ts`의 `runTourismDataSync()`에 5개 지표+POI 호출 지점마다 `upsertSnapshot()`을 추가해 실제 응답 객체를 `DataSnapshot`에 저장. 기존 SUCCESS/EMPTY 스냅샷 보존 정책 포함(보완 완료). |
+| **1-C 실제 provenance/fallback 판정 연결** | **DONE (2026-07-23)** | 상세 내역 아래 참고 |
+| 1-3 Network 근거 분리(POI 수 vs 관계 수) | NOT_STARTED(Phase 1-E 예정) | [buildDnaEngineInput.ts](../src/lib/services/buildDnaEngineInput.ts) Network Evidence가 아직 한 행이다(provenance/fallback 판정은 1-C로 정확해졌지만, POI 근거와 관계 근거를 별도 행으로 나누는 것은 별개 작업으로 남음) |
 
-**완료 조건 충족 여부**: 아직 미충족(전체 Phase 1 기준). 1-A/1-B로 실제 snapshot이 쌓이기 시작하지만, `LIVE 5/5` 오표시를 실제로 막으려면 1-C(하드코딩 제거, provenance 계산 연결)가 이어져야 한다.
+### Phase 1-C 상세
+
+- **`isSnapshotFallback` 하드코딩 3곳 교체 완료**:
+  - [metricCohort.ts](../src/lib/services/metricCohort.ts) — `NormalizedMetric.provenance`를 읽어 `isSnapshotFallback = provenance !== "LIVE_API"`로 계산(NULL 포함 모든 비-LIVE_API 값은 fallback).
+  - [buildDnaEngineInput.ts](../src/lib/services/buildDnaEngineInput.ts) — Network 축은 POI `sourceType`(API/FIXTURE 혼입 여부)과 `PoiRelation`(현재 syncService가 절대 채우지 않아 존재하면 항상 CURATED) 기준으로 `LIVE_API`/`CURATED` 판정.
+  - [dna.ts](../src/lib/domain/dna.ts) — 방문자수 증감률 Evidence는 current/previous 두 `VisitorCountPoint`의 provenance/isSnapshotFallback을 합성(둘 중 하나라도 fallback이면 전체 fallback, provenance는 current 우선·없으면 previous).
+- **`syncService.ts`의 `upsertMetric()`**: `provenance` 파라미터 필수화. STAY/SPEND/DIVERSITY/DEMAND_SERVICE(전부 실키 검증됨) → `"LIVE_API"`. VISITOR_CNT(엔드포인트 자체 미확인, `docs/public-api-status.md`) → API 성공 여부와 무관하게 `"ESTIMATED"`.
+- **CACHED_API 판정**: `upsertSnapshot()`이 "기존 SUCCESS/EMPTY 보존, 이번 ERROR는 기록 안 함"을 결정하는 바로 그 실행 컨텍스트에서 `markMetricsAsCached()`(신규)를 호출해, 같은 [regionId, baseYm]의 해당 metricCode 중 **provenance가 정확히 `"LIVE_API"`인 행만** `"CACHED_API"`로 낮춘다. NULL/기타 값은 건드리지 않는다(근거 없는 배정 금지).
+- **`Evidence.provenance` 연결**: `EvidenceItem`에 `provenance` 필드 추가, `dna.ts`의 3개 evidence 생성 지점(`toEvidence`/growthEntry/network)과 `analyzeProject.ts`의 `toEvidenceCreateData()`를 통해 분석 시점 provenance가 그대로 `Evidence.provenance`에 저장된다.
+- **NULL provenance 처리**: 일괄 backfill 없음. 기존 레코드는 NULL 그대로 남고, 읽기 시점(`metricCohort.ts`)에서 NULL은 항상 `isSnapshotFallback: true`로 계산되어 `LIVE_API`로 오인되지 않는다.
+- **schema/migration 변경 없음**(이번 단위 전체가 기존 컬럼만 사용).
+
+**완료 조건 충족 여부**: Phase 1의 핵심 완료 조건("추정값이 포함된 데모에서 LIVE 5/5가 나오지 않는다")이 이제 코드 수준에서 충족된다 — 기존 seed 데이터는 provenance가 전부 NULL이라 다음 분석부터 모든 축이 SNAPSHOT/HYBRID로 표시된다(정확한 표시, 의도된 동작). 실제 라이브 동기화가 새로 실행되면 그 지역/월만 LIVE_API로 갱신된다. Network 근거 분리(1-3/1-E)와 `seed.ts` 가짜 envelope 정리(1-D)는 아직 남아 있다.
 
 ## Phase 2. 갱신형 DB 캐시와 최신 데이터 자동 반영 — `NOT_STARTED`
 
@@ -90,7 +102,7 @@
 
 | Phase | 상태 | 우선순위(재조정) |
 |---|---|---|
-| 1. Provenance 모델 + 실제 snapshot 저장 | IN_PROGRESS(1-A/1-B DONE, 1-C/1-D/1-E 남음) | **P0-1** |
+| 1. Provenance 모델 + 실제 snapshot 저장 | IN_PROGRESS(1-A/1-B/1-C DONE, 1-D/1-E 남음) | **P0-1** |
 | 5. 다채널 홍보 초안 | NOT_STARTED | **P0-2** |
 | 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-3** |
 | (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-4** |

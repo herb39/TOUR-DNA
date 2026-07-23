@@ -4,7 +4,7 @@ import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchVisitorCnt } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
-import { METRIC_CODES } from "@/lib/domain/types";
+import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
 export type SyncTrigger = "CRON" | "ADMIN" | "CLI";
@@ -38,6 +38,13 @@ export interface SyncRunResult {
   results: SyncSourceResult[];
 }
 
+/**
+ * NormalizedMetric을 upsert한다. `provenance`는 호출부가 명시적으로 결정한다(Phase 1-C, 2026-07-23) —
+ * 이 함수는 오직 `res.status === "SUCCESS"`인 이번 실행의 실제 응답 처리 블록 안에서만 호출되므로,
+ * 그 호출 자체가 "이번에 실제 성공 응답으로 갱신됨"의 증거다. 다만 VISITOR_CNT처럼 API 성공 여부와
+ * 무관하게 필드 의미 자체가 아직 검증되지 않은 지표는 호출부가 `"ESTIMATED"`를 넘긴다
+ * (docs/public-api-status.md: "지역별 방문자수 API — 여전히 미확인").
+ */
 async function upsertMetric(
   regionId: string,
   adminLevel: RegionLevel,
@@ -46,11 +53,31 @@ async function upsertMetric(
   rawValue: number,
   unit: string,
   sourceId: string,
+  provenance: DataProvenance,
 ) {
   await prisma.normalizedMetric.upsert({
     where: { regionId_baseYm_metricCode: { regionId, baseYm, metricCode } },
-    update: { rawValue, unit, adminLevel, sourceId, collectedAt: new Date() },
-    create: { regionId, baseYm, metricCode, rawValue, unit, adminLevel, sourceId },
+    update: { rawValue, unit, adminLevel, sourceId, collectedAt: new Date(), provenance },
+    create: { regionId, baseYm, metricCode, rawValue, unit, adminLevel, sourceId, provenance },
+  });
+}
+
+/**
+ * 같은 [regionId, baseYm]의 지정된 metricCode들 중 provenance가 정확히 "LIVE_API"인 것만 "CACHED_API"로
+ * 바꾼다(Phase 1-C, 2026-07-23). value/baseYm/sourceId 등 업무 값은 건드리지 않는다.
+ *
+ * 호출 시점: `upsertSnapshot()`이 "기존 SUCCESS/EMPTY 스냅샷을 보존하고 이번 ERROR는 기록하지 않았다"고
+ * 판단한 바로 그 실행 컨텍스트에서만 호출한다 — 이 순간이 "최신 API 호출이 실패해 이전 성공값을
+ * 재사용한다"는 CACHED_API 정의를 실제로 만족하는 유일한 지점이다(DataSnapshot이 SUCCESS 상태를
+ * 유지하는 한 사후적으로는 이 사실을 재구성할 방법이 없다 — 아래 upsertSnapshot 반환값 설계 참고).
+ * provenance가 이미 "LIVE_API"가 아닌 행(NULL 포함)은 건드리지 않는다 — 그 행이 정말 "재사용된 실제
+ * 성공값"이었다는 근거가 없기 때문이다(임의 backfill 금지 원칙).
+ */
+async function markMetricsAsCached(regionId: string, baseYm: string, metricCodes: string[]) {
+  if (metricCodes.length === 0) return;
+  await prisma.normalizedMetric.updateMany({
+    where: { regionId, baseYm, metricCode: { in: metricCodes }, provenance: "LIVE_API" },
+    data: { provenance: "CACHED_API" },
   });
 }
 
@@ -76,7 +103,7 @@ async function upsertSnapshot(params: {
   resultMsg: string | null;
   itemCount: number;
   rawPayload: object;
-}) {
+}): Promise<"WRITTEN" | "PRESERVED"> {
   const where = {
     dataSourceId_regionId_baseYm: {
       dataSourceId: params.dataSourceId,
@@ -88,7 +115,7 @@ async function upsertSnapshot(params: {
   if (params.status === "ERROR") {
     const existing = await prisma.dataSnapshot.findUnique({ where, select: { status: true } });
     if (existing && (existing.status === "SUCCESS" || existing.status === "EMPTY")) {
-      return; // 마지막 정상 스냅샷 보존 — 이번 오류 시도는 기록하지 않는다.
+      return "PRESERVED"; // 마지막 정상 스냅샷 보존 — 이번 오류 시도는 기록하지 않는다.
     }
   }
 
@@ -113,6 +140,7 @@ async function upsertSnapshot(params: {
       rawPayload: params.rawPayload,
     },
   });
+  return "WRITTEN";
 }
 
 /**
@@ -182,16 +210,16 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       if (res.status === "SUCCESS") {
         for (const item of res.items) {
           if (item.tarSjrnDsIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.STAY, item.tarSjrnDsIxVal, "지수", svcSource.id);
+            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.STAY, item.tarSjrnDsIxVal, "지수", svcSource.id, "LIVE_API");
           }
           if (item.tarExpDsIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.SPEND, item.tarExpDsIxVal, "지수", svcSource.id);
+            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.SPEND, item.tarExpDsIxVal, "지수", svcSource.id, "LIVE_API");
           }
         }
       }
       // 실제로 받은 본문이 하나라도 있으면(네트워크 실패로 둘 다 없는 경우는 제외) snapshot을 남긴다.
       if (res.raw.stay !== null || res.raw.spend !== null) {
-        await upsertSnapshot({
+        const outcome = await upsertSnapshot({
           dataSourceId: svcSource.id,
           regionId: region.id,
           baseYm: params.baseYm,
@@ -201,6 +229,11 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           itemCount: res.items.length,
           rawPayload: res.raw,
         });
+        // 이번 응답이 ERROR였고 마지막 정상 스냅샷을 보존했다면 = "최신 호출 실패, 이전 성공값 재사용"
+        // = CACHED_API의 정의를 이 실행 컨텍스트에서 실제로 확인한 유일한 순간이다.
+        if (outcome === "PRESERVED") {
+          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.STAY, METRIC_CODES.SPEND]);
+        }
       }
       results.push({
         sourceCode: `TAR_SVC_DEM:${region.code}`,
@@ -221,13 +254,13 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       });
       // 연령대별 방문객/소비 다양성 + 국적 다양성을 조합한 종합 점수(touDivIx.ts의 evenness 산식 참고).
       if (res.status === "SUCCESS" && res.composite !== null) {
-        await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", divSource.id);
+        await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", divSource.id, "LIVE_API");
       }
       // 13개 코드 호출 중 실제 본문을 하나라도 받았으면 snapshot을 남긴다. 13개를 합친 값이라 하나의
       // resultCode/resultMsg로 대표할 수 없으므로 null로 둔다(있지도 않은 대표값을 지어내지 않음).
       const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
       if (hasRealDivData) {
-        await upsertSnapshot({
+        const outcome = await upsertSnapshot({
           dataSourceId: divSource.id,
           regionId: region.id,
           baseYm: params.baseYm,
@@ -237,6 +270,9 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           itemCount: res.itemCount,
           rawPayload: res.raw,
         });
+        if (outcome === "PRESERVED") {
+          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.DIVERSITY]);
+        }
       }
       results.push({
         sourceCode: `TOU_DIV_IX:${region.code}`,
@@ -259,12 +295,12 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
         for (const item of res.items) {
           // areaTarSvcDemList("관광 서비스 수요")가 실제 METRIC_CODES.DEMAND_SERVICE의 출처였다(touResDem.ts 참고).
           if (item.tarSvcDemIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", resDemSource.id);
+            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", resDemSource.id, "LIVE_API");
           }
         }
       }
       if (res.raw !== null) {
-        await upsertSnapshot({
+        const outcome = await upsertSnapshot({
           dataSourceId: resDemSource.id,
           regionId: region.id,
           baseYm: params.baseYm,
@@ -274,6 +310,9 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           itemCount: res.items.length,
           rawPayload: res.raw as object,
         });
+        if (outcome === "PRESERVED") {
+          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.DEMAND_SERVICE]);
+        }
       }
       results.push({
         sourceCode: `TOU_RES_DEM:${region.code}`,
@@ -289,11 +328,15 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       if (res.status === "SUCCESS") {
         for (const item of res.items) {
           if (item.visitorCnt !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.VISITOR_CNT, item.visitorCnt, "명", visitorSource.id);
+            // 방문자수 API는 필드 의미가 아직 검증되지 않았다(docs/public-api-status.md "여전히 미확인")
+            // — HTTP/API 응답이 성공이어도 LIVE_API가 아니라 ESTIMATED로 기록한다(마스터 문서 3-3절).
+            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.VISITOR_CNT, item.visitorCnt, "명", visitorSource.id, "ESTIMATED");
           }
         }
       }
       if (res.raw !== null) {
+        // ESTIMATED로만 기록되므로 markMetricsAsCached(LIVE_API 전용 필터)는 이 소스에 대해 항상 no-op이다
+        // — 애초에 "이전 성공값"을 LIVE_API라고 주장한 적이 없기 때문에 CACHED_API로 격하시킬 대상도 없다.
         await upsertSnapshot({
           dataSourceId: visitorSource.id,
           regionId: region.id,

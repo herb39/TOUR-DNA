@@ -6,7 +6,9 @@ const {
   dataSnapshotStore,
   dataSnapshotUpsert,
   dataSnapshotFindUnique,
+  normalizedMetricStore,
   normalizedMetricUpsert,
+  normalizedMetricUpdateMany,
   poiUpsert,
   poiFindMany,
   syncLogCreate,
@@ -19,6 +21,13 @@ const {
   const store = new Map<string, { status: string; resultCode: unknown; resultMsg: unknown; itemCount: number; rawPayload: unknown }>();
   function keyOf(w: { dataSourceId: string; regionId: string; baseYm: string }) {
     return `${w.dataSourceId}|${w.regionId}|${w.baseYm}`;
+  }
+  // NormalizedMetric도 같은 이유로 상태를 가진 fake가 필요하다 — markMetricsAsCached()가
+  // provenance==="LIVE_API"인 행만 골라 CACHED_API로 바꾸는 것을 검증하려면 실제로 저장된 provenance를
+  // 읽고 걸러낼 수 있어야 한다.
+  const metricStore = new Map<string, Record<string, unknown>>();
+  function metricKeyOf(w: { regionId: string; baseYm: string; metricCode: string }) {
+    return `${w.regionId}|${w.baseYm}|${w.metricCode}`;
   }
   return {
     dataSnapshotStore: store,
@@ -33,7 +42,29 @@ const {
       const k = keyOf(where.dataSourceId_regionId_baseYm);
       return store.get(k) ?? null;
     }),
-    normalizedMetricUpsert: vi.fn().mockResolvedValue(undefined),
+    normalizedMetricStore: metricStore,
+    normalizedMetricUpsert: vi.fn(async ({ where, update, create }: { where: { regionId_baseYm_metricCode: { regionId: string; baseYm: string; metricCode: string } }; update: Record<string, unknown>; create: Record<string, unknown> }) => {
+      const k = metricKeyOf(where.regionId_baseYm_metricCode);
+      const existing = metricStore.get(k);
+      const next = existing ? { ...existing, ...update } : { ...create };
+      metricStore.set(k, next);
+      return next;
+    }),
+    normalizedMetricUpdateMany: vi.fn(async ({ where, data }: { where: { regionId: string; baseYm: string; metricCode: { in: string[] }; provenance: string }; data: Record<string, unknown> }) => {
+      let count = 0;
+      for (const [k, row] of metricStore.entries()) {
+        if (
+          row.regionId === where.regionId &&
+          row.baseYm === where.baseYm &&
+          where.metricCode.in.includes(row.metricCode as string) &&
+          row.provenance === where.provenance
+        ) {
+          metricStore.set(k, { ...row, ...data });
+          count++;
+        }
+      }
+      return { count };
+    }),
     poiUpsert: vi.fn().mockResolvedValue(undefined),
     poiFindMany: vi.fn().mockResolvedValue([]),
     syncLogCreate: vi.fn().mockResolvedValue(undefined),
@@ -71,7 +102,7 @@ vi.mock("@/lib/db", () => ({
     dataSource: { findMany: vi.fn().mockResolvedValue(DATA_SOURCES) },
     region: { findMany: vi.fn().mockResolvedValue([REGION]) },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
-    normalizedMetric: { upsert: normalizedMetricUpsert },
+    normalizedMetric: { upsert: normalizedMetricUpsert, updateMany: normalizedMetricUpdateMany },
     dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique },
     syncLog: { create: syncLogCreate },
   },
@@ -131,6 +162,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   poiFindMany.mockResolvedValue([]);
   dataSnapshotStore.clear();
+  normalizedMetricStore.clear();
   resetAdapterMocksToNoRealBody();
 });
 
@@ -271,6 +303,8 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       const afterSuccess = dataSnapshotStore.get(KEY);
       expect(afterSuccess?.status).toBe("SUCCESS");
       expect(afterSuccess?.rawPayload).toEqual(realSuccessBody);
+      // 이번 실행에서 실제 성공 응답으로 갱신됐으므로 metric provenance는 LIVE_API다.
+      expect(normalizedMetricStore.get("region-1|202606|tarSvcDemIxVal")?.provenance).toBe("LIVE_API");
 
       const realErrorBody = { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" };
       vi.mocked(fetchTouResDem).mockResolvedValue({
@@ -293,6 +327,9 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
         (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-tou-res-dem",
       );
       expect(callsForKey).toHaveLength(1);
+      // CACHED_API 판정: "최신 호출이 실패해 이전 성공값을 재사용한다"는 사실을 이 실행 컨텍스트가
+      // 알고 있는 유일한 순간에, 기존 LIVE_API metric을 CACHED_API로 낮춘다.
+      expect(normalizedMetricStore.get("region-1|202606|tarSvcDemIxVal")?.provenance).toBe("CACHED_API");
     });
 
     it("기존 snapshot이 없는 최초 호출에서 실제 ERROR 응답 본문을 ERROR snapshot으로 저장한다", async () => {
@@ -368,6 +405,55 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
 
       // ERROR 응답에서는 upsertMetric 분기 자체가 실행되지 않으므로 호출 수가 늘지 않아야 한다.
       expect(normalizedMetricUpsert.mock.calls.length).toBe(metricCallsAfterSuccess);
+    });
+
+    it("provenance가 NULL(과거 미분류 레코드)인 metric은 ERROR가 나도 CACHED_API로 격상되지 않는다", async () => {
+      // seed.ts가 만든 legacy 레코드를 흉내 낸다 — provenance가 아예 없다(LIVE_API였다는 근거가 없음).
+      normalizedMetricStore.set("region-1|202606|tarSvcDemIxVal", {
+        regionId: "region-1",
+        baseYm: "202606",
+        metricCode: "tarSvcDemIxVal",
+        rawValue: 70,
+        unit: "지수",
+        adminLevel: "SIGUNGU",
+        sourceId: "src-tou-res-dem",
+        provenance: null,
+      });
+      // 같은 key에 SUCCESS/EMPTY 스냅샷이 이미 있어야 다음 ERROR가 "보존" 분기를 타서 markMetricsAsCached가
+      // 호출된다. 여기서는 EMPTY로 채워 둔다(상태값 자체가 SUCCESS/EMPTY 중 하나면 충분).
+      dataSnapshotStore.set(KEY, {
+        status: "EMPTY",
+        resultCode: "0000",
+        resultMsg: "OK",
+        itemCount: 0,
+        rawPayload: { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: "" } } } },
+      });
+
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "10",
+        resultMsg: "INVALID_REQUEST_PARAMETER_ERROR",
+        raw: { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" },
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      // "이전에 LIVE_API였다"는 근거가 없으므로 NULL 그대로 남는다 — CACHED_API로 임의 승격하지 않는다.
+      expect(normalizedMetricStore.get("region-1|202606|tarSvcDemIxVal")?.provenance).toBeNull();
+    });
+
+    it("VISITOR_CNT는 API 성공이어도 필드 의미가 미확인이라 LIVE_API가 아니라 ESTIMATED로 기록된다", async () => {
+      vi.mocked(fetchVisitorCnt).mockResolvedValue({
+        status: "SUCCESS",
+        items: [{ baseYm: "202606", visitorCnt: 999 }],
+        resultCode: "0000",
+        resultMsg: "OK",
+        raw: { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: [] } } } },
+      });
+
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("ESTIMATED");
     });
   });
 });

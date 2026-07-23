@@ -18,6 +18,7 @@ function metric(regionCode: string, rawValue: number, metricCode: string): Regio
     adminLevel: "SIGUNGU",
     sourceCode: "TAR_SVC_DEM",
     collectedAt: "2026-07-01T00:00:00.000Z",
+    provenance: "LIVE_API",
     isSnapshotFallback: false,
   };
 }
@@ -65,6 +66,7 @@ function dnaInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
       experienceCount: 5,
       sourceCode: "POI_RELATION",
       collectedAt: "2026-07-01T00:00:00.000Z",
+      provenance: "LIVE_API",
       isSnapshotFallback: false,
     },
     ...overrides,

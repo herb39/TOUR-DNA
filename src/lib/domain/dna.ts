@@ -44,6 +44,7 @@ function toEvidence(
     baseYm: result.entry.baseYm,
     sourceCode: result.entry.sourceCode,
     collectedAt: result.entry.collectedAt,
+    provenance: result.entry.provenance,
     appliedRule,
   };
 }
@@ -93,6 +94,9 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
         input.previousVisitorCount.value) *
       100;
     const normalized = clamp(50 + growthRatePercent, 0, 100);
+    // 증감률은 current/previous 두 값을 모두 사용하므로, 둘 중 하나라도 fallback이면 이 근거도
+    // fallback으로 취급한다. provenance는 current를 우선하되 없으면 previous를 쓴다(둘 다 같은
+    // VISITOR_CNT 파이프라인에서 나오므로 보통 일치한다 — 임의로 지어내지 않고 실제 기록된 값만 사용).
     const growthEntry: RegionMetricValue = {
       regionCode: input.regionCode,
       baseYm: input.currentVisitorCount.baseYm,
@@ -102,7 +106,8 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
       adminLevel: input.adminLevel,
       sourceCode: input.currentVisitorCount.sourceCode,
       collectedAt: input.currentVisitorCount.collectedAt,
-      isSnapshotFallback: false,
+      provenance: input.currentVisitorCount.provenance ?? input.previousVisitorCount.provenance,
+      isSnapshotFallback: input.currentVisitorCount.isSnapshotFallback || input.previousVisitorCount.isSnapshotFallback,
     };
     evidence.push({
       axis: "demand",
@@ -115,6 +120,7 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
       baseYm: growthEntry.baseYm,
       sourceCode: growthEntry.sourceCode,
       collectedAt: growthEntry.collectedAt,
+      provenance: growthEntry.provenance,
       appliedRule: `전월 대비 방문자수 증감률을 50 기준 선형 변환(0%→50, ±50%p→0/100 clamp)`,
     });
     entries.push(growthEntry);
@@ -164,6 +170,7 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
     baseYm: input.baseYm,
     sourceCode: net.sourceCode,
     collectedAt: net.collectedAt,
+    provenance: net.provenance,
     appliedRule:
       "구조적 산식: 중심관광지수*4 + 연관관광지수*3 + 업종(음식/숙박/체험) 커버리지 보너스, 0~100 clamp",
   };

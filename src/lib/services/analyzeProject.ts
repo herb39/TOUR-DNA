@@ -26,6 +26,9 @@ function toEvidenceCreateData(
     sourceCode: e.sourceCode,
     collectedAt: new Date(e.collectedAt),
     appliedRule: e.appliedRule,
+    // Phase 1-C: 분석 당시 provenance를 그대로 복사해 보존한다(마스터 문서 1-1절). 판정 근거가
+    // 없으면 e.provenance가 이미 null이므로 그대로 null을 저장한다 — 임의로 채우지 않는다.
+    provenance: e.provenance,
   };
 }
 
