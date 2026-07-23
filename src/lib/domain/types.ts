@@ -48,16 +48,34 @@ export interface RegionMetricValue {
   isSnapshotFallback: boolean;
 }
 
+/**
+ * Network 축 원본 입력(Phase 1-E, 2026-07-23: POI 근거와 관계 근거를 독립적인 provenance로 분리했다 —
+ * 이전에는 "non-API POI 존재 || 관계 존재"를 OR로 합쳐 하나의 provenance로 뭉갰는데, 그 결과 실제 API로
+ * 수집한 POI 근거까지 사람이 만든 관계 데이터 때문에 CURATED로 격하되는 문제가 있었다.
+ */
 export interface NetworkRawInputs {
   attractionCount: number;
   relatedPoiCount: number;
   foodCount: number;
   lodgingCount: number;
   experienceCount: number;
-  sourceCode: string;
   collectedAt: string;
-  provenance: DataProvenance | null;
-  isSnapshotFallback: boolean;
+  /** 관광지/음식/숙박/체험 POI 구성 근거. API/FIXTURE가 섞이면 보수적으로 CURATED(단순 "하나라도 API면
+   * LIVE_API"가 아니다 — apiCount/fixtureCount를 함께 노출해 혼합 상태를 투명하게 드러낸다). */
+  poi: {
+    apiCount: number;
+    fixtureCount: number;
+    provenance: DataProvenance;
+    isSnapshotFallback: boolean;
+  };
+  /** 연관 POI 관계(PoiRelation) 근거. 관계가 하나도 없으면 "확인된 0건"인지 "애초에 근거가 없는지"
+   * 현재 스키마로 구분할 수 없으므로 null로 두고 Evidence 자체를 만들지 않는다(임의로 CURATED 0건을
+   * 지어내지 않음). */
+  relation: {
+    count: number;
+    provenance: DataProvenance;
+    isSnapshotFallback: boolean;
+  } | null;
 }
 
 export interface VisitorCountPoint {

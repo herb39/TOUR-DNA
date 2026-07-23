@@ -4,7 +4,7 @@
 > 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
-## Phase 1. 데이터 출처 및 상태 모델 정비 — `IN_PROGRESS` (1-A, 1-B, 1-C, 1-D `DONE`)
+## Phase 1. 데이터 출처 및 상태 모델 정비 — `DONE` (1-A~1-E 전부 완료)
 
 | 하위 항목 | 상태 | 근거 |
 |---|---|---|
@@ -12,7 +12,7 @@
 | **1-B 실제 raw snapshot 저장** | **DONE (2026-07-23, 보완 완료)** | `src/lib/services/syncService.ts`의 `runTourismDataSync()`에 5개 지표+POI 호출 지점마다 `upsertSnapshot()`을 추가해 실제 응답 객체를 `DataSnapshot`에 저장. 기존 SUCCESS/EMPTY 스냅샷 보존 정책 포함(보완 완료). |
 | **1-C 실제 provenance/fallback 판정 연결** | **DONE (2026-07-23)** | 상세 내역 아래 참고 |
 | **1-D seed 가짜 envelope 제거, provenance 명시** | **DONE (2026-07-23)** | 상세 내역 아래 참고 |
-| 1-3 Network 근거 분리(POI 수 vs 관계 수) | NOT_STARTED(Phase 1-E 예정) | [buildDnaEngineInput.ts](../src/lib/services/buildDnaEngineInput.ts) Network Evidence가 아직 한 행이다(provenance/fallback 판정은 1-C로 정확해졌지만, POI 근거와 관계 근거를 별도 행으로 나누는 것은 별개 작업으로 남음) |
+| **1-E Network 근거 분리(POI 수 vs 관계 수)** | **DONE (2026-07-23)** | 상세 내역 아래 참고 |
 
 ### Phase 1-C 상세
 
@@ -37,7 +37,19 @@
 - **테스트**: `tests/unit/seedMetrics.test.ts`(신규 10개) — 기준월별 CURATED/ESTIMATED 분류, provenance 명시 저장, DataSnapshot 미호출, 재실행 dedup, `prisma/seed.ts` 소스에 가짜 envelope/함수가 남아있지 않은지 정적 검사.
 - **공유 DB 미접속**: 이번 검증은 전부 `@/lib/db`를 mock으로 대체한 단위테스트로만 수행했다. 실제 `seed.ts` 전체 실행(운영/공유 Neon DB 접속 필요)은 하지 않았다 — 지시에 따름.
 
-**완료 조건 충족 여부**: Phase 1의 핵심 완료 조건("추정값이 포함된 데모에서 LIVE 5/5가 나오지 않는다")이 이제 데이터 생성 경로 전체(실 동기화 + seed) 수준에서 충족된다. 다음 `npm run db:seed` 실행부터 새로 생성되는 seed metric은 CURATED/ESTIMATED가 명시되고, 실제 라이브 동기화 결과만 LIVE_API/CACHED_API로 구분된다. 기존에 이미 채워진 레코드(마이그레이션 이전)는 여전히 NULL로 남아 있으며(재실행 전까지), 이는 의도된 보수적 처리다. Network 근거 분리(1-3/1-E)만 남았다.
+**완료 조건 충족 여부**: Phase 1의 핵심 완료 조건("추정값이 포함된 데모에서 LIVE 5/5가 나오지 않는다")이 이제 데이터 생성 경로 전체(실 동기화 + seed) 수준에서 충족된다. 다음 `npm run db:seed` 실행부터 새로 생성되는 seed metric은 CURATED/ESTIMATED가 명시되고, 실제 라이브 동기화 결과만 LIVE_API/CACHED_API로 구분된다. 기존에 이미 채워진 레코드(마이그레이션 이전)는 여전히 NULL로 남아 있으며(재실행 전까지), 이는 의도된 보수적 처리다.
+
+### Phase 1-E 상세
+
+- **문제였던 것**: `buildDnaEngineInput.ts`가 Network 축의 POI 근거와 관계(PoiRelation) 근거를 "non-API POI 존재 || 관계 존재"라는 단일 OR 조건으로 합쳐 하나의 provenance로 만들었다 — 그 결과 실제 API로 수집한 POI 근거까지 사람이 만든 관계 데이터 때문에 CURATED로 격하됐다.
+- **분리된 최종 구조**: `NetworkRawInputs`(`src/lib/domain/types.ts`)를 `poi: {apiCount, fixtureCount, provenance, isSnapshotFallback}`와 `relation: {count, provenance, isSnapshotFallback} | null` 두 개로 재구성. `buildDnaEngineInput.ts`는 이제 POI 근거(`sourceType` 기준 API/FIXTURE 혼입 여부)와 관계 근거(`PoiRelation` 존재 여부)를 **완전히 독립적으로** 판정한다 — 관계가 CURATED라는 이유로 API POI 근거를 더 이상 격하하지 않는다.
+- **Evidence 2종 분리**: `dna.ts`의 `computeNetworkAxis()`가 `metricCode: "networkPoiCount"`(출처 `TOUR_INFO`)와 `metricCode: "networkRelationCount"`(출처 `POI_RELATION`) 두 개의 독립된 `EvidenceItem`을 생성한다(마스터 문서 1-3절이 요구한 정확히 그 구조). `Evidence` 모델에 `metricCode` unique 제약이 없고 `analyzeProject.ts`가 `createMany`로 삽입하므로 두 근거가 서로 덮어쓸 위험이 없음을 스키마로 확인했다(추가 변경 불필요).
+- **API/fixture 혼합 처리**: 단순히 "API가 하나라도 있으면 LIVE_API"로 처리하지 않는다 — fixture가 하나라도 섞이면 POI 근거 전체를 보수적으로 CURATED로 표시하되, `appliedRule` 텍스트에 `API 수집 N건, 큐레이션(FIXTURE) M건`을 노출해 혼합 상태를 투명하게 드러낸다(요청된 옵션 중 "합산 Evidence는 보수적으로 CURATED 처리하되 API/fixture 수를 별도로 노출" 채택 — POI를 3번째 Evidence로 추가 분리하는 것은 이번 범위를 넘어선다고 판단).
+- **관계 0건 처리**: `relatedPoiCount === 0`일 때 "확인된 0건"과 "근거 자체가 없음"을 현재 스키마로 구분할 수 없다고 판단해, `relation`을 `null`로 두고 **관계 Evidence 자체를 생성하지 않는다**(기존 MISSING/미생성 정책 재사용, 0을 임의로 CURATED로 지어내지 않음).
+- **축 상태/점수 계산식 미변경**: `rawScore` 산식(`attractionCount*4 + relatedPoiCount*3 + 커버리지 보너스`)은 그대로다. 축 상태는 "POI 근거 또는 관계 근거 중 하나라도 fallback이면 SNAPSHOT"으로, 이전의 단일 OR 판정과 최종 결과가 동일하다(단지 입력이 2개로 분리됐을 뿐).
+- **CACHED_API 판정 불가 명시**: `Poi` 모델에는 `DataSnapshot` 같은 성공/실패 이력이 없어, "최신 API 실패 후 과거 POI를 재사용했다"는 사실을 판정할 근거가 전혀 없다 — POI 근거는 `LIVE_API` 또는 `CURATED`만 사용하고 `CACHED_API`는 추측하지 않는다(설계 한계로 문서화).
+- **테스트**: `tests/unit/dna.test.ts`(+5, POI/관계 분리·혼합·관계없음 사례), `tests/unit/buildDnaEngineInput.test.ts`(재작성, 5개 — API전용/혼합/관계있어도POI유지/관계없음/POI자체없음). 기존 `strategy.test.ts` fixture도 새 구조로 갱신. **119/119 전체 통과**.
+- **schema/migration/seed/env 변경 없음** — 전부 domain/service 계층 리팩터.
 
 ### Phase 1-D 이후 보완(2026-07-23, 같은 날 발견·수정)
 
@@ -132,7 +144,7 @@
 
 | Phase | 상태 | 우선순위(재조정) |
 |---|---|---|
-| 1. Provenance 모델 + 실제 snapshot 저장 | IN_PROGRESS(1-A/1-B/1-C/1-D DONE, 1-E만 남음) | **P0-1** |
+| 1. Provenance 모델 + 실제 snapshot 저장 | **DONE**(1-A~1-E 전부 완료) | **P0-1** |
 | 5. 다채널 홍보 초안 | NOT_STARTED | **P0-2** |
 | 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-3** |
 | (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-4** |

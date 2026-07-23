@@ -56,14 +56,13 @@ function baseInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
     },
     networkInputs: {
       attractionCount: 8,
-      relatedPoiCount: 12,
+      relatedPoiCount: 0,
       foodCount: 20,
       lodgingCount: 10,
       experienceCount: 5,
-      sourceCode: "POI_RELATION",
       collectedAt: "2026-07-01T00:00:00.000Z",
-      provenance: "LIVE_API",
-      isSnapshotFallback: false,
+      poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+      relation: null,
     },
     ...overrides,
   };
@@ -111,6 +110,110 @@ describe("computeDna", () => {
     const result = computeDna(input);
     expect(result.network.score).toBeNull();
     expect(result.network.status).toBe("MISSING");
+  });
+
+  describe("Network 축 — POI 근거/관계 근거 분리(Phase 1-E)", () => {
+    it("POI/관계 근거가 서로 다른 metricCode의 별도 Evidence로 생성된다", () => {
+      const input = baseInput({
+        networkInputs: {
+          attractionCount: 8,
+          relatedPoiCount: 3,
+          foodCount: 2,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+          relation: { count: 3, provenance: "CURATED", isSnapshotFallback: true },
+        },
+      });
+      const result = computeDna(input);
+      expect(result.network.evidence).toHaveLength(2);
+      const codes = result.network.evidence.map((e) => e.metricCode);
+      expect(codes).toContain("networkPoiCount");
+      expect(codes).toContain("networkRelationCount");
+    });
+
+    it("API POI만 있으면 POI 근거는 LIVE_API/isSnapshotFallback:false다", () => {
+      const input = baseInput({
+        networkInputs: {
+          attractionCount: 8,
+          relatedPoiCount: 0,
+          foodCount: 2,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: 12, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+          relation: null,
+        },
+      });
+      const result = computeDna(input);
+      const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
+      expect(poiEvidence?.provenance).toBe("LIVE_API");
+    });
+
+    it("fixture POI가 섞이면 POI 근거는 CURATED/isSnapshotFallback:true다", () => {
+      const input = baseInput({
+        networkInputs: {
+          attractionCount: 8,
+          relatedPoiCount: 0,
+          foodCount: 2,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: 5, fixtureCount: 3, provenance: "CURATED", isSnapshotFallback: true },
+          relation: null,
+        },
+      });
+      const result = computeDna(input);
+      const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
+      expect(poiEvidence?.provenance).toBe("CURATED");
+      // 혼합 상태를 API/fixture 건수로 투명하게 노출한다(단순히 "하나라도 API면 LIVE_API"가 아님).
+      expect(poiEvidence?.appliedRule).toContain("API 수집 5건");
+      expect(poiEvidence?.appliedRule).toContain("큐레이션(FIXTURE) 3건");
+    });
+
+    it("관계 근거(CURATED)가 있어도 API POI 근거는 CURATED로 격하되지 않는다", () => {
+      const input = baseInput({
+        networkInputs: {
+          attractionCount: 8,
+          relatedPoiCount: 4,
+          foodCount: 2,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: 10, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+          relation: { count: 4, provenance: "CURATED", isSnapshotFallback: true },
+        },
+      });
+      const result = computeDna(input);
+      const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
+      const relationEvidence = result.network.evidence.find((e) => e.metricCode === "networkRelationCount");
+      // 관계는 CURATED지만 POI 근거는 여전히 LIVE_API — 관계가 POI 근거를 격하하지 않는다.
+      expect(poiEvidence?.provenance).toBe("LIVE_API");
+      expect(relationEvidence?.provenance).toBe("CURATED");
+      // 단, 축 전체 상태는 두 근거 중 하나라도 fallback이면 SNAPSHOT(기존 원칙 유지).
+      expect(result.network.status).toBe("SNAPSHOT");
+    });
+
+    it("관계가 하나도 없으면(relation: null) 관계 Evidence 자체를 만들지 않는다", () => {
+      const input = baseInput({
+        networkInputs: {
+          attractionCount: 8,
+          relatedPoiCount: 0,
+          foodCount: 2,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+          relation: null,
+        },
+      });
+      const result = computeDna(input);
+      expect(result.network.evidence).toHaveLength(1);
+      expect(result.network.evidence[0].metricCode).toBe("networkPoiCount");
+      // 관계 근거가 없을 뿐 POI 근거만으로는 여전히 LIVE 판정이 가능하다.
+      expect(result.network.status).toBe("LIVE");
+    });
   });
 
   it("일부 지표가 스냅샷 폴백이면 해당 축 상태가 SNAPSHOT이고 overallDataMode는 HYBRID", () => {

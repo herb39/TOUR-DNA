@@ -159,24 +159,53 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
     100,
   );
 
-  const evidence: EvidenceItem = {
+  // Phase 1-E(2026-07-23): Network 근거를 POI 근거와 관계 근거로 분리한다(마스터 문서 1-3절:
+  // "관광지·음식·숙박·체험 POI 수는 TOUR_INFO 또는 각 POI의 실제 출처로 표시한다. 연관관광지 관계 수는
+  // POI_RELATION/CURATED로 별도 표시한다"). 점수 산식(rawScore)은 그대로 두고, evidence 배열만 늘린다.
+  const poiEvidence: EvidenceItem = {
     axis: "network",
-    metricCode: "poiNetworkDensity",
-    rawValue: net.attractionCount + net.relatedPoiCount,
-    normalizedValue: roundForDisplay(rawScore),
+    metricCode: "networkPoiCount",
+    rawValue: net.poi.apiCount + net.poi.fixtureCount,
+    normalizedValue: null,
     unit: "count",
     adminLevel: input.adminLevel,
     regionCode: input.regionCode,
     baseYm: input.baseYm,
-    sourceCode: net.sourceCode,
+    sourceCode: "TOUR_INFO",
     collectedAt: net.collectedAt,
-    provenance: net.provenance,
+    provenance: net.poi.provenance,
     appliedRule:
-      "구조적 산식: 중심관광지수*4 + 연관관광지수*3 + 업종(음식/숙박/체험) 커버리지 보너스, 0~100 clamp",
+      `Network 구조적 산식의 POI 구성 근거(중심관광지수×4, 업종 커버리지 보너스에 사용). ` +
+      `API 수집 ${net.poi.apiCount}건, 큐레이션(FIXTURE) ${net.poi.fixtureCount}건.`,
   };
 
-  const status: AxisStatus = net.isSnapshotFallback ? "SNAPSHOT" : "LIVE";
-  return { score: roundForDisplay(rawScore), status, evidence: [evidence] };
+  const evidence: EvidenceItem[] = [poiEvidence];
+
+  // 관계가 하나도 없으면(net.relation === null) "확인된 0건"과 "근거 없음"을 구분할 수 없으므로
+  // Evidence 자체를 만들지 않는다(허위 CURATED 0건 방지, buildDnaEngineInput.ts 참고).
+  if (net.relation) {
+    evidence.push({
+      axis: "network",
+      metricCode: "networkRelationCount",
+      rawValue: net.relation.count,
+      normalizedValue: null,
+      unit: "count",
+      adminLevel: input.adminLevel,
+      regionCode: input.regionCode,
+      baseYm: input.baseYm,
+      sourceCode: "POI_RELATION",
+      collectedAt: net.collectedAt,
+      provenance: net.relation.provenance,
+      appliedRule: "Network 구조적 산식의 연관관광지 관계 근거(연관관광지수×3에 사용). 사람이 구성한 큐레이션 데이터.",
+    });
+  }
+
+  // 축 상태는 기존과 동일한 원칙(어느 근거든 fallback이면 SNAPSHOT)을 유지한다 — 이전에는 POI/관계를
+  // OR로 합친 단일 플래그였고, 지금은 분리된 두 근거의 fallback 여부를 OR로 합치므로 실질적으로 같은
+  // 결과를 낸다(점수/축 상태 계산식 자체는 변경하지 않음).
+  const isFallback = net.poi.isSnapshotFallback || (net.relation?.isSnapshotFallback ?? false);
+  const status: AxisStatus = isFallback ? "SNAPSHOT" : "LIVE";
+  return { score: roundForDisplay(rawScore), status, evidence };
 }
 
 function buildStrengthsOpportunitiesCautions(

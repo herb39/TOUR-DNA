@@ -60,14 +60,13 @@ function dnaInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
     },
     networkInputs: {
       attractionCount: 8,
-      relatedPoiCount: 12,
+      relatedPoiCount: 0,
       foodCount: 20,
       lodgingCount: 10,
       experienceCount: 5,
-      sourceCode: "POI_RELATION",
       collectedAt: "2026-07-01T00:00:00.000Z",
-      provenance: "LIVE_API",
-      isSnapshotFallback: false,
+      poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+      relation: null,
     },
     ...overrides,
   };
