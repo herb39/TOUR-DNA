@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fetchPublicDataJson } from "../client";
-import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
+import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
 
 /**
  * 한국관광공사_빅데이터_지역별 방문자수_GW (data.go.kr/data/15101972/openapi.do).
@@ -23,14 +23,29 @@ export interface VisitorCntParams {
   baseYm: string;
 }
 
-export async function fetchVisitorCnt(
-  params: VisitorCntParams,
-): Promise<NormalizedItemsResult<VisitorCntItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
+type AdapterResult =
+  | (NormalizedItemsResult<VisitorCntItem> & { raw: unknown })
+  | { status: "ERROR"; items: []; resultCode: string; resultMsg: string; raw: unknown };
+
+export async function fetchVisitorCnt(params: VisitorCntParams): Promise<AdapterResult> {
   const url = `${params.baseUrl}?serviceKey=${encodeURIComponent(params.serviceKey)}&areaCd=${encodeURIComponent(params.areaCd)}&baseYm=${encodeURIComponent(params.baseYm)}&numOfRows=100&pageNo=1&_type=json`;
 
   const res = await fetchPublicDataJson(url, { sourceCode: "VISITOR_CNT" });
   if (!res.ok) {
-    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown" };
+    // 네트워크/timeout 등으로 실제 응답 본문 자체가 없다 — raw는 null(지어내지 않음).
+    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown", raw: null };
   }
-  return parsePublicDataEnvelope(itemSchema, res.data);
+  try {
+    const parsed = parsePublicDataEnvelope(itemSchema, res.data);
+    return { ...parsed, raw: res.data };
+  } catch {
+    const meta = extractResultMeta(res.data);
+    return {
+      status: "ERROR",
+      items: [],
+      resultCode: meta.resultCode ?? "UNKNOWN_ERROR_SHAPE",
+      resultMsg: meta.resultMsg ?? "응답 구조가 예상과 달라 파싱하지 못함",
+      raw: res.data,
+    };
+  }
 }

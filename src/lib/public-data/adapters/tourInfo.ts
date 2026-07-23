@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fetchPublicDataJson } from "../client";
-import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
+import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
 
 /**
  * 한국관광공사_국문 관광정보 서비스_GW (KorService2, TourAPI 4.0 계열).
@@ -93,14 +93,36 @@ function buildUrl(baseUrl: string, params: TourInfoParams, pageNo: number): stri
   return `${baseUrl}/areaBasedList2?${qs.toString()}`;
 }
 
-export async function fetchTourInfo(
-  params: TourInfoParams,
-): Promise<NormalizedItemsResult<TourInfoItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
+/** 실제로 받은 페이지 원본 응답들(있는 만큼만 — 지어내지 않음). */
+export interface TourInfoRaw {
+  pages: unknown[];
+}
+
+type AdapterResult =
+  | (NormalizedItemsResult<TourInfoItem> & { raw: TourInfoRaw })
+  | { status: "ERROR"; items: []; resultCode: string; resultMsg: string; raw: TourInfoRaw };
+
+export async function fetchTourInfo(params: TourInfoParams): Promise<AdapterResult> {
   const firstRes = await fetchPublicDataJson(buildUrl(params.baseUrl, params, 1), { sourceCode: "TOUR_INFO" });
   if (!firstRes.ok) {
-    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: firstRes.errorMessage ?? "unknown" };
+    // 네트워크/timeout 등으로 실제 응답 본문 자체가 없다 — raw.pages는 빈 배열(지어내지 않음).
+    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: firstRes.errorMessage ?? "unknown", raw: { pages: [] } };
   }
-  const first = parsePublicDataEnvelope(itemSchema, firstRes.data);
+
+  const rawPages: unknown[] = [firstRes.data];
+  let first: NormalizedItemsResult<TourInfoItem>;
+  try {
+    first = parsePublicDataEnvelope(itemSchema, firstRes.data);
+  } catch {
+    const meta = extractResultMeta(firstRes.data);
+    return {
+      status: "ERROR",
+      items: [],
+      resultCode: meta.resultCode ?? "UNKNOWN_ERROR_SHAPE",
+      resultMsg: meta.resultMsg ?? "응답 구조가 예상과 달라 파싱하지 못함",
+      raw: { pages: rawPages },
+    };
+  }
   const items = [...first.items];
 
   const totalCount =
@@ -109,6 +131,7 @@ export async function fetchTourInfo(
   for (let pageNo = 2; pageNo <= totalPages; pageNo++) {
     const res = await fetchPublicDataJson(buildUrl(params.baseUrl, params, pageNo), { sourceCode: "TOUR_INFO" });
     if (!res.ok) break;
+    rawPages.push(res.data);
     try {
       items.push(...parsePublicDataEnvelope(itemSchema, res.data).items);
     } catch {
@@ -116,5 +139,11 @@ export async function fetchTourInfo(
     }
   }
 
-  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode: first.resultCode, resultMsg: first.resultMsg };
+  return {
+    status: items.length === 0 ? "EMPTY" : "SUCCESS",
+    items,
+    resultCode: first.resultCode,
+    resultMsg: first.resultMsg,
+    raw: { pages: rawPages },
+  };
 }

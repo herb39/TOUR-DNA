@@ -31,6 +31,26 @@ export function publicDataEnvelopeSchema<T extends z.ZodTypeAny>(itemSchema: T) 
 
 export const SUCCESS_RESULT_CODE = "0000";
 
+/**
+ * 표준 envelope(`response.header.{resultCode,resultMsg}`)로 파싱되지 않는 응답(예: 2026-07-21 실키로
+ * 확인된 `response` 래퍼 없는 플랫 에러 구조 `{resultCode, resultMsg}`)에서도, 실제로 그 필드가 존재하면
+ * 읽어서 반환한다. 어느 쪽 구조에도 없으면 지어내지 않고 null을 반환한다.
+ */
+export function extractResultMeta(raw: unknown): { resultCode: string | null; resultMsg: string | null } {
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const response = obj.response as Record<string, unknown> | undefined;
+    const header = response?.header as Record<string, unknown> | undefined;
+    if (header && typeof header.resultCode === "string") {
+      return { resultCode: header.resultCode, resultMsg: typeof header.resultMsg === "string" ? header.resultMsg : null };
+    }
+    if (typeof obj.resultCode === "string") {
+      return { resultCode: obj.resultCode, resultMsg: typeof obj.resultMsg === "string" ? obj.resultMsg : null };
+    }
+  }
+  return { resultCode: null, resultMsg: null };
+}
+
 export interface NormalizedItemsResult<T> {
   status: "SUCCESS" | "EMPTY" | "ERROR";
   items: T[];

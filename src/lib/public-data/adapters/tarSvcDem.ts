@@ -39,9 +39,15 @@ export interface TarSvcDemParams {
   baseYm: string;
 }
 
+/** 이번 호출에서 실제로 받은 원본 응답 본문(있는 경우만). 네트워크 실패 등으로 본문이 전혀 없으면 null. */
+export interface TarSvcDemRaw {
+  stay: unknown | null;
+  spend: unknown | null;
+}
+
 type AdapterResult =
-  | NormalizedItemsResult<TarSvcDemItem>
-  | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string };
+  | (NormalizedItemsResult<TarSvcDemItem> & { raw: TarSvcDemRaw })
+  | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string; raw: TarSvcDemRaw };
 
 // 확인된 코드값: 2103="1박 방문자수"(체류 강도 프록시), 2201="외지인 소비액"(소비 강도 프록시).
 const TAR_SJRN_DS_IX_CD = "2103";
@@ -78,12 +84,19 @@ export async function fetchTarSvcDem(params: TarSvcDemParams): Promise<AdapterRe
     }),
   ]);
 
+  // 실제로 받은 원본 본문만 담는다(네트워크/timeout 등으로 본문 자체가 없으면 null — 지어내지 않는다).
+  const raw: TarSvcDemRaw = {
+    stay: stayRes.ok ? stayRes.data : null,
+    spend: spendRes.ok ? spendRes.data : null,
+  };
+
   if (!stayRes.ok && !spendRes.ok) {
     return {
       status: "ERROR",
       items: [],
       resultCode: "NETWORK_ERROR",
       resultMsg: stayRes.errorMessage ?? spendRes.errorMessage ?? "unknown",
+      raw,
     };
   }
 
@@ -98,7 +111,7 @@ export async function fetchTarSvcDem(params: TarSvcDemParams): Promise<AdapterRe
       resultCode = parsed.resultCode;
       resultMsg = parsed.resultMsg;
     } catch {
-      // 예상과 다른 응답 구조(예: 파라미터 에러)면 이 오퍼레이션만 건너뛴다.
+      // 예상과 다른 응답 구조(예: 파라미터 에러)면 이 오퍼레이션만 건너뛴다. 본문 자체는 raw.stay에 이미 보존됨.
     }
   }
   if (spendRes.ok) {
@@ -106,9 +119,9 @@ export async function fetchTarSvcDem(params: TarSvcDemParams): Promise<AdapterRe
       const parsed = parsePublicDataEnvelope(itemSchema, spendRes.data);
       items.push(...parsed.items);
     } catch {
-      // 위와 동일
+      // 위와 동일. 본문은 raw.spend에 이미 보존됨.
     }
   }
 
-  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode, resultMsg };
+  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode, resultMsg, raw };
 }

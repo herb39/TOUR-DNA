@@ -55,6 +55,51 @@ async function upsertMetric(
 }
 
 /**
+ * 어댑터가 실제로 받은 원본 응답(rawPayload)을 DataSnapshot에 upsert한다(Phase 1-B, 2026-07-23).
+ * 호출 시점에 실제 본문이 하나도 없었으면(네트워크/timeout/JSON 파싱 실패) 이 함수 자체를 호출하지
+ * 않는다 — rawPayload는 스키마상 NOT NULL이라 "본문 없음"을 지어낸 값 없이 정직하게 표현할 방법이
+ * 없기 때문이다(기존 성공 스냅샷이 있다면 그것을 그대로 둔다 — 삭제하지 않는다).
+ */
+async function upsertSnapshot(params: {
+  dataSourceId: string;
+  regionId: string;
+  baseYm: string;
+  status: "SUCCESS" | "EMPTY" | "ERROR";
+  resultCode: string | null;
+  resultMsg: string | null;
+  itemCount: number;
+  rawPayload: object;
+}) {
+  await prisma.dataSnapshot.upsert({
+    where: {
+      dataSourceId_regionId_baseYm: {
+        dataSourceId: params.dataSourceId,
+        regionId: params.regionId,
+        baseYm: params.baseYm,
+      },
+    },
+    update: {
+      status: params.status,
+      resultCode: params.resultCode,
+      resultMsg: params.resultMsg,
+      itemCount: params.itemCount,
+      rawPayload: params.rawPayload,
+      fetchedAt: new Date(),
+    },
+    create: {
+      dataSourceId: params.dataSourceId,
+      regionId: params.regionId,
+      baseYm: params.baseYm,
+      status: params.status,
+      resultCode: params.resultCode,
+      resultMsg: params.resultMsg,
+      itemCount: params.itemCount,
+      rawPayload: params.rawPayload,
+    },
+  });
+}
+
+/**
  * 6개 공공데이터 API를 동기화한다. DATA_MODE=snapshot이거나 서비스키가 없으면 라이브 호출을
  * 생략하고 기존 성공 데이터를 그대로 유지한다(스냅샷 모드로 전체 데모 지속 가능). 일부 API가
  * 실패해도 다른 API의 기존 성공 데이터를 삭제하지 않는다 — 실패한 지표만 갱신을 건너뛴다.
@@ -128,6 +173,19 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           }
         }
       }
+      // 실제로 받은 본문이 하나라도 있으면(네트워크 실패로 둘 다 없는 경우는 제외) snapshot을 남긴다.
+      if (res.raw.stay !== null || res.raw.spend !== null) {
+        await upsertSnapshot({
+          dataSourceId: svcSource.id,
+          regionId: region.id,
+          baseYm: params.baseYm,
+          status: res.status,
+          resultCode: res.resultCode,
+          resultMsg: res.resultMsg,
+          itemCount: res.items.length,
+          rawPayload: res.raw,
+        });
+      }
       results.push({
         sourceCode: `TAR_SVC_DEM:${region.code}`,
         status: res.status === "SUCCESS" ? "SUCCESS" : res.status === "EMPTY" ? "SUCCESS" : "FAILED",
@@ -148,6 +206,21 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       // 연령대별 방문객/소비 다양성 + 국적 다양성을 조합한 종합 점수(touDivIx.ts의 evenness 산식 참고).
       if (res.status === "SUCCESS" && res.composite !== null) {
         await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", divSource.id);
+      }
+      // 13개 코드 호출 중 실제 본문을 하나라도 받았으면 snapshot을 남긴다. 13개를 합친 값이라 하나의
+      // resultCode/resultMsg로 대표할 수 없으므로 null로 둔다(있지도 않은 대표값을 지어내지 않음).
+      const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
+      if (hasRealDivData) {
+        await upsertSnapshot({
+          dataSourceId: divSource.id,
+          regionId: region.id,
+          baseYm: params.baseYm,
+          status: res.status,
+          resultCode: null,
+          resultMsg: null,
+          itemCount: res.itemCount,
+          rawPayload: res.raw,
+        });
       }
       results.push({
         sourceCode: `TOU_DIV_IX:${region.code}`,
@@ -174,6 +247,18 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           }
         }
       }
+      if (res.raw !== null) {
+        await upsertSnapshot({
+          dataSourceId: resDemSource.id,
+          regionId: region.id,
+          baseYm: params.baseYm,
+          status: res.status,
+          resultCode: res.resultCode,
+          resultMsg: res.resultMsg,
+          itemCount: res.items.length,
+          rawPayload: res.raw as object,
+        });
+      }
       results.push({
         sourceCode: `TOU_RES_DEM:${region.code}`,
         status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
@@ -191,6 +276,18 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
             await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.VISITOR_CNT, item.visitorCnt, "명", visitorSource.id);
           }
         }
+      }
+      if (res.raw !== null) {
+        await upsertSnapshot({
+          dataSourceId: visitorSource.id,
+          regionId: region.id,
+          baseYm: params.baseYm,
+          status: res.status,
+          resultCode: res.resultCode,
+          resultMsg: res.resultMsg,
+          itemCount: res.items.length,
+          rawPayload: res.raw as object,
+        });
       }
       results.push({
         sourceCode: `VISITOR_CNT:${region.code}`,
@@ -251,6 +348,18 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
           });
           upserted++;
         }
+      }
+      if (res.raw.pages.length > 0) {
+        await upsertSnapshot({
+          dataSourceId: tourInfoSource.id,
+          regionId: region.id,
+          baseYm: params.baseYm,
+          status: res.status,
+          resultCode: res.resultCode,
+          resultMsg: res.resultMsg,
+          itemCount: res.items.length,
+          rawPayload: res.raw,
+        });
       }
       results.push({
         sourceCode: `TOUR_INFO:${region.code}`,

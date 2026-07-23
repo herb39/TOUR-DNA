@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fetchPublicDataJson } from "../client";
-import { parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
+import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult } from "../types";
 
 /**
  * 한국관광공사_지역별 관광 자원 수요 (AreaTarResDemService).
@@ -38,9 +38,11 @@ export interface TouResDemParams {
 
 const TAR_SVC_DEM_IX_CD = "1101";
 
-export async function fetchTouResDem(
-  params: TouResDemParams,
-): Promise<NormalizedItemsResult<TouResDemItem> | { status: "ERROR"; items: []; resultCode: "NETWORK_ERROR"; resultMsg: string }> {
+type AdapterResult =
+  | (NormalizedItemsResult<TouResDemItem> & { raw: unknown })
+  | { status: "ERROR"; items: []; resultCode: string; resultMsg: string; raw: unknown };
+
+export async function fetchTouResDem(params: TouResDemParams): Promise<AdapterResult> {
   const qs = new URLSearchParams({
     serviceKey: params.serviceKey,
     MobileOS: "ETC",
@@ -57,7 +59,22 @@ export async function fetchTouResDem(
 
   const res = await fetchPublicDataJson(url, { sourceCode: "TOU_RES_DEM:SVC" });
   if (!res.ok) {
-    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown" };
+    // 네트워크/timeout 등으로 실제 응답 본문 자체가 없다 — raw는 null(지어내지 않음).
+    return { status: "ERROR", items: [], resultCode: "NETWORK_ERROR", resultMsg: res.errorMessage ?? "unknown", raw: null };
   }
-  return parsePublicDataEnvelope(itemSchema, res.data);
+  // 실제 본문은 받았다(res.ok) — 표준 envelope과 다른 구조(예: response 래퍼 없는 에러 응답)일 수 있으므로
+  // 파싱 실패를 크래시로 두지 않고, 그 안에 실제로 있는 resultCode/resultMsg만 읽어 ERROR로 처리한다.
+  try {
+    const parsed = parsePublicDataEnvelope(itemSchema, res.data);
+    return { ...parsed, raw: res.data };
+  } catch {
+    const meta = extractResultMeta(res.data);
+    return {
+      status: "ERROR",
+      items: [],
+      resultCode: meta.resultCode ?? "UNKNOWN_ERROR_SHAPE",
+      resultMsg: meta.resultMsg ?? "응답 구조가 예상과 달라 파싱하지 못함",
+      raw: res.data,
+    };
+  }
 }

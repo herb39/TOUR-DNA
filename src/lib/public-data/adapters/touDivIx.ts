@@ -82,26 +82,40 @@ function buildUrl(baseUrl: string, path: string, code: string, codeParam: string
   return `${baseUrl}/${path}?${qs.toString()}`;
 }
 
+interface CodeFetchResult {
+  value: number | null;
+  /** 실제로 받은 원본 응답(있는 경우만) — 네트워크 실패 등으로 본문 자체가 없으면 null(지어내지 않음). */
+  raw: unknown;
+}
+
 async function fetchCode<T extends { [k: string]: unknown }>(
   url: string,
   sourceCode: string,
   schema: z.ZodType<T>,
   valueKey: keyof T,
-): Promise<number | null> {
+): Promise<CodeFetchResult> {
   const res = await fetchPublicDataJson(url, { sourceCode });
-  if (!res.ok) return null;
+  if (!res.ok) return { value: null, raw: null };
   try {
     const parsed = parsePublicDataEnvelope(schema, res.data);
     const value = parsed.items[0]?.[valueKey];
-    return typeof value === "number" ? value : null;
+    return { value: typeof value === "number" ? value : null, raw: res.data };
   } catch {
-    return null;
+    // 예상과 다른 응답 구조(예: 에러 전용 플랫 구조)여도 실제로 받은 본문은 raw로 보존한다.
+    return { value: null, raw: res.data };
   }
 }
 
+/** 13개(연령대 6+6, 국적 1) 코드 호출에서 실제로 받은 원본 응답들. 지어내지 않고 받은 것만 담는다. */
+export interface TouDivIxRaw {
+  tou: Array<{ code: string; data: unknown }>;
+  exp: Array<{ code: string; data: unknown }>;
+  intl: { code: string; data: unknown };
+}
+
 export type TouDivIxResult =
-  | { status: "SUCCESS" | "EMPTY"; composite: number | null; breakdown: DiversityBreakdown }
-  | { status: "ERROR"; composite: null; breakdown: null; resultMsg: string };
+  | { status: "SUCCESS" | "EMPTY"; composite: number | null; breakdown: DiversityBreakdown; itemCount: number; raw: TouDivIxRaw }
+  | { status: "ERROR"; composite: null; breakdown: null; resultMsg: string; itemCount: 0; raw: TouDivIxRaw };
 
 /** 연령대별 방문객/소비 다양성 + 국적 다양성을 모두 조회해 종합 다양성 점수를 계산한다. */
 export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxResult> {
@@ -124,16 +138,24 @@ export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxRes
     ),
   ]);
 
-  const validTou = touVals.filter((v): v is number => v !== null);
-  const validExp = expVals.filter((v): v is number => v !== null);
+  const raw: TouDivIxRaw = {
+    tou: TOU_DIV_CODES.map((code, i) => ({ code, data: touVals[i].raw })),
+    exp: EXP_DIV_CODES.map((code, i) => ({ code, data: expVals[i].raw })),
+    intl: { code: INTL_DIV_CODE_NATIONALITY, data: intlVal.raw },
+  };
 
-  if (validTou.length === 0 && validExp.length === 0 && intlVal === null) {
-    return { status: "ERROR", composite: null, breakdown: null, resultMsg: "모든 코드 호출/파싱 실패" };
+  const validTou = touVals.map((v) => v.value).filter((v): v is number => v !== null);
+  const validExp = expVals.map((v) => v.value).filter((v): v is number => v !== null);
+  const intlValue = intlVal.value;
+  const itemCount = validTou.length + validExp.length + (intlValue !== null ? 1 : 0);
+
+  if (validTou.length === 0 && validExp.length === 0 && intlValue === null) {
+    return { status: "ERROR", composite: null, breakdown: null, resultMsg: "모든 코드 호출/파싱 실패", itemCount: 0, raw };
   }
 
   const visitorAgeEvenness = evenness(validTou);
   const spendAgeEvenness = evenness(validExp);
-  const nationalityDiversity = intlVal;
+  const nationalityDiversity = intlValue;
 
   const subScores = [visitorAgeEvenness, spendAgeEvenness, nationalityDiversity].filter(
     (v): v is number => v !== null,
@@ -145,5 +167,7 @@ export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxRes
     status: composite === null ? "EMPTY" : "SUCCESS",
     composite,
     breakdown: { visitorAgeEvenness, spendAgeEvenness, nationalityDiversity, composite },
+    itemCount,
+    raw,
   };
 }
