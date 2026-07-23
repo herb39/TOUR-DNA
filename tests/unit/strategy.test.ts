@@ -219,3 +219,155 @@ describe("computeStrategies", () => {
     }
   });
 });
+
+/** 카테고리당 넉넉한 개수를 만들어 "충분한 후보가 있을 때" 시나리오를 구성한다. 이름에 번호를 붙여
+ * name.localeCompare 정렬이 항상 같은 순서를 내도록 한다. */
+function makePois(prefix: string, category: PoiCategoryCode, count: number): PoiLike[] {
+  return Array.from({ length: count }, (_, i) =>
+    poi(`${prefix}-${i}`, `${prefix}-${String(i).padStart(2, "0")}`, category),
+  );
+}
+
+function categoryOf(id: string, pool: Partial<Record<PoiCategoryCode, PoiLike[]>>): PoiCategoryCode | undefined {
+  for (const [cat, list] of Object.entries(pool) as [PoiCategoryCode, PoiLike[]][]) {
+    if (list.some((p) => p.id === id)) return cat;
+  }
+  return undefined;
+}
+
+describe("selectPois — 기간별 밀도 개선(1단계)", () => {
+  const abundantPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+    ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+    FOOD: makePois("food", "FOOD", 20),
+    EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+    FESTIVAL: makePois("festival", "FESTIVAL", 20),
+    SHOPPING: makePois("shopping", "SHOPPING", 20),
+    LODGING: makePois("lodging", "LODGING", 20),
+  };
+
+  it("충분한 후보가 있을 때 여행 기간별 비숙박 POI 목표 개수를 정확히 채운다", () => {
+    const dna = computeDna(dnaInput());
+    const expected: Record<string, number> = {
+      DAY_TRIP: 4,
+      ONE_NIGHT_TWO_DAYS: 7,
+      TWO_NIGHTS_THREE_DAYS: 11,
+    };
+    for (const [duration, target] of Object.entries(expected)) {
+      const strategies = computeStrategies(
+        dna,
+        baseProjectInput({ duration: duration as ProjectInputForScoring["duration"] }),
+        abundantPool,
+        MODEL_VERSION,
+      );
+      for (const s of strategies) {
+        const nonLodgingCount = s.poiIds.filter((id) => categoryOf(id, abundantPool) !== "LODGING").length;
+        expect(nonLodgingCount).toBe(target);
+      }
+    }
+  });
+
+  it("충분한 숙박 후보가 있을 때 여행 기간별 숙박 선택량 상한을 지킨다", () => {
+    const dna = computeDna(dnaInput());
+    const expected: Record<string, number> = {
+      DAY_TRIP: 0,
+      ONE_NIGHT_TWO_DAYS: 1,
+      TWO_NIGHTS_THREE_DAYS: 2,
+    };
+    for (const [duration, target] of Object.entries(expected)) {
+      const strategies = computeStrategies(
+        dna,
+        baseProjectInput({ duration: duration as ProjectInputForScoring["duration"] }),
+        abundantPool,
+        MODEL_VERSION,
+      );
+      for (const s of strategies) {
+        const lodgingCount = s.poiIds.filter((id) => categoryOf(id, abundantPool) === "LODGING").length;
+        expect(lodgingCount).toBe(target);
+      }
+    }
+  });
+
+  it("후보가 목표보다 적으면 있는 만큼만 반환하고 가짜 ID나 중복을 만들지 않는다", () => {
+    const scarcePool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 2),
+      FOOD: makePois("food", "FOOD", 1),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 1),
+      LODGING: makePois("lodging", "LODGING", 1),
+    };
+    const knownIds = new Set(Object.values(scarcePool).flat().map((p) => p!.id));
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS" }),
+      scarcePool,
+      MODEL_VERSION,
+    );
+    for (const s of strategies) {
+      // 목표(비숙박 11)보다 풀 전체(비숙박 4)가 작으므로 있는 만큼만(4개) 나와야 한다.
+      const nonLodgingCount = s.poiIds.filter((id) => categoryOf(id, scarcePool) !== "LODGING").length;
+      expect(nonLodgingCount).toBe(4);
+      for (const id of s.poiIds) {
+        expect(knownIds.has(id)).toBe(true);
+      }
+      expect(new Set(s.poiIds).size).toBe(s.poiIds.length);
+    }
+  });
+
+  it("동일 입력을 반복 실행해도 poiIds 값과 순서가 동일하다(결정론성)", () => {
+    const dna = computeDna(dnaInput());
+    const input = baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS" });
+    const r1 = computeStrategies(dna, input, abundantPool, MODEL_VERSION);
+    const r2 = computeStrategies(dna, input, abundantPool, MODEL_VERSION);
+    expect(r1.map((s) => s.poiIds)).toEqual(r2.map((s) => s.poiIds));
+  });
+
+  it("같은 POI ID가 여러 카테고리 풀에 잘못 중복 포함돼도 최종 poiIds에는 한 번만 나온다", () => {
+    const sharedId = "dup-shared-1";
+    const dupPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      FOOD: [poi(sharedId, "food-00", "FOOD"), ...makePois("food", "FOOD", 5)],
+      EXPERIENCE: [poi(sharedId, "experience-00", "EXPERIENCE"), ...makePois("experience", "EXPERIENCE", 5)],
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+      SHOPPING: makePois("shopping", "SHOPPING", 5),
+      LODGING: makePois("lodging", "LODGING", 2),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(dna, baseProjectInput(), dupPool, MODEL_VERSION);
+    for (const s of strategies) {
+      const occurrences = s.poiIds.filter((id) => id === sharedId).length;
+      expect(occurrences).toBeLessThanOrEqual(1);
+      expect(new Set(s.poiIds).size).toBe(s.poiIds.length);
+    }
+  });
+
+  it("보조 카테고리로 채울 필요가 없을 만큼 핵심 카테고리 후보가 충분하면 핵심 카테고리만으로 채운다", () => {
+    // NATURE_WELLNESS 템플릿의 핵심 카테고리는 ATTRACTION, EXPERIENCE, LODGING이다.
+    const coreOnlyPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+      LODGING: makePois("lodging", "LODGING", 20),
+      FOOD: makePois("food", "FOOD", 20),
+      SHOPPING: makePois("shopping", "SHOPPING", 20),
+      FESTIVAL: makePois("festival", "FESTIVAL", 20),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "DAY_TRIP" }),
+      coreOnlyPool,
+      MODEL_VERSION,
+    );
+    const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    expect(natureWellness).toBeDefined();
+    const categories = natureWellness!.poiIds.map((id) => categoryOf(id, coreOnlyPool));
+    for (const cat of categories) {
+      expect(["ATTRACTION", "EXPERIENCE", "LODGING"]).toContain(cat);
+    }
+  });
+
+  it("선택 과정에서 원본 poisByCategory 객체를 변경하지 않는다", () => {
+    const before = JSON.parse(JSON.stringify(abundantPool));
+    const dna = computeDna(dnaInput());
+    computeStrategies(dna, baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS" }), abundantPool, MODEL_VERSION);
+    expect(abundantPool).toEqual(before);
+  });
+});

@@ -134,54 +134,127 @@ function collectEvidences(
   return evidences;
 }
 
-/** 템플릿 id 기반 결정론적 해시. 같은 카테고리를 공유하는 템플릿끼리도 서로 다른 POI를 뽑도록
+/** 템플릿 id(+카테고리) 기반 결정론적 해시. 같은 카테고리를 공유하는 템플릿끼리도 서로 다른 POI를 뽑도록
  * 정렬된 목록 안에서의 시작 위치(offset)를 템플릿마다 다르게 만든다(같은 입력엔 항상 같은 결과). */
-function templateHash(templateId: string): number {
+function templateHash(seed: string): number {
   let hash = 0;
-  for (let i = 0; i < templateId.length; i++) {
-    hash = (hash * 31 + templateId.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
   return hash;
+}
+
+/** 기간별 목표 비숙박 POI 개수 — 관광상품으로서 최소한의 밀도를 보장하기 위한 상수(하루 2개 문제의 개선 1단계). */
+const NON_LODGING_POI_TARGET_BY_DURATION: Record<DurationCode, number> = {
+  DAY_TRIP: 4,
+  ONE_NIGHT_TWO_DAYS: 7,
+  TWO_NIGHTS_THREE_DAYS: 11,
+};
+
+/** 기간별 목표 숙박 후보 개수(박수 기준) — 비숙박 목표와 별도로 취급한다. 실제 일정 내 분리 배치는 다음 단계. */
+const LODGING_POI_TARGET_BY_DURATION: Record<DurationCode, number> = {
+  DAY_TRIP: 0,
+  ONE_NIGHT_TWO_DAYS: 1,
+  TWO_NIGHTS_THREE_DAYS: 2,
+};
+
+/** 템플릿 핵심 카테고리가 부족할 때 지역 소비 접점을 보완하는 후보 카테고리. */
+const TOUCHPOINT_SUPPLEMENT_CATEGORIES: PoiCategoryCode[] = ["FOOD", "EXPERIENCE", "SHOPPING"];
+
+/** 그래도 목표에 못 미치면 마지막으로 훑는 비숙박 카테고리 전체(고정 순서, LODGING 제외). */
+const ALL_NON_LODGING_CATEGORIES: PoiCategoryCode[] = ["ATTRACTION", "FOOD", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
+
+/** 카테고리 하나를 이름순 정렬 후, 템플릿+카테고리 조합 해시로 정한 위치부터 시작하도록 순환시킨다.
+ * 입력 pool을 복사만 하고 원본은 건드리지 않는다. */
+function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, pool: PoiLike[]): PoiLike[] {
+  const sorted = [...pool].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  if (sorted.length === 0) return sorted;
+  const offset = templateHash(`${template.id}:${cat}`) % sorted.length;
+  return [...sorted.slice(offset), ...sorted.slice(0, offset)];
 }
 
 function selectPois(
   template: StrategyTemplate,
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
+  duration: DurationCode,
 ): { poiIds: string[]; touchpoints: ConsumptionTouchpoints } {
-  const sortedCopy = (cat: PoiCategoryCode) =>
-    [...(poisByCategory[cat] ?? [])].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  const nonLodgingTarget = NON_LODGING_POI_TARGET_BY_DURATION[duration];
+  const lodgingTarget = LODGING_POI_TARGET_BY_DURATION[duration];
 
-  const takeSlice = (pool: PoiLike[], count: number) => {
-    if (pool.length <= count) return pool;
-    const maxOffset = pool.length - count;
-    const offset = templateHash(template.id) % (maxOffset + 1);
-    return pool.slice(offset, offset + count);
+  // 우선순위 티어: ① 템플릿 핵심 카테고리 → ② 지역 소비 접점 보완 카테고리 → ③ 나머지 비숙박 카테고리.
+  const coreCats: PoiCategoryCode[] = template.poiCategories.filter((c) => c !== "LODGING");
+  const supplementCats = TOUCHPOINT_SUPPLEMENT_CATEGORIES.filter((c) => !coreCats.includes(c));
+  const fallbackCats = ALL_NON_LODGING_CATEGORIES.filter(
+    (c) => !coreCats.includes(c) && !supplementCats.includes(c),
+  );
+  const priorityTiers = [coreCats, supplementCats, fallbackCats];
+
+  const rotatedPools = new Map<PoiCategoryCode, PoiLike[]>();
+  const cursorByCategory = new Map<PoiCategoryCode, number>();
+  const poolFor = (cat: PoiCategoryCode): PoiLike[] => {
+    let rotated = rotatedPools.get(cat);
+    if (!rotated) {
+      rotated = rotatedCategoryPool(template, cat, poisByCategory[cat] ?? []);
+      rotatedPools.set(cat, rotated);
+    }
+    return rotated;
   };
 
-  const poiIds: string[] = [];
+  const selectedIds = new Set<string>();
   const selectedByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};
+  const selectionOrder: PoiLike[] = [];
 
-  for (const cat of template.poiCategories) {
-    const picked = takeSlice(sortedCopy(cat), 2);
-    if (picked.length > 0) {
-      selectedByCategory[cat] = picked;
-      poiIds.push(...picked.map((p) => p.id));
+  /** 해당 카테고리에서 아직 선택되지 않은 다음 후보 하나. 중복은 selectedIds로 걸러낸다. */
+  const pickNext = (cat: PoiCategoryCode): PoiLike | null => {
+    const rotated = poolFor(cat);
+    let idx = cursorByCategory.get(cat) ?? 0;
+    let picked: PoiLike | null = null;
+    while (idx < rotated.length) {
+      const candidate = rotated[idx];
+      idx++;
+      if (!selectedIds.has(candidate.id)) {
+        picked = candidate;
+        break;
+      }
+    }
+    cursorByCategory.set(cat, idx);
+    return picked;
+  };
+
+  // 티어 안에서는 카테고리를 순환하며 한 개씩 뽑아 균형 있게 채우고, 목표에 못 미치면 다음 티어로 내려간다.
+  for (const tier of priorityTiers) {
+    if (selectedIds.size >= nonLodgingTarget) break;
+    let progressed = true;
+    while (progressed && selectedIds.size < nonLodgingTarget) {
+      progressed = false;
+      for (const cat of tier) {
+        if (selectedIds.size >= nonLodgingTarget) break;
+        const picked = pickNext(cat);
+        if (!picked) continue;
+        selectedIds.add(picked.id);
+        selectionOrder.push(picked);
+        const list = selectedByCategory[cat] ?? [];
+        list.push(picked);
+        selectedByCategory[cat] = list;
+        progressed = true;
+      }
     }
   }
+
+  // LODGING은 비숙박 목표와 별도로, 박수만큼만 선택한다(이번 단계에서는 poiIds에 함께 담되 일정 분리는 하지 않음).
+  const lodgingPicked: PoiLike[] = [];
+  const lodgingPool = rotatedCategoryPool(template, "LODGING", poisByCategory.LODGING ?? []);
+  for (const candidate of lodgingPool) {
+    if (lodgingPicked.length >= lodgingTarget) break;
+    if (selectedIds.has(candidate.id)) continue;
+    lodgingPicked.push(candidate);
+    selectedIds.add(candidate.id);
+  }
+  if (lodgingPicked.length > 0) selectedByCategory.LODGING = lodgingPicked;
+
+  const poiIds = [...selectionOrder, ...lodgingPicked].map((p) => p.id);
 
   const touchpointCats: PoiCategoryCode[] = ["FOOD", "LODGING", "EXPERIENCE"];
-  const currentTouchpointCats = touchpointCats.filter((c) => (selectedByCategory[c]?.length ?? 0) > 0);
-  for (const cat of touchpointCats) {
-    if (currentTouchpointCats.length >= 2) break;
-    if (selectedByCategory[cat]) continue;
-    const picked = takeSlice(sortedCopy(cat), 1);
-    if (picked.length > 0) {
-      selectedByCategory[cat] = picked;
-      poiIds.push(...picked.map((p) => p.id));
-      currentTouchpointCats.push(cat);
-    }
-  }
-
   const examples = touchpointCats.flatMap((c) => (selectedByCategory[c] ?? []).map((p) => p.name)).slice(0, 3);
 
   return {
@@ -255,7 +328,7 @@ export function computeStrategies(
     );
 
     const breakdown: StrategyScoreBreakdown = { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit };
-    const { poiIds, touchpoints } = selectPois(template, poisByCategory);
+    const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration);
 
     return {
       template,

@@ -5,21 +5,9 @@ import { labelForBudgetLevel, labelForDuration, labelForGroupType, labelForTrans
 import { formatBaseYm, formatDateTime } from "@/lib/format";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { PrintButton } from "@/components/plan/PrintButton";
+import type { CourseDay } from "@/lib/domain/planBuilder";
 
 export const dynamic = "force-dynamic";
-
-interface CourseItem {
-  order: number;
-  poiName: string;
-  category: string;
-  timeSlot: string;
-  stayMinutes: number;
-  travel: string;
-}
-interface CourseDay {
-  dayIndex: number;
-  items: CourseItem[];
-}
 
 export default async function PrintPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -82,6 +70,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                   </li>
                 ))}
               </ol>
+              {day.lodging != null ? (
+                <p className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
+                  <span className="font-semibold">[숙박]</span> {day.lodging.timeSlot} {day.lodging.poiName} (
+                  {day.lodging.category}, {day.lodging.travel})
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

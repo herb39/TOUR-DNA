@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
 import {
@@ -287,8 +287,25 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
   const visiblePoiResults =
     trimmedPoiQuery.length === 0 ? [] : poiResults.filter((p) => !existingPoiIds.has(p.id));
 
+  /**
+   * <form action={formAction}>로 직접 연결하면, 저장이 성공한 뒤 React가 진행형 향상(progressive
+   * enhancement)을 위해 폼을 네이티브 form.reset()으로 자동 리셋한다. 날짜 select처럼 "값이 실제로는
+   * 안 바뀌었지만 페이지가 다시 그려지는" 컨트롤은, React가 이전 값과 같다고 보고 DOM을 다시 써주지
+   * 않아 리셋된 첫 번째 옵션("1일차")이 화면에 그대로 남는다 — 이 select를 강제로 다시 마운트시켜도
+   * 리셋 자체가 그 이후에도 한 번 더 걸리므로 소용없다(직접 재현 확인됨). 근본 해결은 애초에 이
+   * 자동 리셋 경로를 타지 않는 것 — action을 폼에 직접 연결하지 않고, onSubmit에서 막은 뒤 같은
+   * formAction을 수동으로 호출한다(useActionState의 상태 관리·isPending은 그대로 동작).
+   */
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(() => {
+      formAction(formData);
+    });
+  }
+
   return (
-    <form action={formAction} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
       <input type="hidden" name="courseJson" value={JSON.stringify({ days })} />
       <input type="hidden" name="operationChecklistJson" value={JSON.stringify(operationChecklist)} />
       <input type="hidden" name="risksJson" value={JSON.stringify(risks)} />
@@ -426,6 +443,19 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                     );
                   })}
                 </ul>
+
+                {day.lodging != null ? (
+                  <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
+                    <span className="mr-2 rounded bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700">
+                      숙박
+                    </span>
+                    <span className="font-medium text-indigo-900">{day.lodging.timeSlot} 체크인</span>
+                    <span className="ml-2 text-slate-700">{day.lodging.poiName}</span>
+                    <span className="ml-2 text-xs text-slate-500">
+                      ({day.lodging.category}, {day.lodging.travel})
+                    </span>
+                  </div>
+                ) : null}
 
                 <div className="no-print mt-2">
                   {addingToDay === day.dayIndex ? (

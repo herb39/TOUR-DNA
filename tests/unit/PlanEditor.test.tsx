@@ -9,7 +9,7 @@ vi.mock("@/app/projects/[id]/plan/actions", () => ({
 }));
 
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
-import { searchAvailablePoisAction } from "@/app/projects/[id]/plan/actions";
+import { savePlanAction, searchAvailablePoisAction } from "@/app/projects/[id]/plan/actions";
 
 function makePlan(): PlanEditorData {
   return {
@@ -217,5 +217,143 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
 
     fireEvent.click(screen.getByLabelText('KPI "재방문율" 삭제'));
     expect(screen.queryByText("재방문율")).not.toBeInTheDocument();
+  });
+});
+
+describe("PlanEditor 숙박 읽기 전용 표시", () => {
+  function makePlanWithLodging(): PlanEditorData {
+    const base = makePlan();
+    base.course.days[0].lodging = {
+      order: 1,
+      poiId: "poi-lodge",
+      poiName: "숙소장소",
+      category: "LODGING",
+      timeSlot: "20:00",
+      stayMinutes: 0,
+      travel: "이동 약 10분(약 1.0km, 대중교통 기준)",
+    };
+    // 2일차는 lodging 필드 자체가 없는 기존 저장 데이터를 그대로 흉내(undefined)
+    return base;
+  }
+
+  it("lodging이 있으면 숙박 카드로 장소명과 체크인 시각이 표시된다", () => {
+    render(<PlanEditor plan={makePlanWithLodging()} />);
+
+    expect(screen.getByText("숙박")).toBeInTheDocument();
+    expect(screen.getByText("숙소장소")).toBeInTheDocument();
+    expect(screen.getByText("20:00 체크인")).toBeInTheDocument();
+  });
+
+  it("lodging이 없으면(undefined) 숙박 영역이 표시되지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    expect(screen.queryByText("숙박")).not.toBeInTheDocument();
+  });
+
+  it("숙박은 일반 일정 목록(순서/위·아래 이동 버튼)에 포함되지 않는다", () => {
+    render(<PlanEditor plan={makePlanWithLodging()} />);
+
+    // 숙박 장소명은 표시되지만, 일반 항목처럼 시간 입력/위아래 이동/삭제 버튼이 붙지 않는다.
+    expect(screen.queryByLabelText("숙소장소 시간")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("숙소장소 위로 이동")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("숙소장소 삭제")).not.toBeInTheDocument();
+    // 일반 항목(A장소/B장소)의 위/아래 이동 버튼 개수는 숙박과 무관하게 그대로다(총 4개: 각 2개씩).
+    expect(screen.getAllByLabelText(/위로 이동$|아래로 이동$/)).toHaveLength(4);
+  });
+});
+
+describe("PlanEditor 저장 후 날짜 select 값 유지(회귀)", () => {
+  function makeThreeDayPlan(): PlanEditorData {
+    const base = makePlan();
+    base.course.days = [
+      {
+        dayIndex: 1,
+        items: [{ order: 1, poiId: "d1", poiName: "D1장소", category: "FOOD", timeSlot: "09:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" }],
+        lodging: { order: 1, poiId: "lodge-1", poiName: "1일차숙소", category: "LODGING", timeSlot: "20:00", stayMinutes: 0, travel: "이동 약 5분" },
+      },
+      { dayIndex: 2, items: [{ order: 1, poiId: "d2", poiName: "D2장소", category: "FOOD", timeSlot: "11:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" }] },
+      { dayIndex: 3, items: [{ order: 1, poiId: "d3", poiName: "D3장소", category: "FOOD", timeSlot: "14:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" }] },
+    ];
+    return base;
+  }
+
+  function selectValue(poiName: string): string {
+    return (screen.getByLabelText(`${poiName} 다른 날짜로 이동`) as HTMLSelectElement).value;
+  }
+
+  it("2박 3일 저장 전에는 각 항목의 날짜 select가 서로 다른 값(1/2/3)으로 표시된다", () => {
+    render(<PlanEditor plan={makeThreeDayPlan()} />);
+
+    expect(selectValue("D1장소")).toBe("1");
+    expect(selectValue("D2장소")).toBe("2");
+    expect(selectValue("D3장소")).toBe("3");
+  });
+
+  it("저장(성공) 후에도 각 항목의 날짜 select가 1일차·2일차·3일차로 그대로 유지된다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-07-23T00:00:00.000Z" });
+    render(<PlanEditor plan={makeThreeDayPlan()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    expect(selectValue("D1장소")).toBe("1");
+    expect(selectValue("D2장소")).toBe("2");
+    expect(selectValue("D3장소")).toBe("3");
+  });
+
+  it("저장 후에도 시간 입력값과 lodging 표시가 그대로 유지된다(회귀가 select에만 국한되는지 확인)", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-07-23T00:00:00.000Z" });
+    render(<PlanEditor plan={makeThreeDayPlan()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    expect(timeInputValue("D1장소")).toBe("09:00");
+    expect(timeInputValue("D2장소")).toBe("11:00");
+    expect(timeInputValue("D3장소")).toBe("14:00");
+    expect(screen.getByText("1일차숙소")).toBeInTheDocument();
+    expect(screen.getByText("20:00 체크인")).toBeInTheDocument();
+  });
+
+  it("저장 시 실제로 서버 액션에 전달되는 courseJson에 dayIndex와 lodging이 그대로 보존된다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-07-23T00:00:00.000Z" });
+    render(<PlanEditor plan={makeThreeDayPlan()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    // savePlanAction은 컴포넌트 안에서 .bind(null, plan.id, plan.projectId)로 감싸져 호출되므로,
+    // 실제 mock 호출 인자는 [planId, projectId, prevState, formData] 순서다.
+    const lastCall = vi.mocked(savePlanAction).mock.calls[vi.mocked(savePlanAction).mock.calls.length - 1];
+    const submittedFormData = lastCall[3] as FormData;
+    const submittedDays = JSON.parse(submittedFormData.get("courseJson") as string).days;
+
+    expect(submittedDays.map((d: { dayIndex: number }) => d.dayIndex)).toEqual([1, 2, 3]);
+    expect(submittedDays[0].lodging.poiId).toBe("lodge-1");
+    expect(submittedDays[1].lodging ?? null).toBeNull();
+  });
+
+  it("일반 일정을 편집(체류시간 수정)한 뒤에도 각 날짜 select 값은 그대로 유지된다", () => {
+    render(<PlanEditor plan={makeThreeDayPlan()} />);
+
+    fireEvent.change(screen.getByLabelText("D2장소 체류시간(분)"), { target: { value: "90" } });
+
+    expect(selectValue("D1장소")).toBe("1");
+    expect(selectValue("D2장소")).toBe("2");
+    expect(selectValue("D3장소")).toBe("3");
+  });
+
+  it("dayIndex가 0인 날짜가 있어도(0-based 데이터를 흉내) select 값이 fallback으로 대체되지 않는다", () => {
+    // 이 프로젝트의 정책은 1-based(dayIndex: d+1, planBuilder.ts)이지만, 0이 falsy라서
+    // `dayIndex || 1` 같은 코드가 실수로 들어오면 깨지는 것을 막기 위한 방어 테스트다.
+    const zeroBasedPlan = makePlan();
+    zeroBasedPlan.course.days = [
+      { dayIndex: 0, items: [{ order: 1, poiId: "z0", poiName: "Z0장소", category: "FOOD", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" }] },
+      { dayIndex: 1, items: [{ order: 1, poiId: "z1", poiName: "Z1장소", category: "FOOD", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" }] },
+    ];
+    render(<PlanEditor plan={zeroBasedPlan} />);
+
+    expect((screen.getByLabelText("Z0장소 다른 날짜로 이동") as HTMLSelectElement).value).toBe("0");
+    expect((screen.getByLabelText("Z1장소 다른 날짜로 이동") as HTMLSelectElement).value).toBe("1");
   });
 });
