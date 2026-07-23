@@ -59,6 +59,13 @@ async function upsertMetric(
  * 호출 시점에 실제 본문이 하나도 없었으면(네트워크/timeout/JSON 파싱 실패) 이 함수 자체를 호출하지
  * 않는다 — rawPayload는 스키마상 NOT NULL이라 "본문 없음"을 지어낸 값 없이 정직하게 표현할 방법이
  * 없기 때문이다(기존 성공 스냅샷이 있다면 그것을 그대로 둔다 — 삭제하지 않는다).
+ *
+ * 갱신 정책(Phase 1-B 보완, 2026-07-23): 같은 [dataSourceId, regionId, baseYm]에 이미 SUCCESS/EMPTY
+ * 스냅샷이 있는데 이번 응답이 ERROR(HTTP 통신은 됐지만 API 본문이 오류)라면, 이번 오류로 덮어쓰지 않고
+ * 마지막 정상 스냅샷을 그대로 둔다 — 일시적 API 오류가 근거로 쓰이고 있는 마지막 정상 원본을 복구
+ * 불가능하게 지우면 안 되기 때문이다. 같은 key에 정상 스냅샷이 아직 없으면(최초 호출이거나 이전에도
+ * ERROR였으면) 실제로 받은 ERROR 본문을 그대로 저장한다. 이후 정상 응답을 받으면 그 ERROR 스냅샷은
+ * 정상적으로 SUCCESS/EMPTY로 갱신된다(아래 upsert가 처리).
  */
 async function upsertSnapshot(params: {
   dataSourceId: string;
@@ -70,14 +77,23 @@ async function upsertSnapshot(params: {
   itemCount: number;
   rawPayload: object;
 }) {
-  await prisma.dataSnapshot.upsert({
-    where: {
-      dataSourceId_regionId_baseYm: {
-        dataSourceId: params.dataSourceId,
-        regionId: params.regionId,
-        baseYm: params.baseYm,
-      },
+  const where = {
+    dataSourceId_regionId_baseYm: {
+      dataSourceId: params.dataSourceId,
+      regionId: params.regionId,
+      baseYm: params.baseYm,
     },
+  };
+
+  if (params.status === "ERROR") {
+    const existing = await prisma.dataSnapshot.findUnique({ where, select: { status: true } });
+    if (existing && (existing.status === "SUCCESS" || existing.status === "EMPTY")) {
+      return; // 마지막 정상 스냅샷 보존 — 이번 오류 시도는 기록하지 않는다.
+    }
+  }
+
+  await prisma.dataSnapshot.upsert({
+    where,
     update: {
       status: params.status,
       resultCode: params.resultCode,

@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock 팩토리는 파일 상단으로 hoist되므로, 그 안에서 참조하는 값은 vi.hoisted로 함께 hoist해야 한다.
 const {
+  dataSnapshotStore,
   dataSnapshotUpsert,
+  dataSnapshotFindUnique,
   normalizedMetricUpsert,
   poiUpsert,
   poiFindMany,
@@ -11,8 +13,26 @@ const {
   DATA_SOURCES,
   REGION,
 } = vi.hoisted(() => {
+  // 실제 DataSnapshot 테이블의 upsert/조회 동작을 흉내 내는 최소 인메모리 fake.
+  // Phase 1-B 보완(2026-07-23)의 "기존 SUCCESS/EMPTY 보존" 정책은 upsertSnapshot()이 쓰기 전에
+  // 먼저 findUnique로 기존 status를 읽으므로, mock도 상태를 가져야 그 분기를 검증할 수 있다.
+  const store = new Map<string, { status: string; resultCode: unknown; resultMsg: unknown; itemCount: number; rawPayload: unknown }>();
+  function keyOf(w: { dataSourceId: string; regionId: string; baseYm: string }) {
+    return `${w.dataSourceId}|${w.regionId}|${w.baseYm}`;
+  }
   return {
-    dataSnapshotUpsert: vi.fn().mockResolvedValue(undefined),
+    dataSnapshotStore: store,
+    dataSnapshotUpsert: vi.fn(async ({ where, update, create }: { where: { dataSourceId_regionId_baseYm: { dataSourceId: string; regionId: string; baseYm: string } }; update: Record<string, unknown>; create: Record<string, unknown> }) => {
+      const k = keyOf(where.dataSourceId_regionId_baseYm);
+      const existing = store.get(k);
+      const next = existing ? { ...existing, ...update } : { ...create };
+      store.set(k, next as never);
+      return next;
+    }),
+    dataSnapshotFindUnique: vi.fn(async ({ where }: { where: { dataSourceId_regionId_baseYm: { dataSourceId: string; regionId: string; baseYm: string } } }) => {
+      const k = keyOf(where.dataSourceId_regionId_baseYm);
+      return store.get(k) ?? null;
+    }),
     normalizedMetricUpsert: vi.fn().mockResolvedValue(undefined),
     poiUpsert: vi.fn().mockResolvedValue(undefined),
     poiFindMany: vi.fn().mockResolvedValue([]),
@@ -52,7 +72,7 @@ vi.mock("@/lib/db", () => ({
     region: { findMany: vi.fn().mockResolvedValue([REGION]) },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
     normalizedMetric: { upsert: normalizedMetricUpsert },
-    dataSnapshot: { upsert: dataSnapshotUpsert },
+    dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique },
     syncLog: { create: syncLogCreate },
   },
 }));
@@ -110,6 +130,7 @@ beforeEach(() => {
   process.env.DATA_MODE = "live";
   vi.clearAllMocks();
   poiFindMany.mockResolvedValue([]);
+  dataSnapshotStore.clear();
   resetAdapterMocksToNoRealBody();
 });
 
@@ -232,5 +253,121 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
     expect(calls).toHaveLength(2);
     // 두 번 다 정확히 같은 where(unique key) 조건으로 upsert를 호출한다 — create 전용 호출이 아니다.
     expect(calls[0][0].where).toEqual(calls[1][0].where);
+  });
+
+  describe("SUCCESS/ERROR 전이에 따른 snapshot 보존·갱신 정책(2026-07-23 보완)", () => {
+    const KEY = "src-tou-res-dem|region-1|202606";
+
+    it("기존 SUCCESS 이후 같은 key에 ERROR가 와도 기존 SUCCESS rawPayload/메타데이터가 보존된다", async () => {
+      const realSuccessBody = { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: [] } } } };
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "SUCCESS",
+        items: [{ baseYm: "202606", tarSvcDemIxCd: "1101", tarSvcDemIxVal: 72.88 }],
+        resultCode: "0000",
+        resultMsg: "OK",
+        raw: realSuccessBody,
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+      const afterSuccess = dataSnapshotStore.get(KEY);
+      expect(afterSuccess?.status).toBe("SUCCESS");
+      expect(afterSuccess?.rawPayload).toEqual(realSuccessBody);
+
+      const realErrorBody = { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" };
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "10",
+        resultMsg: "INVALID_REQUEST_PARAMETER_ERROR",
+        raw: realErrorBody,
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      const afterError = dataSnapshotStore.get(KEY);
+      // 마지막 정상 스냅샷이 그대로 보존된다 — 이번 오류로 덮어쓰이지 않았다.
+      expect(afterError?.status).toBe("SUCCESS");
+      expect(afterError?.resultCode).toBe("0000");
+      expect(afterError?.resultMsg).toBe("OK");
+      expect(afterError?.rawPayload).toEqual(realSuccessBody);
+      // upsert 자체가 두 번째 실행에서는 이 key에 대해 호출되지 않았어야 한다(쓰기 자체를 건너뜀).
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-tou-res-dem",
+      );
+      expect(callsForKey).toHaveLength(1);
+    });
+
+    it("기존 snapshot이 없는 최초 호출에서 실제 ERROR 응답 본문을 ERROR snapshot으로 저장한다", async () => {
+      expect(dataSnapshotStore.get(KEY)).toBeUndefined();
+      const realErrorBody = { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" };
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "10",
+        resultMsg: "INVALID_REQUEST_PARAMETER_ERROR",
+        raw: realErrorBody,
+      });
+
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      const stored = dataSnapshotStore.get(KEY);
+      expect(stored?.status).toBe("ERROR");
+      expect(stored?.resultCode).toBe("10");
+      expect(stored?.rawPayload).toEqual(realErrorBody);
+    });
+
+    it("기존 ERROR 이후 정상 응답을 받으면 SUCCESS snapshot으로 갱신된다", async () => {
+      const realErrorBody = { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" };
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "10",
+        resultMsg: "INVALID_REQUEST_PARAMETER_ERROR",
+        raw: realErrorBody,
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+      expect(dataSnapshotStore.get(KEY)?.status).toBe("ERROR");
+
+      const realSuccessBody = { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: [] } } } };
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "SUCCESS",
+        items: [{ baseYm: "202606", tarSvcDemIxCd: "1101", tarSvcDemIxVal: 72.88 }],
+        resultCode: "0000",
+        resultMsg: "OK",
+        raw: realSuccessBody,
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      const stored = dataSnapshotStore.get(KEY);
+      expect(stored?.status).toBe("SUCCESS");
+      expect(stored?.rawPayload).toEqual(realSuccessBody);
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-tou-res-dem",
+      );
+      expect(callsForKey).toHaveLength(2); // ERROR 생성 + SUCCESS로 갱신, 둘 다 실제로 upsert를 호출했다.
+    });
+
+    it("두 번째 실행이 ERROR면 기존 정상 metric이 다시 upsert되지 않는다", async () => {
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "SUCCESS",
+        items: [{ baseYm: "202606", tarSvcDemIxCd: "1101", tarSvcDemIxVal: 72.88 }],
+        resultCode: "0000",
+        resultMsg: "OK",
+        raw: { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: [] } } } },
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+      const metricCallsAfterSuccess = normalizedMetricUpsert.mock.calls.length;
+      expect(metricCallsAfterSuccess).toBeGreaterThan(0);
+
+      vi.mocked(fetchTouResDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "10",
+        resultMsg: "INVALID_REQUEST_PARAMETER_ERROR",
+        raw: { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" },
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      // ERROR 응답에서는 upsertMetric 분기 자체가 실행되지 않으므로 호출 수가 늘지 않아야 한다.
+      expect(normalizedMetricUpsert.mock.calls.length).toBe(metricCallsAfterSuccess);
+    });
   });
 });
