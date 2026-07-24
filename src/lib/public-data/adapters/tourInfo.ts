@@ -11,6 +11,9 @@ import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult 
  *   통계청 코드와는 다른 체계다(Region.tourApiAreaCode에 별도 저장).
  * - contentTypeId(공식 문서 기준): 12=관광지, 14=문화시설, 15=축제공연행사, 25=여행코스, 28=레포츠,
  *   32=숙박, 38=쇼핑, 39=음식점.
+ * - cat1/cat2/cat3(대/중/소분류): 실 서비스키로 확인됨(2026-07-24). 음식점(contentTypeId=39)은
+ *   cat1="A05", cat2="A0502" 고정이고, 실제 데이터·categoryCode2(공식 분류 코드 조회) 응답 기준
+ *   cat3는 아래 FOOD_SUBCATEGORY_NAME_BY_CAT3의 7개뿐이다(대전/강원 표본 200건에서 cat3 누락 0건).
  */
 
 const itemSchema = z.object({
@@ -23,6 +26,12 @@ const itemSchema = z.object({
   mapx: z.coerce.number().optional(),
   mapy: z.coerce.number().optional(),
   tel: z.string().optional(),
+  /** 대분류(음식점=A05). */
+  cat1: z.string().optional(),
+  /** 중분류(음식점 하위=A0502). */
+  cat2: z.string().optional(),
+  /** 소분류 — 음식점의 실제 식사 가능 여부 판별에 쓴다(MEAL_ELIGIBLE_FOOD_CAT3_CODES 참고). */
+  cat3: z.string().optional(),
 });
 
 export type TourInfoItem = z.infer<typeof itemSchema>;
@@ -62,6 +71,36 @@ export function mapContentTypeToPoiCategory(
     default:
       return null;
   }
+}
+
+/**
+ * 음식점(contentTypeId=39, cat1=A05, cat2=A0502) 하위 cat3 코드 → 명칭. 실 서비스키로
+ * `categoryCode2`(공식 분류 코드 조회) 엔드포인트를 직접 호출해 확인했다(2026-07-24, 대전 기준,
+ * cat1=A05·cat2=A0502 조건, totalCount=7 — 이 7개가 전부다). TourAPI는 디저트·베이커리·주점을
+ * 별도 코드로 구분하지 않는다 — 실제 데이터에서 "성심당"(베이커리) 같은 곳도 카페/전통찻집
+ * (A05020900) 하나로 들어온다.
+ */
+export const FOOD_SUBCATEGORY_NAME_BY_CAT3: Record<string, string> = {
+  A05020100: "한식",
+  A05020200: "서양식",
+  A05020300: "일식",
+  A05020400: "중식",
+  A05020700: "이색음식점",
+  A05020900: "카페/전통찻집",
+  A05021000: "클럽",
+};
+
+/** 카페/전통찻집·클럽처럼 "장소 유형상 정식 식사가 어렵다"고 명확히 확인된 cat3만 여기 둔다.
+ * 나머지(한식/서양식/일식/중식/이색음식점)는 일반적인 식사가 가능한 음식점으로 본다. */
+const NON_MEAL_FOOD_CAT3_CODES = new Set(["A05020900", "A05021000"]);
+
+/** cat3 기준으로 이 음식점이 점심·저녁 후보로 쓸 수 있는 "식사 가능" 장소인지 판별한다. cat3가
+ * 없거나(구버전 데이터 등) 알려진 코드가 아니면 안전하게 false(식사 불가로 간주 — 잘못 배치하는 것보다
+ * 식사 슬롯을 생략하는 쪽을 우선한다). */
+export function isMealEligibleFoodCat3(cat3: string | null | undefined): boolean {
+  if (!cat3) return false;
+  if (!(cat3 in FOOD_SUBCATEGORY_NAME_BY_CAT3)) return false;
+  return !NON_MEAL_FOOD_CAT3_CODES.has(cat3);
 }
 
 export interface TourInfoParams {
