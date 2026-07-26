@@ -403,6 +403,9 @@ model SelectedPlan {
   kpis               Json // [{ name, method }] (3~5개)
   memo               String?
   kpiMemo            String?
+  /// Phase 5-A(domain/promoContent.ts)의 PromoContent를 그대로 저장한다. 기존 행은 만든 적이 없으므로
+  /// nullable — 마이그레이션에서 기본 콘텐츠를 임의로 채우지 않는다(Phase 5-B, 2026-07-26).
+  promoContent       Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

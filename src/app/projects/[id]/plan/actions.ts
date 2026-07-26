@@ -5,6 +5,14 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { searchPoisInRegion } from "@/lib/services/poiDetails";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
+import {
+  generatePromoContentForProject,
+  getPromoContentForProject,
+  savePromoContentForProject,
+  type GeneratePromoContentResult,
+  type GetPromoContentResult,
+  type SavePromoContentResult,
+} from "@/lib/services/promoContentService";
 
 export interface SavePlanFormState {
   success: boolean;
@@ -70,4 +78,30 @@ export async function backToAnalysisAction(projectId: string) {
 /** 실행안 편집기의 "장소 추가" 검색창에서 호출한다. 해당 프로젝트의 지역으로 한정해 POI를 찾는다. */
 export async function searchAvailablePoisAction(regionId: string, query: string): Promise<PoiDetail[]> {
   return searchPoisInRegion(regionId, query);
+}
+
+/**
+ * Phase 5-C UI가 호출할 홍보자료 서버 액션. 지역·역할·국적·전략·Evidence 등 생성 입력은 클라이언트에서
+ * 받지 않고 서비스 계층이 projectId로 DB를 다시 조회해 구성한다 — 여기서는 projectId와 제어값
+ * (overwrite)만 전달한다. 저장에 성공했을 때만 실행안 페이지를 재검증한다.
+ */
+export async function generatePromoContentAction(
+  projectId: string,
+  options: { overwrite?: boolean } = {},
+): Promise<GeneratePromoContentResult> {
+  const result = await generatePromoContentForProject(projectId, options);
+  if (result.ok) revalidatePath(`/projects/${projectId}/plan`);
+  return result;
+}
+
+export async function getPromoContentAction(projectId: string): Promise<GetPromoContentResult> {
+  return getPromoContentForProject(projectId);
+}
+
+/** 사용자가 편집한 홍보자료를 저장한다. content는 클라이언트가 보낸 unknown 값 그대로 넘기고,
+ * 런타임 검증은 서비스 계층(savePromoContentForProject)에서만 수행한다. */
+export async function savePromoContentAction(projectId: string, content: unknown): Promise<SavePromoContentResult> {
+  const result = await savePromoContentForProject(projectId, content);
+  if (result.ok) revalidatePath(`/projects/${projectId}/plan`);
+  return result;
 }
