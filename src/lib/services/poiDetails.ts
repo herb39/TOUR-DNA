@@ -21,6 +21,34 @@ export function deriveMealEligible(row: { sourceType: string; rawPayload: unknow
   return isMealEligibleFoodCat3(extractCat3FromRawPayload(row.rawPayload));
 }
 
+interface PoiRow {
+  id: string;
+  name: string;
+  category: string;
+  address: string;
+  lat: number;
+  lng: number;
+  operatingHours: string | null;
+  closedDays: string | null;
+  sourceType: string;
+  rawPayload: unknown;
+}
+
+/** DB Poi 행 → PoiDetail 매핑을 한 곳에만 둔다(fetchPoiDetailsInOrder/fetchAdditionalMealEligibleFood 공용). */
+function mapRowToPoiDetail(r: PoiRow): PoiDetail {
+  return {
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    address: r.address,
+    lat: r.lat,
+    lng: r.lng,
+    operatingHours: r.operatingHours,
+    closedDays: r.closedDays,
+    mealEligible: deriveMealEligible(r),
+  };
+}
+
 /** poiIds 순서를 그대로 유지해 POI 상세정보를 조회한다. */
 export async function fetchPoiDetailsInOrder(poiIds: string[]): Promise<PoiDetail[]> {
   if (poiIds.length === 0) return [];
@@ -29,17 +57,33 @@ export async function fetchPoiDetailsInOrder(poiIds: string[]): Promise<PoiDetai
   return poiIds
     .map((id) => byId.get(id))
     .filter((r): r is NonNullable<typeof r> => Boolean(r))
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      address: r.address,
-      lat: r.lat,
-      lng: r.lng,
-      operatingHours: r.operatingHours,
-      closedDays: r.closedDays,
-      mealEligible: deriveMealEligible(r),
-    }));
+    .map(mapRowToPoiDetail);
+}
+
+/** 지역에서 여러 후보를 함께 뽑아 그 중 실제 식사 가능(mealEligible===true)한 것만 최대 limit개 반환한다
+ * — cat3는 rawPayload(JSON) 안에 있어 DB 쿼리 자체로는 걸러낼 수 없으므로, 넉넉히 가져온 뒤 애플리케이션
+ * 레벨에서 판별한다. */
+const SUPPLEMENT_FOOD_FETCH_MULTIPLIER = 3;
+const SUPPLEMENT_FOOD_FETCH_CAP = 30;
+
+/** 전략 계산 시점에 고정된 poiIds에 식사 가능 FOOD가 부족할 때, 같은 지역 DB에서 직접 보충한다
+ * (planService.ts에서 실행안 생성 직전에 사용 — 서비스 계층에서만 DB를 조회하고, planBuilder.ts 등
+ * 도메인 계산 함수에는 이미 확보된 PoiDetail[]만 인자로 전달한다). excludeIds에 있는 POI는 이미
+ * 후보에 포함돼 있으므로 다시 뽑지 않는다(중복 방지). */
+export async function fetchAdditionalMealEligibleFood(
+  regionId: string,
+  excludeIds: string[],
+  limit: number,
+): Promise<PoiDetail[]> {
+  if (limit <= 0) return [];
+  const rows = await prisma.poi.findMany({
+    where: { regionId, category: "FOOD", id: { notIn: excludeIds } },
+    take: Math.min(limit * SUPPLEMENT_FOOD_FETCH_MULTIPLIER, SUPPLEMENT_FOOD_FETCH_CAP),
+  });
+  return rows
+    .map(mapRowToPoiDetail)
+    .filter((p) => p.mealEligible === true)
+    .slice(0, limit);
 }
 
 const POI_SEARCH_LIMIT = 20;

@@ -4,10 +4,15 @@ import {
   buildKpis,
   buildOperationChecklist,
   buildRisks,
+  type PoiDetail,
   type TransportCode,
 } from "@/lib/domain/planBuilder";
-import type { DurationCode } from "@/lib/domain/strategy";
-import { fetchPoiDetailsInOrder } from "./poiDetails";
+import { MEAL_RESERVE_TARGET_BY_DURATION, type DurationCode } from "@/lib/domain/strategy";
+import { fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
+
+function countMealEligibleFood(pois: PoiDetail[]): number {
+  return pois.filter((p) => p.category === "FOOD" && p.mealEligible !== false).length;
+}
 
 /**
  * 선택된 전략 기준으로 실행안을 준비한다. 실행안이 없으면 새로 만들고, 이미 있지만 선택된 전략이
@@ -33,8 +38,25 @@ export async function ensureSelectedPlan(projectId: string) {
     where: { id: project.selectedStrategyResultId },
   });
 
-  const pois = await fetchPoiDetailsInOrder(strategy.poiIds as string[]);
-  const course = buildDraftCourse(pois, project.input.duration as DurationCode, project.input.transport as TransportCode);
+  const duration = project.input.duration as DurationCode;
+  let pois = await fetchPoiDetailsInOrder(strategy.poiIds as string[]);
+
+  // strategy.poiIds는 전략 계산 시점(computeStrategies/selectPois)에 고정된 값이다 — selectPois가
+  // 식사 가능 FOOD를 우선 선점하지만(strategy.ts), 그 이전에 이미 생성돼 저장된 StrategyResult처럼
+  // 이 보정 전에 고정된 후보는 여전히 식사 가능 FOOD가 부족할 수 있다. 실행안을 실제로 만드는 이
+  // 시점에 다시 확인해, 부족하면 같은 지역 DB에서 직접 보충한다(삭제·중복 없이 추가만 한다).
+  const mealReserveTarget = MEAL_RESERVE_TARGET_BY_DURATION[duration];
+  const mealEligibleCount = countMealEligibleFood(pois);
+  if (mealEligibleCount < mealReserveTarget) {
+    const supplement = await fetchAdditionalMealEligibleFood(
+      project.regionId,
+      pois.map((p) => p.id),
+      mealReserveTarget - mealEligibleCount,
+    );
+    if (supplement.length > 0) pois = [...pois, ...supplement];
+  }
+
+  const course = buildDraftCourse(pois, duration, project.input.transport as TransportCode);
   const operationChecklist = buildOperationChecklist(strategy.templateId);
   const kpis = buildKpis(strategy.templateId);
   const risks = buildRisks(strategy.templateId);

@@ -339,8 +339,11 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     }
   });
 
-  it("보조 카테고리로 채울 필요가 없을 만큼 핵심 카테고리 후보가 충분하면 핵심 카테고리만으로 채운다", () => {
-    // NATURE_WELLNESS 템플릿의 핵심 카테고리는 ATTRACTION, EXPERIENCE, LODGING이다.
+  it("보조 카테고리로 채울 필요가 없을 만큼 핵심 카테고리 후보가 충분해도, 식사 가능 FOOD는 별도로 선점되고 나머지는 핵심 카테고리만으로 채운다", () => {
+    // NATURE_WELLNESS 템플릿의 핵심 카테고리는 ATTRACTION, EXPERIENCE, LODGING이며 FOOD가 없다.
+    // 핵심 카테고리 후보가 충분해도(2026-07-24 통영 사례 근본 원인 수정) 식사 가능 FOOD는
+    // MEAL_RESERVE_TARGET_BY_DURATION만큼 별도로 선점되어야 한다 — 그렇지 않으면 실행안에
+    // 점심/저녁이 전혀 배치되지 못한다.
     const coreOnlyPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
       ATTRACTION: makePois("attraction", "ATTRACTION", 20),
       EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
@@ -360,8 +363,15 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     expect(natureWellness).toBeDefined();
     const categories = natureWellness!.poiIds.map((id) => categoryOf(id, coreOnlyPool));
     for (const cat of categories) {
+      expect(["ATTRACTION", "EXPERIENCE", "LODGING", "FOOD"]).toContain(cat);
+    }
+    // DAY_TRIP의 식사 선점 목표(2개)만큼 FOOD가 포함되고, 나머지는 여전히 핵심 카테고리만으로 채워진다.
+    const nonFoodCategories = categories.filter((c) => c !== "FOOD");
+    expect(categories.filter((c) => c === "FOOD")).toHaveLength(2);
+    for (const cat of nonFoodCategories) {
       expect(["ATTRACTION", "EXPERIENCE", "LODGING"]).toContain(cat);
     }
+    expect(natureWellness!.consumptionTouchpoints.food).toBe(true);
   });
 
   it("선택 과정에서 원본 poisByCategory 객체를 변경하지 않는다", () => {
@@ -369,5 +379,48 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     const dna = computeDna(dnaInput());
     computeStrategies(dna, baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS" }), abundantPool, MODEL_VERSION);
     expect(abundantPool).toEqual(before);
+  });
+
+  it("지역 FOOD가 전부 식사 불가(카페 등, mealEligible=false)면 식사 선점 대상이 되지 않는다", () => {
+    // 핵심 카테고리(ATTRACTION/EXPERIENCE/LODGING)만으로 목표를 채울 수 있는 코어 전용 풀에서,
+    // FOOD가 전부 카페(mealEligible:false)라면 selectPois의 식사 선점 로직이 억지로 카페를 골라
+    // 채우지 않아야 한다(이름 추정 없이 실제 판별값만 신뢰).
+    const cafeOnlyPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+      LODGING: makePois("lodging", "LODGING", 20),
+      FOOD: makePois("food", "FOOD", 20).map((p) => ({ ...p, mealEligible: false })),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "DAY_TRIP" }),
+      cafeOnlyPool,
+      MODEL_VERSION,
+    );
+    const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    expect(natureWellness).toBeDefined();
+    const categories = natureWellness!.poiIds.map((id) => categoryOf(id, cafeOnlyPool));
+    expect(categories.filter((c) => c === "FOOD")).toHaveLength(0);
+    expect(natureWellness!.consumptionTouchpoints.food).toBe(false);
+  });
+
+  it("mealEligible이 명시되지 않은 FOOD(하위 호환 기본값)는 식사 선점 대상에 포함된다", () => {
+    const coreOnlyPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+      LODGING: makePois("lodging", "LODGING", 20),
+      FOOD: makePois("food", "FOOD", 20), // mealEligible 필드 없음 — 기존 테스트/호출부와 동일한 형태
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "DAY_TRIP" }),
+      coreOnlyPool,
+      MODEL_VERSION,
+    );
+    const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    const categories = natureWellness!.poiIds.map((id) => categoryOf(id, coreOnlyPool));
+    expect(categories.filter((c) => c === "FOOD")).toHaveLength(2);
   });
 });

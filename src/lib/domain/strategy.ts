@@ -25,6 +25,10 @@ export interface PoiLike {
   id: string;
   name: string;
   category: PoiCategoryCode;
+  /** FOOD 카테고리일 때만 의미가 있다 — 실제 식사가 가능한 장소인지(카페/전통찻집 등은 false, 3단계
+   * 보완). planBuilder.ts의 PoiDetail.mealEligible과 같은 규약이다: 값이 없는 호출부(기존 테스트 등)는
+   * 하위 호환을 위해 식사 가능으로 취급한다. */
+  mealEligible?: boolean;
 }
 
 export interface StrategyScoreBreakdown {
@@ -161,6 +165,17 @@ const LODGING_POI_TARGET_BY_DURATION: Record<DurationCode, number> = {
 /** 템플릿 핵심 카테고리가 부족할 때 지역 소비 접점을 보완하는 후보 카테고리. */
 const TOUCHPOINT_SUPPLEMENT_CATEGORIES: PoiCategoryCode[] = ["FOOD", "EXPERIENCE", "SHOPPING"];
 
+/** 기간별로 최소 확보해야 하는 "식사 가능"(mealEligible) FOOD 후보 개수(하루 점심+저녁 최대 2개 기준).
+ * 템플릿 핵심 카테고리에 FOOD가 없어도(예: NATURE_WELLNESS) 이 개수만큼은 별도로 선점한다 — 그렇지 않으면
+ * 핵심 카테고리만으로 목표를 다 채워버려 poiIds에 FOOD가 하나도 안 들어가고, 실행안에 점심/저녁이 전혀
+ * 배치되지 않는 문제가 있었다(2026-07-24 통영 사례). planService.ts도 이 값을 그대로 재사용해
+ * 실행안 생성 시점에 후보가 부족하면 지역 DB에서 보충한다(단일 기준 유지). */
+export const MEAL_RESERVE_TARGET_BY_DURATION: Record<DurationCode, number> = {
+  DAY_TRIP: 2,
+  ONE_NIGHT_TWO_DAYS: 4,
+  TWO_NIGHTS_THREE_DAYS: 6,
+};
+
 /** 그래도 목표에 못 미치면 마지막으로 훑는 비숙박 카테고리 전체(고정 순서, LODGING 제외). */
 const ALL_NON_LODGING_CATEGORIES: PoiCategoryCode[] = ["ATTRACTION", "FOOD", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
 
@@ -203,6 +218,25 @@ function selectPois(
   const selectedIds = new Set<string>();
   const selectedByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};
   const selectionOrder: PoiLike[] = [];
+
+  // 식사 가능 FOOD 선점(근본 원인 수정, 2026-07-24): 템플릿 핵심 카테고리에 FOOD가 없으면 위 티어 루프가
+  // 목표를 다 채운 뒤 보완 티어(FOOD 포함)까지 내려가지 않아 FOOD가 하나도 선택되지 않을 수 있었다.
+  // 아래 티어 루프보다 먼저, mealEligible이 false가 아닌(=식사 가능) FOOD만 회전된 풀의 원래 순서
+  // 그대로 최대 MEAL_RESERVE_TARGET_BY_DURATION개까지 선점한다. 카페 등(mealEligible===false)은
+  // 여기서 건너뛰되 cursorByCategory를 건드리지 않으므로, 아래 일반 티어 루프에서는 원래 순서 그대로
+  // (건너뛴 카페 포함) 다시 훑을 수 있다 — 일반 방문 후보로 선택될 기회를 잃지 않는다.
+  const mealReserveTarget = Math.min(MEAL_RESERVE_TARGET_BY_DURATION[duration], nonLodgingTarget);
+  if (mealReserveTarget > 0) {
+    for (const candidate of poolFor("FOOD")) {
+      if (selectedIds.size >= mealReserveTarget) break;
+      if (candidate.mealEligible === false) continue;
+      selectedIds.add(candidate.id);
+      selectionOrder.push(candidate);
+      const list = selectedByCategory.FOOD ?? [];
+      list.push(candidate);
+      selectedByCategory.FOOD = list;
+    }
+  }
 
   /** 해당 카테고리에서 아직 선택되지 않은 다음 후보 하나. 중복은 selectedIds로 걸러낸다. */
   const pickNext = (cat: PoiCategoryCode): PoiLike | null => {

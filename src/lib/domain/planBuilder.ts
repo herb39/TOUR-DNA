@@ -482,6 +482,135 @@ function scheduleDayWithMeals(
  * 개수(DAILY_ITEM_TARGETS_BY_DURATION)에 맞춰 나눈다. 구간별 이동 텍스트도 직선거리(haversine)
  * 기반 추정치로 계산한다(실제 도로/대중교통 경로와는 다를 수 있음).
  */
+/** 한 날짜의 dayPois를 스케줄링한다(hasFood이면 scheduleDayWithMeals, 아니면 기존 고정 슬롯 방식이므로
+ * null). 날짜별 식사 보장 재시도(아래 repairMealCoverage)에서도 같은 함수를 그대로 재사용해, 시간·이동
+ * 조건 판단 로직(scheduleDayWithMeals 내부)을 중복 구현하지 않는다. */
+function scheduleDayPois(
+  dayPois: PoiDetail[],
+  slotsForDay: string[],
+  transport: TransportCode,
+): { poi: PoiDetail; timeSlot: string }[] | null {
+  if (!dayPois.some(isFoodPoi)) return null;
+  return scheduleDayWithMeals(
+    dayPois,
+    slotsForDay[0] ?? DEFAULT_TIME_SLOTS[0],
+    slotsForDay[slotsForDay.length - 1] ?? DEFAULT_TIME_SLOTS[DEFAULT_TIME_SLOTS.length - 1],
+    transport,
+  );
+}
+
+/** 그 날짜의 최종 스케줄 결과에 점심/저녁 FOOD가 실제로(시간대 안에) 배치됐는지 확인한다. */
+function mealSlotStatus(scheduled: { poi: PoiDetail; timeSlot: string }[] | null): { hasLunch: boolean; hasDinner: boolean } {
+  if (!scheduled) return { hasLunch: false, hasDinner: false };
+  const lunchStart = parseTimeSlotToMinutes(MEAL_WINDOWS.lunch.start) ?? 0;
+  const lunchEnd = parseTimeSlotToMinutes(MEAL_WINDOWS.lunch.end) ?? 0;
+  const dinnerStart = parseTimeSlotToMinutes(MEAL_WINDOWS.dinner.start) ?? 0;
+  const dinnerEnd = parseTimeSlotToMinutes(MEAL_WINDOWS.dinner.end) ?? 0;
+  let hasLunch = false;
+  let hasDinner = false;
+  for (const s of scheduled) {
+    if (!isFoodPoi(s.poi)) continue;
+    const m = parseTimeSlotToMinutes(s.timeSlot) ?? -1;
+    if (m >= lunchStart && m <= lunchEnd) hasLunch = true;
+    if (m >= dinnerStart && m <= dinnerEnd) hasDinner = true;
+  }
+  return { hasLunch, hasDinner };
+}
+
+/**
+ * 날짜별 식사 보장(4단계, 2026-07-24 통영 재발 보완). 최근접 이웃 정렬 + 날짜별 개수 분배는 순전히
+ * 지리적 우연으로 식사 가능 FOOD를 특정 날짜에 몰아줄 수 있다 — 그 결과 다른 날짜에는 점심조차 없는
+ * 상황이 나온다(FOOD "공급"과 날짜별 "보장"은 별개 문제). 이 함수는 1차 스케줄링 결과(dayPoisList/
+ * scheduledList)를 그대로 둔 채, 점심(항상 필요) 또는 저녁(그 날짜가 저녁 시간대까지 이어질 때만)이
+ * 빠진 날짜가 있으면 — 다른 날짜에서 이미 "배정됐지만 최종적으로 쓰이지 않은"(그 날짜의 3번째 이상이라
+ * 제외됐거나, 시간·이동 조건에 안 맞아 제외된) 식사 가능 FOOD를 찾아 옮겨 다시 시도한다. 실제로 그
+ * 날짜에서 재스케줄했을 때 정말 배치되는 경우에만 채택한다(무조건 우겨넣지 않음 — 안전한 생략 정책
+ * 유지). scheduleDayWithMeals 등 기존 시간 로직은 그대로 재사용할 뿐 전혀 수정하지 않는다.
+ */
+function repairMealCoverage(
+  dayPoisList: PoiDetail[][],
+  scheduledList: ({ poi: PoiDetail; timeSlot: string }[] | null)[],
+  daySlotsForDayList: string[][],
+  transport: TransportCode,
+): void {
+  const dayCount = dayPoisList.length;
+  const dinnerReachableByDay = daySlotsForDayList.map((slots) => {
+    const end = slots[slots.length - 1] ?? DEFAULT_TIME_SLOTS[DEFAULT_TIME_SLOTS.length - 1];
+    return isMealWindowReachableForDay("dinner", end);
+  });
+
+  const usedIdsByDay = (d: number): Set<string> => new Set((scheduledList[d] ?? []).map((s) => s.poi.id));
+  const claimed = new Set<string>(); // 이미 다른 날짜로 옮겨진 후보(재중복 배정 방지).
+
+  const unusedMealCandidatesExcluding = (excludeDay: number): PoiDetail[] => {
+    const result: PoiDetail[] = [];
+    for (let d = 0; d < dayCount; d++) {
+      if (d === excludeDay) continue;
+      const used = usedIdsByDay(d);
+      for (const p of dayPoisList[d]) {
+        if (isMealEligiblePoi(p) && !used.has(p.id) && !claimed.has(p.id)) result.push(p);
+      }
+    }
+    return result;
+  };
+
+  for (let d = 0; d < dayCount; d++) {
+    let { hasLunch, hasDinner } = mealSlotStatus(scheduledList[d]);
+    let remainingNeeds = (hasLunch ? 0 : 1) + (dinnerReachableByDay[d] && !hasDinner ? 1 : 0);
+    if (remainingNeeds === 0) continue;
+
+    const slotsForDay = daySlotsForDayList[d];
+    const dayStartMinutes = parseTimeSlotToMinutes(slotsForDay[0] ?? DEFAULT_TIME_SLOTS[0]) ?? 0;
+    const dayEndMinutes =
+      parseTimeSlotToMinutes(slotsForDay[slotsForDay.length - 1] ?? DEFAULT_TIME_SLOTS[DEFAULT_TIME_SLOTS.length - 1]) ?? 0;
+    // 그 날짜의 실제 시간 예산(분) — 재시도 후보가 실제로 그 날짜 안에서 도달 가능한지 판단하는 기준으로
+    // 쓴다. scheduleDayWithMeals는 하루 첫 배치(prevPoi=null)의 이동시간을 0으로 보는 기존 규칙이 있어,
+    // 후보를 그대로 넣어 재스케줄만 해보면 아무리 멀어도 "첫 자리"로 들어가 버릴 수 있다(실제로는 도달
+    // 불가능한 거리인데도) — 그래서 재스케줄 성공 여부만으로 판단하지 않고, 이 날짜의 실제 POI와 후보
+    // 사이의 이동시간이 하루 예산 안에 드는지 먼저 확인한다.
+    const dayBudgetMinutes = Math.max(0, dayEndMinutes - dayStartMinutes);
+
+    while (remainingNeeds > 0) {
+      const candidates = unusedMealCandidatesExcluding(d);
+      if (candidates.length === 0) break;
+
+      const dayRefPoints = dayPoisList[d].filter(hasCoords);
+      const nearestRefDistanceKm = (p: PoiDetail): number => {
+        if (!hasCoords(p) || dayRefPoints.length === 0) return Number.POSITIVE_INFINITY;
+        return Math.min(...dayRefPoints.map((r) => haversineDistanceKm(r, p)));
+      };
+      candidates.sort((a, b) => nearestRefDistanceKm(a) - nearestRefDistanceKm(b));
+
+      let accepted = false;
+      for (const candidate of candidates) {
+        if (dayRefPoints.length > 0 && hasCoords(candidate)) {
+          const nearestRef = dayRefPoints.reduce((best, p) =>
+            haversineDistanceKm(p, candidate) < haversineDistanceKm(best, candidate) ? p : best,
+          );
+          const travel = estimateTravel(nearestRef, candidate, transport);
+          if (travel.minutes === null || travel.minutes > dayBudgetMinutes) continue; // 실제 이동시간이 그 날짜 예산을 넘으면 시도조차 하지 않는다.
+        }
+
+        const trialDayPois = [...dayPoisList[d], candidate];
+        const trialScheduled = scheduleDayPois(trialDayPois, slotsForDay, transport);
+        if (!trialScheduled?.some((s) => s.poi.id === candidate.id)) continue; // 실제로 배치되지 못하면 채택하지 않는다.
+
+        dayPoisList[d] = trialDayPois;
+        scheduledList[d] = trialScheduled;
+        claimed.add(candidate.id);
+        accepted = true;
+        break;
+      }
+      if (!accepted) break;
+
+      const status = mealSlotStatus(scheduledList[d]);
+      hasLunch = status.hasLunch;
+      hasDinner = status.hasDinner;
+      remainingNeeds = (hasLunch ? 0 : 1) + (dinnerReachableByDay[d] && !hasDinner ? 1 : 0);
+    }
+  }
+}
+
 export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, transport: TransportCode): CourseDay[] {
   const dayCount = DAY_COUNT_BY_DURATION[duration];
   const nights = dayCount - 1;
@@ -497,25 +626,31 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
   const ordered = orderByNearestNeighbor(nonLodgingPois);
   const counts = distributeDailyCounts(ordered.length, dailyTargets);
 
-  const days: CourseDay[] = [];
-  let poiIndex = 0;
-  for (let d = 0; d < dayCount; d++) {
-    const count = counts[d] ?? 0;
-    const dayPois = ordered.slice(poiIndex, poiIndex + count);
-    poiIndex += dayPois.length;
+  const daySlotsForDayList: string[][] = [];
+  const dayPoisList: PoiDetail[][] = [];
+  {
+    let poiIndex = 0;
+    for (let d = 0; d < dayCount; d++) {
+      const count = counts[d] ?? 0;
+      dayPoisList.push(ordered.slice(poiIndex, poiIndex + count));
+      poiIndex += count;
+      daySlotsForDayList.push(daySlots[d] ?? DEFAULT_TIME_SLOTS);
+    }
+  }
 
-    const daySlotsForDay = daySlots[d] ?? DEFAULT_TIME_SLOTS;
-    // FOOD가 있는 날짜만 점심·저녁 시간대를 고려한 배치(3단계)를 적용한다. FOOD가 없으면 기존 방식
-    // (날짜별 고정 슬롯 + 최근접 이웃 순서)을 그대로 쓴다 — 회귀 없이 이번 개선을 독립적으로 적용하기 위함.
-    const hasFood = dayPois.some(isFoodPoi);
-    const scheduled = hasFood
-      ? scheduleDayWithMeals(
-          dayPois,
-          daySlotsForDay[0] ?? DEFAULT_TIME_SLOTS[0],
-          daySlotsForDay[daySlotsForDay.length - 1] ?? DEFAULT_TIME_SLOTS[DEFAULT_TIME_SLOTS.length - 1],
-          transport,
-        )
-      : null;
+  // FOOD가 있는 날짜만 점심·저녁 시간대를 고려한 배치(3단계)를 적용한다. FOOD가 없으면 기존 방식
+  // (날짜별 고정 슬롯 + 최근접 이웃 순서)을 그대로 쓴다 — 회귀 없이 이번 개선을 독립적으로 적용하기 위함.
+  const scheduledList = dayPoisList.map((dayPois, d) => scheduleDayPois(dayPois, daySlotsForDayList[d], transport));
+
+  // 날짜별 식사 보장(4단계) — 위 1차 결과만으로 점심(그리고 그 날짜가 저녁까지 이어지면 저녁)이 빠진
+  // 날짜가 있으면, 다른 날짜에서 쓰이지 않은 식사 가능 FOOD를 옮겨 다시 시도한다.
+  repairMealCoverage(dayPoisList, scheduledList, daySlotsForDayList, transport);
+
+  const days: CourseDay[] = [];
+  for (let d = 0; d < dayCount; d++) {
+    const dayPois = dayPoisList[d];
+    const daySlotsForDay = daySlotsForDayList[d];
+    const scheduled = scheduledList[d];
     const finalOrderedPois = scheduled ? scheduled.map((s) => s.poi) : dayPois;
     const itemInputs: CourseItemInput[] = scheduled
       ? scheduled.map(({ poi, timeSlot }) => ({

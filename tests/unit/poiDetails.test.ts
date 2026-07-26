@@ -1,12 +1,14 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// poiDetails.ts는 @/lib/db(prisma)를 import한다 — 이 테스트는 DB와 무관한 순수 함수만 검증하지만,
+// poiDetails.ts는 @/lib/db(prisma)를 import한다 — 순수 함수 테스트에서는 DB와 무관하지만,
 // 기존 프로젝트 관례(syncService.test.ts 등)를 따라 실제 Prisma 클라이언트가 생성/연결되지 않도록
-// mock으로 대체한다(공유 Neon DB에 절대 접속하지 않기 위함).
-vi.mock("@/lib/db", () => ({ prisma: {} }));
+// mock으로 대체한다(공유 Neon DB에 절대 접속하지 않기 위함). fetchAdditionalMealEligibleFood
+// 테스트에서는 이 poiFindMany를 직접 제어한다.
+const poiFindMany = vi.fn();
+vi.mock("@/lib/db", () => ({ prisma: { poi: { findMany: (...args: unknown[]) => poiFindMany(...args) } } }));
 
-import { deriveMealEligible, extractCat3FromRawPayload } from "@/lib/services/poiDetails";
+import { deriveMealEligible, extractCat3FromRawPayload, fetchAdditionalMealEligibleFood } from "@/lib/services/poiDetails";
 
 describe("extractCat3FromRawPayload", () => {
   it("rawPayload 객체에서 cat3 문자열을 그대로 꺼낸다", () => {
@@ -38,5 +40,63 @@ describe("deriveMealEligible — Poi.rawPayload 기준 식사 가능 여부 판�
     expect(deriveMealEligible({ sourceType: "API", rawPayload: null })).toBe(false);
     expect(deriveMealEligible({ sourceType: "API", rawPayload: {} })).toBe(false);
     expect(deriveMealEligible({ sourceType: "API", rawPayload: { cat3: "UNKNOWN" } })).toBe(false);
+  });
+});
+
+function foodRow(id: string, cat3: string | null) {
+  return {
+    id,
+    name: `식당-${id}`,
+    category: "FOOD",
+    address: "주소",
+    lat: 34.8,
+    lng: 128.4,
+    operatingHours: null,
+    closedDays: null,
+    sourceType: "API",
+    rawPayload: cat3 ? { cat1: "A05", cat2: "A0502", cat3 } : {},
+  };
+}
+
+describe("fetchAdditionalMealEligibleFood — 최초 후보 부족 시 지역 DB에서 식사 가능 FOOD 보충(통영 재현 회귀)", () => {
+  beforeEach(() => {
+    poiFindMany.mockReset();
+  });
+
+  it("식사 가능한 것만 걸러서 최대 limit개까지 반환하고, 카페는 제외한다", async () => {
+    poiFindMany.mockResolvedValue([
+      foodRow("cafe-1", "A05020900"),
+      foodRow("korean-1", "A05020100"),
+      foodRow("western-1", "A05020200"),
+      foodRow("unknown-1", null),
+    ]);
+
+    const result = await fetchAdditionalMealEligibleFood("region-1", ["already-selected"], 1);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("korean-1");
+    expect(result.every((p) => p.mealEligible === true)).toBe(true);
+  });
+
+  it("limit이 0 이하면 DB를 조회하지 않는다", async () => {
+    const result = await fetchAdditionalMealEligibleFood("region-1", [], 0);
+    expect(result).toEqual([]);
+    expect(poiFindMany).not.toHaveBeenCalled();
+  });
+
+  it("이미 선택된 POI(excludeIds)는 조회 조건에서 제외되도록 요청한다", async () => {
+    poiFindMany.mockResolvedValue([foodRow("korean-1", "A05020100")]);
+    await fetchAdditionalMealEligibleFood("region-1", ["already-1", "already-2"], 2);
+
+    const calledWith = poiFindMany.mock.calls[0][0];
+    expect(calledWith.where.regionId).toBe("region-1");
+    expect(calledWith.where.category).toBe("FOOD");
+    expect(calledWith.where.id.notIn).toEqual(["already-1", "already-2"]);
+  });
+
+  it("실제 식사 가능 후보가 요청한 limit보다 적으면 있는 만큼만 반환한다", async () => {
+    poiFindMany.mockResolvedValue([foodRow("cafe-1", "A05020900"), foodRow("korean-1", "A05020100")]);
+    const result = await fetchAdditionalMealEligibleFood("region-1", [], 5);
+    expect(result).toHaveLength(1);
   });
 });
