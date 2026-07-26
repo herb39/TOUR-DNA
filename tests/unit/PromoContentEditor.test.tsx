@@ -107,6 +107,67 @@ describe("생성", () => {
     expect(screen.getByText("아직 생성된 홍보자료가 없습니다.")).toBeInTheDocument();
   });
 
+  it("빈 화면 최초 생성이 alreadyExists를 반환하면 확인창을 표시하고, 확인 전에는 overwrite를 호출하지 않는다", async () => {
+    generatePromoContentAction.mockResolvedValueOnce({ ok: false, code: "alreadyExists", message: "이미 있음" });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={emptyInitial()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: false }));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("재생성")));
+    expect(generatePromoContentAction).toHaveBeenCalledTimes(1); // overwrite:true로는 아직 호출되지 않음
+    expect(generatePromoContentAction).not.toHaveBeenCalledWith(PROJECT_ID, { overwrite: true });
+  });
+
+  it("빈 화면 최초 생성이 alreadyExists를 반환하고 사용자가 확인하면 그때만 overwrite:true로 호출한다", async () => {
+    const content = sampleContent();
+    generatePromoContentAction.mockResolvedValueOnce({ ok: false, code: "alreadyExists", message: "이미 있음" });
+    generatePromoContentAction.mockResolvedValueOnce({ ok: true, content });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={emptyInitial()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: false }));
+    await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: true }));
+    expect(generatePromoContentAction).toHaveBeenCalledTimes(2);
+    expect(await screen.findByDisplayValue(content.landing.title)).toBeInTheDocument();
+  });
+
+  it("빈 화면 최초 생성에서 alreadyExists 후 확인을 취소하면 계속 빈 상태를 유지한다", async () => {
+    generatePromoContentAction.mockResolvedValueOnce({ ok: false, code: "alreadyExists", message: "이미 있음" });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={emptyInitial()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("아직 생성된 홍보자료가 없습니다.")).toBeInTheDocument();
+  });
+
+  it("invalidContent 복구 버튼은 확인 전에 overwrite를 호출하지 않는다", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={{ ok: false, code: "invalidContent", message: "bad" }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("재생성"));
+    expect(generatePromoContentAction).not.toHaveBeenCalled();
+  });
+
+  it("invalidContent 복구 버튼은 확인 시에만 overwrite:true로 호출한다", async () => {
+    const content = sampleContent();
+    generatePromoContentAction.mockResolvedValue({ ok: true, content });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={{ ok: false, code: "invalidContent", message: "bad" }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: true }));
+    expect(generatePromoContentAction).toHaveBeenCalledTimes(1);
+  });
+
   it("alreadyExists면 사용자 확인 없이 overwrite를 호출하지 않고, 확인 후에만 {overwrite:true}로 호출한다", async () => {
     const content = sampleContent();
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} />);

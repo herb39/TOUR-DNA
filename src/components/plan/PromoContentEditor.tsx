@@ -68,30 +68,56 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
     successTimerRef.current = setTimeout(() => setSuccessMessage(null), SUCCESS_MESSAGE_MS);
   }
 
-  function runGenerate(overwrite: boolean) {
+  const CONFIRM_MESSAGE = "기존 홍보자료와 편집한 내용이 새로 생성된 문구로 교체됩니다. 재생성할까요?";
+
+  function applyGenerateSuccess(newContent: PromoContent, overwrite: boolean) {
+    setContent(newContent);
+    setDirty(false);
+    setGenerationKey((k) => k + 1);
+    showSuccess(overwrite ? "홍보자료를 다시 생성했습니다." : "홍보자료를 생성했습니다.");
+  }
+
+  async function callGenerateOverwrite() {
+    const result: GeneratePromoContentResult = await generatePromoContentAction(projectId, { overwrite: true });
+    if (result.ok) {
+      applyGenerateSuccess(result.content, true);
+      return;
+    }
+    setActionError(ERROR_MESSAGES[result.code]);
+  }
+
+  /** 로컬에 이미 콘텐츠(정상이든 손상되어 확인만 된 것이든)가 있다고 알고 있는 경로 — "재생성" 버튼과
+   * invalidContent 복구 버튼이 공유한다. 서버에 기존 값이 있다는 걸 이미 아는 상태이므로, 액션을 호출하기
+   * 전에 먼저 사용자 확인을 받고, 확인했을 때만 overwrite:true로 호출한다. 취소하면 액션을 전혀 호출하지
+   * 않고 현재 content/dirty 상태를 그대로 둔다. */
+  function handleOverwriteGenerateClick() {
+    if (isBusy) return;
+    const confirmed = window.confirm(CONFIRM_MESSAGE);
+    if (!confirmed) return;
+    setActionError(null);
+    startGenerating(callGenerateOverwrite);
+  }
+
+  /** 로컬에 콘텐츠가 전혀 없어 서버에 실제로 기존 값이 있는지 미리 알 수 없는 진짜 빈 상태 경로 — 먼저
+   * overwrite:false로 시도하고, 서버가 alreadyExists를 반환할 때만 그 자리에서 확인을 받는다. 확인 전에는
+   * overwrite:true를 호출하지 않으며, 취소하면 액션을 호출하지 않고 현재(비어있는) 상태를 유지한다. */
+  function handleEmptyStateGenerateClick() {
     if (isBusy) return;
     setActionError(null);
     startGenerating(async () => {
-      const result: GeneratePromoContentResult = await generatePromoContentAction(projectId, { overwrite });
+      const result: GeneratePromoContentResult = await generatePromoContentAction(projectId, { overwrite: false });
       if (result.ok) {
-        setContent(result.content);
-        setDirty(false);
-        setGenerationKey((k) => k + 1);
-        showSuccess(overwrite ? "홍보자료를 다시 생성했습니다." : "홍보자료를 생성했습니다.");
+        applyGenerateSuccess(result.content, false);
+        return;
+      }
+      if (result.code === "alreadyExists") {
+        const confirmed = window.confirm(CONFIRM_MESSAGE);
+        if (!confirmed) return; // overwrite 호출 없이 현재 상태를 유지한다.
+        await callGenerateOverwrite();
         return;
       }
       setActionError(ERROR_MESSAGES[result.code]);
     });
-  }
-
-  function handleGenerateClick() {
-    if (content !== null) {
-      const confirmed = window.confirm("기존 홍보자료와 편집한 내용이 새로 생성된 문구로 교체됩니다. 재생성할까요?");
-      if (!confirmed) return; // 취소 시 서버 액션을 호출하지 않고 현재 편집 상태를 그대로 둔다.
-      runGenerate(true);
-      return;
-    }
-    runGenerate(false);
   }
 
   function handleSave() {
@@ -163,7 +189,7 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
           {loadErrorCode !== "notFound" && loadErrorCode !== "forbidden" ? (
             <button
               type="button"
-              onClick={() => runGenerate(loadErrorCode === "invalidContent")}
+              onClick={loadErrorCode === "invalidContent" ? handleOverwriteGenerateClick : handleEmptyStateGenerateClick}
               disabled={isBusy || loadErrorCode === "noPlan"}
               className="mt-3 cursor-pointer rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -191,7 +217,7 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
             </button>
             <button
               type="button"
-              onClick={handleGenerateClick}
+              onClick={handleOverwriteGenerateClick}
               disabled={isBusy}
               className="cursor-pointer rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
