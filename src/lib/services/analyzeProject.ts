@@ -4,6 +4,7 @@ import { MODEL_VERSION } from "@/lib/domain/constants";
 import { computeDataVersion } from "@/lib/domain/dataVersion";
 import { computeDna } from "@/lib/domain/dna";
 import { computeStrategies, type ProjectInputForScoring } from "@/lib/domain/strategy";
+import { normalizeNationality, normalizeRole } from "@/lib/domain/audienceContext";
 import type { EvidenceItem } from "@/lib/domain/types";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
@@ -58,6 +59,8 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
     travelMonth: project.travelMonth,
     preferredThemes: project.input.preferredThemes as string[],
     excludedThemes: project.input.excludedThemes as string[],
+    role: normalizeRole(project.role),
+    nationality: normalizeNationality(project.input.nationality),
   };
 
   const strategies = computeStrategies(dna, scoringInput, poisByCategory, MODEL_VERSION);

@@ -1,11 +1,21 @@
 import { clamp, roundForDisplay } from "./normalize";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import { AXIS_LABEL_KO, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
+import {
+  classifyThemes,
+  computeNationalityFeasibilityDelta,
+  computeRoleFit,
+  computeThemeFit,
+  roleLabel,
+  type NationalityCode,
+  type UserRoleCode,
+} from "./audienceContext";
 
 export type BudgetLevelCode = "LOW" | "MID" | "PREMIUM";
 export type TransportCode = "WALK" | "PUBLIC_TRANSPORT" | "PRIVATE_VEHICLE" | "MIXED";
 export type GroupTypeCode = "FIT" | "SMALL_10_20" | "MEDIUM_21_40";
 export type DurationCode = "DAY_TRIP" | "ONE_NIGHT_TWO_DAYS" | "TWO_NIGHTS_THREE_DAYS";
+export type { UserRoleCode, NationalityCode } from "./audienceContext";
 
 export interface ProjectInputForScoring {
   ageGroups: string[];
@@ -19,6 +29,10 @@ export interface ProjectInputForScoring {
   travelMonth: number; // 1~12
   preferredThemes: string[];
   excludedThemes: string[];
+  /** Phase 4: 지역 객관적 데이터(DNA)는 건드리지 않고, roleFit/targetFit 등 조건별 적합도에만 반영한다.
+   * 레거시 데이터 등으로 알 수 없는 값이면 undefined(역할/국적 가중치를 적용하지 않음). */
+  role?: UserRoleCode;
+  nationality?: NationalityCode;
 }
 
 export interface PoiLike {
@@ -37,6 +51,8 @@ export interface StrategyScoreBreakdown {
   seasonFit: number;
   targetFit: number;
   feasibilityFit: number;
+  /** Phase 4: 역할(지자체/여행사)별 목표 우선순위 적합도. 지역 객관적 데이터가 아니라 CURATED 정책값. */
+  roleFit: number;
 }
 
 export interface ConsumptionTouchpoints {
@@ -85,7 +101,13 @@ function computeSeasonFit(travelMonth: number, idealMonths: number[]): number {
   return clamp(100 - minDist * 20, 0, 100);
 }
 
-function computeTargetFit(template: StrategyTemplate, input: ProjectInputForScoring): number {
+/** targetFit = 연령/동행/목표 기반 base(가중합) + 테마 가산점(기존 substring 규칙 + Phase 4 카테고리
+ * 분류 가산점, THEME_CATEGORY_BONUS_CAP으로 clamp). 반환값과 함께 이 계산에 적용된 조건별 조정 근거도
+ * 돌려줘 buildReasons/UI에서 재사용할 수 있게 한다. */
+function computeTargetFit(
+  template: StrategyTemplate,
+  input: ProjectInputForScoring,
+): { score: number; themeAdjustments: ReturnType<typeof computeThemeFit>["adjustments"] } {
   const ageScore = input.ageGroups.some((a) => template.targetAgeGroups.includes(a)) ? 100 : 40;
   const companionScore = template.targetCompanionTypes.includes(input.companionType) ? 100 : 40;
   const goalScore = template.supportedGoals.includes(input.primaryGoal)
@@ -94,21 +116,29 @@ function computeTargetFit(template: StrategyTemplate, input: ProjectInputForScor
       ? 70
       : 40;
   const base = ageScore * 0.4 + companionScore * 0.35 + goalScore * 0.25;
-  const themeBonus = input.preferredThemes.some(
+  const substringBonus = input.preferredThemes.some(
     (t) => template.concept.includes(t) || template.name.includes(t),
   )
     ? 10
     : 0;
-  return roundForDisplay(clamp(base + themeBonus, 0, 100));
+  const themeCategories = classifyThemes(input.preferredThemes);
+  const { bonus, adjustments } = computeThemeFit(template, themeCategories, substringBonus);
+  return { score: roundForDisplay(clamp(base + bonus, 0, 100)), themeAdjustments: adjustments };
 }
 
-function computeFeasibilityFit(template: StrategyTemplate, input: ProjectInputForScoring): number {
+/** feasibilityFit = 예산/이동수단/그룹규모 기반 base - 무박 페널티 + Phase 4 국적별 서비스 준비도 조정
+ * (CURATED, 외국인일 때만 적용 — 내국인/객관적 데이터는 건드리지 않는다). */
+function computeFeasibilityFit(
+  template: StrategyTemplate,
+  input: ProjectInputForScoring,
+): { score: number; nationalityAdjustment: ReturnType<typeof computeNationalityFeasibilityDelta>["adjustment"] } {
   const budgetScore = template.preferredBudgetLevels.includes(input.budgetLevel) ? 100 : 60;
   const transportScore = template.preferredTransport.includes(input.transport) ? 100 : 60;
   const groupScore = template.preferredGroupTypes.includes(input.groupType) ? 100 : 60;
   const overnightPenalty = template.requiresOvernight && input.duration === "DAY_TRIP" ? 40 : 0;
   const raw = (budgetScore + transportScore + groupScore) / 3 - overnightPenalty;
-  return roundForDisplay(clamp(raw, 0, 100));
+  const { delta, adjustment } = computeNationalityFeasibilityDelta(template, input.nationality);
+  return { score: roundForDisplay(clamp(raw + delta, 0, 100)), nationalityAdjustment: adjustment };
 }
 
 function isExcludedByTheme(template: StrategyTemplate, excludedThemes: string[]): boolean {
@@ -309,6 +339,7 @@ function buildReasons(
   template: StrategyTemplate,
   breakdown: StrategyScoreBreakdown,
   dna: DnaResult,
+  role: UserRoleCode | undefined,
 ): string[] {
   const reasons: string[] = [];
 
@@ -322,10 +353,14 @@ function buildReasons(
       : `데이터 부족으로 수요 적합도는 중립값(${breakdown.demandFit}점)을 적용함`,
   );
 
-  reasons.push(
+  const supplyReason =
     breakdown.supplyFit >= 60
       ? `지역 내 연계 인프라(POI/업종 연결)가 충분해 공급 적합도 ${breakdown.supplyFit}점`
-      : `지역 내 연계 인프라가 제한적이라 공급 적합도 ${breakdown.supplyFit}점 — 보완 필요`,
+      : `지역 내 연계 인프라가 제한적이라 공급 적합도 ${breakdown.supplyFit}점 — 보완 필요`;
+  reasons.push(
+    role
+      ? `${supplyReason} · ${roleLabel(role)} 관점 목표 적합도 ${breakdown.roleFit}점(기획 규칙)`
+      : supplyReason,
   );
 
   reasons.push(
@@ -339,7 +374,12 @@ function buildReasons(
 
 /**
  * 전략 3안을 계산한다. 점수/순위는 절대 하드코딩하지 않고 아래 공식으로만 결정된다.
- * strategyScore = demandFit*0.35 + supplyFit*0.25 + seasonFit*0.20 + targetFit*0.10 + feasibilityFit*0.10
+ * strategyScore = demandFit*0.35 + supplyFit*0.25 + seasonFit*0.20 + targetFit*0.05
+ *               + feasibilityFit*0.05 + roleFit*0.10  (Phase 4: 역할 가중치 반영, 합계는 항상 1.0)
+ * demandFit/supplyFit/seasonFit(지역 객관적 DNA·시즌) 가중치는 Phase 1~3과 동일하게 유지해
+ * 기존 순위 안정성을 지키고, targetFit/feasibilityFit 비중을 줄인 만큼을 roleFit에 배정했다.
+ * demandFit/supplyFit(지역 객관적 DNA) 값 자체는 역할·국적·테마·월에 따라 바뀌지 않는다 — 대신
+ * targetFit(테마)/feasibilityFit(국적)/roleFit(역할)/seasonFit(월)이 조건별 적합도를 담당한다.
  */
 export function computeStrategies(
   dna: DnaResult,
@@ -353,18 +393,24 @@ export function computeStrategies(
     const demandFit = weightedAxisFit(template.demandAxisWeights, dna);
     const supplyFit = weightedAxisFit(template.supplyAxisWeights, dna);
     const seasonFit = computeSeasonFit(input.travelMonth, template.idealMonths);
-    const targetFit = computeTargetFit(template, input);
-    const feasibilityFit = computeFeasibilityFit(template, input);
+    const { score: targetFit } = computeTargetFit(template, input);
+    const { score: feasibilityFit } = computeFeasibilityFit(template, input);
+    const { score: roleFit } = computeRoleFit(template, input.role);
 
     const totalScore = roundForDisplay(
       clamp(
-        demandFit * 0.35 + supplyFit * 0.25 + seasonFit * 0.2 + targetFit * 0.1 + feasibilityFit * 0.1,
+        demandFit * 0.35 +
+          supplyFit * 0.25 +
+          seasonFit * 0.2 +
+          targetFit * 0.05 +
+          feasibilityFit * 0.05 +
+          roleFit * 0.1,
         0,
         100,
       ),
     );
 
-    const breakdown: StrategyScoreBreakdown = { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit };
+    const breakdown: StrategyScoreBreakdown = { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit, roleFit };
     const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration);
 
     return {
@@ -391,7 +437,7 @@ export function computeStrategies(
     concept: s.template.concept,
     totalScore: s.totalScore,
     scoreBreakdown: s.breakdown,
-    reasons: buildReasons(s.template, s.breakdown, dna),
+    reasons: buildReasons(s.template, s.breakdown, dna, input.role),
     targetDescription: s.template.targetDescriptionTemplate,
     poiIds: s.poiIds,
     consumptionTouchpoints: s.touchpoints,

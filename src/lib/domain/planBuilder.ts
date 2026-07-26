@@ -1,6 +1,19 @@
 import type { DurationCode } from "./strategy";
 import { getTemplateById } from "./strategyTemplates";
 import { orderByNearestNeighbor, haversineDistanceKm } from "./geo";
+import {
+  classifyThemes,
+  computeNationalityChecklistNotes,
+  computeRoleChecklistNotes,
+  computeSeasonalRiskNotes,
+  computeThemeChecklistNotes,
+  normalizeMonth,
+  normalizeNationality,
+  normalizeRole,
+  normalizeThemeList,
+  type NationalityCode,
+  type UserRoleCode,
+} from "./audienceContext";
 
 export type TransportCode = "WALK" | "PUBLIC_TRANSPORT" | "PRIVATE_VEHICLE" | "MIXED";
 
@@ -791,14 +804,46 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
   return days;
 }
 
-export function buildOperationChecklist(templateId: string): string[] {
+/**
+ * Phase 4: 실행안(체크리스트/KPI/위험요인)에 역할·국적·테마·여행월을 반영하기 위한 입력. 값이 저장돼
+ *있지 않거나(레거시 프로젝트) 알 수 없는 값이면 각 필드가 담당하는 항목만 조용히 생략한다(12절
+ * 하위 호환 — 런타임 오류 없이 기존 동작 그대로 유지).
+ */
+export interface AudiencePlanContext {
+  role?: unknown;
+  nationality?: unknown;
+  travelMonth?: unknown;
+  preferredThemes?: unknown;
+}
+
+interface NormalizedAudienceContext {
+  role: UserRoleCode | undefined;
+  nationality: NationalityCode | undefined;
+  travelMonth: number | undefined;
+  themeCategories: ReturnType<typeof classifyThemes>;
+}
+
+function normalizeAudienceContext(context: AudiencePlanContext | undefined): NormalizedAudienceContext {
+  return {
+    role: normalizeRole(context?.role),
+    nationality: normalizeNationality(context?.nationality),
+    travelMonth: normalizeMonth(context?.travelMonth),
+    themeCategories: classifyThemes(normalizeThemeList(context?.preferredThemes)),
+  };
+}
+
+export function buildOperationChecklist(templateId: string, context?: AudiencePlanContext): string[] {
   const template = getTemplateById(templateId);
+  const { role, nationality, themeCategories } = normalizeAudienceContext(context);
   return [
     "출발 3일 전 예약 인원 최종 확정",
     "코스 내 정기 휴무일 재확인",
     "우천/혹서·혹한 시 대체 동선 사전 확보",
     "이동 수단 배차/교통 정보 최신본 확인",
     ...template.riskTemplates.map((r) => `위험 요인 점검: ${r}`),
+    ...computeRoleChecklistNotes(role),
+    ...computeNationalityChecklistNotes(nationality),
+    ...computeThemeChecklistNotes(themeCategories, template),
   ];
 }
 
@@ -806,9 +851,16 @@ export function buildKpis(templateId: string): { name: string; method: string }[
   return getTemplateById(templateId).kpiTemplates;
 }
 
-export function buildRisks(templateId: string): { risk: string; mitigation: string }[] {
-  return getTemplateById(templateId).riskTemplates.map((risk) => ({
+export function buildRisks(templateId: string, context?: AudiencePlanContext): { risk: string; mitigation: string }[] {
+  const template = getTemplateById(templateId);
+  const { travelMonth } = normalizeAudienceContext(context);
+  const baseRisks = template.riskTemplates.map((risk) => ({
     risk,
     mitigation: "현장 운영 담당자가 사전 확인 후 대체 동선/일정을 준비한다.",
   }));
+  const seasonalRisks = computeSeasonalRiskNotes(travelMonth, template).map((risk) => ({
+    risk,
+    mitigation: "현장 운영 담당자가 사전 확인 후 대체 동선/일정을 준비한다.",
+  }));
+  return [...baseRisks, ...seasonalRisks];
 }

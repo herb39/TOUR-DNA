@@ -4,6 +4,7 @@ import {
   buildKpis,
   buildOperationChecklist,
   buildRisks,
+  type AudiencePlanContext,
   type PoiDetail,
   type TransportCode,
 } from "@/lib/domain/planBuilder";
@@ -81,9 +82,15 @@ export async function ensureSelectedPlan(projectId: string) {
   }
 
   const course = buildDraftCourse(pois, duration, project.input.transport as TransportCode);
-  const operationChecklist = buildOperationChecklist(strategy.templateId);
+  const audienceContext: AudiencePlanContext = {
+    role: project.role,
+    nationality: project.input.nationality,
+    travelMonth: project.travelMonth,
+    preferredThemes: project.input.preferredThemes,
+  };
+  const operationChecklist = buildOperationChecklist(strategy.templateId, audienceContext);
   const kpis = buildKpis(strategy.templateId);
-  const risks = buildRisks(strategy.templateId);
+  const risks = buildRisks(strategy.templateId, audienceContext);
 
   const data = {
     strategyResultId: strategy.id,

@@ -202,3 +202,84 @@ describe("ensureSelectedPlan — 최초 후보에 식사 가능 FOOD가 부족�
     expect(plan).toEqual({ id: "plan-1" });
   });
 });
+
+describe("ensureSelectedPlan — Phase 4: 역할·국적·테마·월 컨텍스트를 실행안 체크리스트/위험요인에 전달한다", () => {
+  it("project.role/input.nationality/travelMonth/preferredThemes를 buildOperationChecklist·buildRisks에 전달한다", async () => {
+    const ids = ["a1", "a2"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-4",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-4",
+      selectedPlan: null,
+      role: "LOCAL_GOV",
+      travelMonth: 7,
+      input: {
+        duration: "DAY_TRIP",
+        transport: "WALK",
+        nationality: "FOREIGN",
+        preferredThemes: ["레저 액티비티"],
+      },
+      region: { name: "통영시" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-4",
+      templateId: "NATURE_WELLNESS",
+      name: "자연·웰니스형",
+      concept: "통영 자연 힐링",
+      totalScore: 80,
+      targetDescription: "자연을 좋아하는 소규모 그룹",
+      reasons: ["r1", "r2", "r3"],
+      poiIds: ids,
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [attractionRow("a1", 128.4), attractionRow("a2", 128.41)];
+      }
+      return [];
+    });
+
+    await ensureSelectedPlan("project-4");
+
+    const saved = selectedPlanUpsert.mock.calls[0][0].create as {
+      operationChecklist: string[];
+      risks: { risk: string; mitigation: string }[];
+    };
+    expect(saved.operationChecklist).toContain("정책 보고용 정량 지표(KPI) 수집 방법 사전 확정 필요");
+    expect(saved.operationChecklist).toContain("다국어 안내판/메뉴판 준비 여부 확인 필요(외국인 대상, 서비스 준비도 기준)");
+    expect(saved.operationChecklist).toContain("레저·액티비티 실외 활동 안전장비·보험 가입 여부 사전 확인 필요");
+    expect(saved.risks.some((r) => r.risk.includes("장마철"))).toBe(true);
+  });
+
+  it("role/nationality/travelMonth/preferredThemes가 없는 레거시 mock에도 오류 없이 기본 체크리스트만 생성한다", async () => {
+    const ids = ["food-1", "a1"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-5",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-5",
+      selectedPlan: null,
+      input: { duration: "DAY_TRIP", transport: "WALK" },
+      region: { name: "통영시" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-5",
+      templateId: "LOCAL_FOOD_MARKET",
+      name: "로컬미식·시장 연계형",
+      concept: "통영 로컬 미식",
+      totalScore: 80,
+      targetDescription: "미식 여행객",
+      reasons: ["r1", "r2", "r3"],
+      poiIds: ids,
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [foodRow("food-1", "A05020100"), attractionRow("a1", 128.4)];
+      }
+      return [];
+    });
+
+    const plan = await ensureSelectedPlan("project-5");
+    expect(plan).toEqual({ id: "plan-1" });
+    const saved = selectedPlanUpsert.mock.calls[0][0].create as { operationChecklist: string[] };
+    expect(saved.operationChecklist).toContain("출발 3일 전 예약 인원 최종 확정");
+  });
+});

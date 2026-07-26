@@ -192,7 +192,19 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               <dt className="text-xs text-slate-400">그룹 규모</dt>
               <dd>{labelForGroupType(input.groupType)}</dd>
             </div>
+            <div>
+              <dt className="text-xs text-slate-400">선호 테마</dt>
+              <dd>{(input.preferredThemes as string[]).join(", ") || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">제외 테마</dt>
+              <dd>{(input.excludedThemes as string[]).join(", ") || "-"}</dd>
+            </div>
           </dl>
+          <p className="mt-3 text-xs text-slate-400">
+            ※ 역할·국적·테마·여행월은 지역의 객관적 관광 DNA(수요 적합도/공급 적합도)를 바꾸지 않고,
+            역할 적합도·타깃 적합도·운영 적합도·시즌 적합도와 추천 근거·실행안에만 반영됩니다.
+          </p>
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">

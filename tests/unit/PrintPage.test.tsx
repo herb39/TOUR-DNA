@@ -44,6 +44,7 @@ function baseProject(promoContent: unknown) {
     name: "테스트 프로젝트",
     travelYear: 2026,
     travelMonth: 9,
+    role: "TRAVEL_AGENCY",
     region: { name: "강릉시" },
     input: { duration: "DAY_TRIP", budgetLevel: "MID", transport: "PUBLIC_TRANSPORT", groupType: "FIT" },
     selectedPlan: {

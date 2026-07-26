@@ -6,6 +6,7 @@ interface ScoreBreakdown {
   seasonFit: number;
   targetFit: number;
   feasibilityFit: number;
+  roleFit: number;
 }
 
 interface ConsumptionTouchpoints {
@@ -33,8 +34,9 @@ const SCORE_BREAKDOWN_LABEL: Record<keyof ScoreBreakdown, string> = {
   demandFit: "수요 적합도",
   supplyFit: "공급 적합도",
   seasonFit: "시즌 적합도",
-  targetFit: "타깃 적합도",
-  feasibilityFit: "운영 적합도",
+  targetFit: "타깃 적합도(테마 반영)",
+  feasibilityFit: "운영 적합도(국적 반영)",
+  roleFit: "역할 적합도",
 };
 
 export function StrategyCard({

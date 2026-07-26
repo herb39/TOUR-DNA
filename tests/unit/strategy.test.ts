@@ -220,6 +220,113 @@ describe("computeStrategies", () => {
   });
 });
 
+describe("computeStrategies — Phase 4: 역할·국적·테마·월 조건별 반영", () => {
+  it("역할이 없으면(레거시) roleFit은 중립값(50)이고 결과는 기존과 동일하다", () => {
+    const dna = computeDna(dnaInput());
+    const withoutRole = computeStrategies(dna, baseProjectInput(), poisByCategory, MODEL_VERSION);
+    for (const s of withoutRole) {
+      expect(s.scoreBreakdown.roleFit).toBe(50);
+    }
+  });
+
+  it("역할을 바꾸면 전략 점수/순위/추천 근거 중 최소 하나는 달라진다", () => {
+    const dna = computeDna(dnaInput());
+    const localGov = computeStrategies(dna, baseProjectInput({ role: "LOCAL_GOV" }), poisByCategory, MODEL_VERSION);
+    const travelAgency = computeStrategies(
+      dna,
+      baseProjectInput({ role: "TRAVEL_AGENCY" }),
+      poisByCategory,
+      MODEL_VERSION,
+    );
+    expect(localGov).not.toEqual(travelAgency);
+    // roleFit 자체는 항상 달라야 한다(같은 템플릿이라도 역할별 우선순위 테이블이 다르므로).
+    const localGovByTemplate = new Map(localGov.map((s) => [s.templateId, s.scoreBreakdown.roleFit]));
+    const travelAgencyByTemplate = new Map(travelAgency.map((s) => [s.templateId, s.scoreBreakdown.roleFit]));
+    const sharedTemplateIds = [...localGovByTemplate.keys()].filter((id) => travelAgencyByTemplate.has(id));
+    expect(sharedTemplateIds.length).toBeGreaterThan(0);
+    expect(sharedTemplateIds.some((id) => localGovByTemplate.get(id) !== travelAgencyByTemplate.get(id))).toBe(true);
+  });
+
+  it("역할을 바꿔도 지역 객관적 DNA 기반 demandFit/supplyFit 값 자체는 바뀌지 않는다", () => {
+    const dna = computeDna(dnaInput());
+    const localGov = computeStrategies(dna, baseProjectInput({ role: "LOCAL_GOV" }), poisByCategory, MODEL_VERSION);
+    const travelAgency = computeStrategies(
+      dna,
+      baseProjectInput({ role: "TRAVEL_AGENCY" }),
+      poisByCategory,
+      MODEL_VERSION,
+    );
+    const demandByTemplate = new Map(localGov.map((s) => [s.templateId, s.scoreBreakdown.demandFit]));
+    for (const s of travelAgency) {
+      if (demandByTemplate.has(s.templateId)) {
+        expect(s.scoreBreakdown.demandFit).toBe(demandByTemplate.get(s.templateId));
+      }
+    }
+  });
+
+  it("국적을 바꿔도 지역 객관적 DNA는 그대로이고, feasibilityFit(운영 적합도)만 달라질 수 있다", () => {
+    const dna = computeDna(dnaInput());
+    const domestic = computeStrategies(dna, baseProjectInput({ nationality: "DOMESTIC" }), poisByCategory, MODEL_VERSION);
+    const foreign = computeStrategies(dna, baseProjectInput({ nationality: "FOREIGN" }), poisByCategory, MODEL_VERSION);
+    const demandByTemplate = new Map(domestic.map((s) => [s.templateId, s.scoreBreakdown.demandFit]));
+    const supplyByTemplate = new Map(domestic.map((s) => [s.templateId, s.scoreBreakdown.supplyFit]));
+    for (const s of foreign) {
+      if (demandByTemplate.has(s.templateId)) {
+        expect(s.scoreBreakdown.demandFit).toBe(demandByTemplate.get(s.templateId));
+        expect(s.scoreBreakdown.supplyFit).toBe(supplyByTemplate.get(s.templateId));
+      }
+    }
+    // CULTURE_HISTORY는 외국인 조정치가 음수(-6)이므로 후보에 있다면 feasibilityFit이 내려가야 한다.
+    const domesticCulture = domestic.find((s) => s.templateId === "CULTURE_HISTORY");
+    const foreignCulture = foreign.find((s) => s.templateId === "CULTURE_HISTORY");
+    if (domesticCulture && foreignCulture) {
+      expect(foreignCulture.scoreBreakdown.feasibilityFit).toBeLessThan(domesticCulture.scoreBreakdown.feasibilityFit);
+    }
+  });
+
+  it("선호 테마 카테고리에 따라 targetFit과 추천 근거가 달라진다", () => {
+    const dna = computeDna(dnaInput());
+    // companionType을 템플릿 타깃과 어긋나게 둬 base가 이미 100으로 clamp되지 않게 한다(테마 가산점
+    // 차이가 실제로 드러나도록).
+    const noTheme = computeStrategies(
+      dna,
+      baseProjectInput({ companionType: "COMPANION_SOLO" }),
+      poisByCategory,
+      MODEL_VERSION,
+    );
+    const foodTheme = computeStrategies(
+      dna,
+      baseProjectInput({ companionType: "COMPANION_SOLO", preferredThemes: ["미식 여행"] }),
+      poisByCategory,
+      MODEL_VERSION,
+    );
+    const noThemeMarket = noTheme.find((s) => s.templateId === "LOCAL_FOOD_MARKET");
+    const foodThemeMarket = foodTheme.find((s) => s.templateId === "LOCAL_FOOD_MARKET");
+    expect(noThemeMarket).toBeDefined();
+    expect(foodThemeMarket).toBeDefined();
+    expect(foodThemeMarket!.scoreBreakdown.targetFit).toBeGreaterThan(noThemeMarket!.scoreBreakdown.targetFit);
+  });
+
+  it("역할·국적·테마·월 서로 다른 조합 3개는 서로 다른 결과를 내고, 각각 재실행해도 동일하다", () => {
+    const dna = computeDna(dnaInput());
+    const combinations: ProjectInputForScoring[] = [
+      baseProjectInput({ role: "LOCAL_GOV", nationality: "DOMESTIC", preferredThemes: ["문화 역사"], travelMonth: 10 }),
+      baseProjectInput({ role: "TRAVEL_AGENCY", nationality: "FOREIGN", preferredThemes: ["웰니스"], travelMonth: 1 }),
+      baseProjectInput({ role: "LOCAL_GOV", nationality: "FOREIGN", preferredThemes: ["미식"], travelMonth: 7 }),
+    ];
+    const results = combinations.map((input) => computeStrategies(dna, input, poisByCategory, MODEL_VERSION));
+
+    expect(results[0]).not.toEqual(results[1]);
+    expect(results[1]).not.toEqual(results[2]);
+    expect(results[0]).not.toEqual(results[2]);
+
+    for (let i = 0; i < combinations.length; i++) {
+      const rerun = computeStrategies(dna, combinations[i], poisByCategory, MODEL_VERSION);
+      expect(rerun).toEqual(results[i]);
+    }
+  });
+});
+
 /** 카테고리당 넉넉한 개수를 만들어 "충분한 후보가 있을 때" 시나리오를 구성한다. 이름에 번호를 붙여
  * name.localeCompare 정렬이 항상 같은 순서를 내도록 한다. */
 function makePois(prefix: string, category: PoiCategoryCode, count: number): PoiLike[] {

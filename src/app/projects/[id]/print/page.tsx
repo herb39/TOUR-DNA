@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getProjectDetail } from "@/lib/services/projectQueries";
-import { labelForBudgetLevel, labelForDuration, labelForGroupType, labelForTransport } from "@/lib/validation/codes";
+import {
+  labelForBudgetLevel,
+  labelForDuration,
+  labelForGroupType,
+  labelForRole,
+  labelForTransport,
+} from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime } from "@/lib/format";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { PrintButton } from "@/components/plan/PrintButton";
@@ -43,7 +49,8 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <h1 className="mt-1 text-xl font-bold">{plan.productName}</h1>
         <p className="mt-1 text-sm text-slate-600">{plan.conceptText}</p>
         <p className="mt-2 text-xs text-slate-500">
-          {project.travelYear}년 {project.travelMonth}월 · {labelForDuration(project.input?.duration ?? "")} ·{" "}
+          {project.travelYear}년 {project.travelMonth}월 · {labelForRole(project.role)} ·{" "}
+          {labelForDuration(project.input?.duration ?? "")} ·{" "}
           {labelForBudgetLevel(project.input?.budgetLevel ?? "")} ·{" "}
           {labelForTransport(project.input?.transport ?? "")} · {labelForGroupType(project.input?.groupType ?? "")}
         </p>

@@ -29,6 +29,11 @@ export interface StrategyTemplate {
   kpiTemplates: { name: string; method: string }[];
   riskTemplates: string[];
   targetDescriptionTemplate: string;
+  /** 외국인 대상 서비스 준비도 조정치(-8~+8, CURATED — 실측 방문객 데이터 아님). 해설·설명 의존도가
+   * 높은 템플릿은 음수, 자기주도 관람이 쉬운 템플릿은 양수로 둔다(audienceContext.ts에서만 사용). */
+  foreignReadinessAdjustment: number;
+  /** 위 조정치의 근거를 사람이 읽을 수 있는 문장으로 남긴다(홍보자료·화면에 그대로 노출 가능). */
+  foreignReadinessNote: string;
 }
 
 export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
@@ -54,6 +59,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["전통시장 정기 휴장일과 코스 일정 충돌", "우천 시 야외 시장 매력도 저하"],
     targetDescriptionTemplate: "미식에 관심이 높은 소규모 동행 여행객",
+    foreignReadinessAdjustment: -5,
+    foreignReadinessNote: "전통시장 상점 대다수가 현장 안내에 의존해 외국어 메뉴판/안내 준비가 상대적으로 부족할 수 있음",
   },
   {
     id: "NIGHT_STAY_EXTENSION",
@@ -77,6 +84,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["야간 이동 시 대중교통 배차 감소", "안전 조명/치안 확인 필요 구간 존재"],
     targetDescriptionTemplate: "체류를 늘리고 싶은 20~30대 커플/소그룹",
+    foreignReadinessAdjustment: 3,
+    foreignReadinessNote: "야경/야시장은 언어 장벽 없이 자기주도로 즐기기 쉬운 콘텐츠 위주라 접근성이 상대적으로 양호함",
   },
   {
     id: "NATURE_WELLNESS",
@@ -100,6 +109,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["기상 악화 시 자연 코스 대체 동선 필요", "성수기 주차 공간 부족"],
     targetDescriptionTemplate: "자연 속 휴식을 원하는 30~50대 여행객",
+    foreignReadinessAdjustment: 5,
+    foreignReadinessNote: "자연경관 위주 코스는 별도 해설 없이도 자기주도 관람이 쉬워 접근성이 상대적으로 양호함",
   },
   {
     id: "CULTURE_HISTORY",
@@ -123,6 +134,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["문화재 관람 정기 휴관일 확인 필요", "단체 해설 인원 제한"],
     targetDescriptionTemplate: "역사·문화 학습에 관심 있는 가족/단체 여행객",
+    foreignReadinessAdjustment: -6,
+    foreignReadinessNote: "역사·문화 스토리텔링은 해설 의존도가 높아 외국어 해설사/오디오가이드 준비가 없으면 이해도가 크게 떨어질 수 있음",
   },
   {
     id: "FESTIVAL_EVENT",
@@ -146,6 +159,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["축제 일정과 여행 시기 불일치 가능", "혼잡 시 이동 지연"],
     targetDescriptionTemplate: "축제 시즌에 맞춰 방문하는 다양한 동행 유형",
+    foreignReadinessAdjustment: 4,
+    foreignReadinessNote: "대형 축제·행사는 통상 다국어 안내판/외국인 부스가 갖춰지는 경우가 많아 접근성이 상대적으로 양호함",
   },
   {
     id: "FAMILY_EXPERIENCE",
@@ -169,6 +184,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["아동 안전사고 대비 동선 점검 필요", "방학 성수기 예약 조기 마감"],
     targetDescriptionTemplate: "아이를 동반한 가족 단위 여행객",
+    foreignReadinessAdjustment: 2,
+    foreignReadinessNote: "체험형 콘텐츠는 시연·실습 위주라 언어 의존도가 상대적으로 낮음",
   },
   {
     id: "YOUTH_LOCAL_CONTENT",
@@ -192,6 +209,8 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     ],
     riskTemplates: ["트렌드 변화가 빨라 콘텐츠 갱신 필요", "소규모 매장 수용 인원 제한"],
     targetDescriptionTemplate: "감성 콘텐츠와 로컬 경험을 중시하는 20대",
+    foreignReadinessAdjustment: 3,
+    foreignReadinessNote: "SNS 감성 스팟은 사진 중심 콘텐츠라 언어 장벽 없이도 즐기기 쉬움",
   },
 ];
 

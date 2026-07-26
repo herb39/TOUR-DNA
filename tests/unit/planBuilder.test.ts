@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDraftCourse,
+  buildKpis,
+  buildOperationChecklist,
+  buildRisks,
   recomputeDayItems,
   estimateTravel,
   parseTimeSlotToMinutes,
@@ -1554,5 +1557,60 @@ describe("buildDraftCourse — 30분 단위 정렬이 실제 일정 시각·이�
         }
       }
     }
+  });
+});
+
+/** Phase 4: 실행안 체크리스트/위험요인에 역할·국적·테마·여행월이 실제로 반영되는지 검증한다. */
+describe("buildOperationChecklist / buildRisks — Phase 4 컨텍스트 반영", () => {
+  it("컨텍스트 없이 호출해도(레거시 프로젝트) 오류 없이 기본 체크리스트만 반환한다", () => {
+    const checklist = buildOperationChecklist("NATURE_WELLNESS");
+    expect(checklist).toContain("출발 3일 전 예약 인원 최종 확정");
+    expect(checklist.length).toBeGreaterThan(0);
+  });
+
+  it("역할에 따라 체크리스트에 서로 다른 항목이 추가된다", () => {
+    const localGov = buildOperationChecklist("NATURE_WELLNESS", { role: "LOCAL_GOV" });
+    const travelAgency = buildOperationChecklist("NATURE_WELLNESS", { role: "TRAVEL_AGENCY" });
+    expect(localGov).toContain("정책 보고용 정량 지표(KPI) 수집 방법 사전 확정 필요");
+    expect(travelAgency).toContain("예약/판매 채널(OTA 등) 연동 및 가격 정책 사전 확정 필요");
+    expect(localGov).not.toEqual(travelAgency);
+  });
+
+  it("외국인 대상이면 다국어 안내 체크리스트가 추가되고, 내국인이면 추가되지 않는다", () => {
+    const foreign = buildOperationChecklist("CULTURE_HISTORY", { nationality: "FOREIGN" });
+    const domestic = buildOperationChecklist("CULTURE_HISTORY", { nationality: "DOMESTIC" });
+    expect(foreign).toContain("다국어 안내판/메뉴판 준비 여부 확인 필요(외국인 대상, 서비스 준비도 기준)");
+    expect(domestic).not.toContain("다국어 안내판/메뉴판 준비 여부 확인 필요(외국인 대상, 서비스 준비도 기준)");
+  });
+
+  it("반려동물 테마는 전용 템플릿 부재 안내를, 레저·액티비티 테마는 실외 템플릿에서 안전장비 안내를 추가한다", () => {
+    const pet = buildOperationChecklist("NATURE_WELLNESS", { preferredThemes: ["반려동물 동반"] });
+    expect(pet).toContain("반려동물 동반 가능 여부는 업체별로 사전에 직접 확인 필요(전용 코스 템플릿 없음)");
+
+    const leisure = buildOperationChecklist("NATURE_WELLNESS", { preferredThemes: ["레저 액티비티"] });
+    expect(leisure).toContain("레저·액티비티 실외 활동 안전장비·보험 가입 여부 사전 확인 필요");
+  });
+
+  it("장마철(6~7월)에는 실외 비중이 큰 템플릿에 우천 관련 위험요인이 추가되고, 비수기 실내 템플릿에는 추가되지 않는다", () => {
+    const rainySeasonOutdoor = buildRisks("NATURE_WELLNESS", { travelMonth: 7 });
+    expect(rainySeasonOutdoor.some((r) => r.risk.includes("장마철"))).toBe(true);
+
+    const otherMonthOutdoor = buildRisks("NATURE_WELLNESS", { travelMonth: 3 });
+    expect(otherMonthOutdoor.some((r) => r.risk.includes("장마철"))).toBe(false);
+  });
+
+  it("여행월이 없거나(레거시) 잘못된 값이면 계절 위험요인을 추가하지 않는다(근거 없이 지어내지 않음)", () => {
+    const noMonth = buildRisks("NATURE_WELLNESS");
+    const invalidMonth = buildRisks("NATURE_WELLNESS", { travelMonth: 13 });
+    const base = buildRisks("NATURE_WELLNESS");
+    expect(noMonth).toEqual(base);
+    expect(invalidMonth).toEqual(base);
+  });
+
+  it("buildKpis는 템플릿 고유 KPI를 그대로 반환한다(회귀)", () => {
+    const kpis = buildKpis("LOCAL_FOOD_MARKET");
+    expect(kpis.length).toBeGreaterThan(0);
+    expect(kpis[0]).toHaveProperty("name");
+    expect(kpis[0]).toHaveProperty("method");
   });
 });
