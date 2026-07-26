@@ -155,12 +155,21 @@ docs/
 
 ## 1. 우선순위 (P0/P1/P2, 재조정)
 
-| 순위 | Phase | 재조정 근거 |
-|---|---|---|
-| **P0-1** | Phase 1 (provenance + 실제 raw snapshot 저장) | 지정과제 채점표 "데이터 활용 적절성"(20점) 직결, `LIVE 5/5` 오표시는 심사에서 가장 먼저 드러날 리스크 |
-| **P0-2** | Phase 5 (다채널 홍보 초안) | 지정과제 7번 원문이 "다채널 마케팅 콘텐츠"를 명시 — 현재 전혀 없어 요구사항 미충족이 가장 뚜렷한 항목 |
-| **P0-3** | Phase 4 (role/nationality/theme/travel month 실질 반영) | "여행사·지자체 실무자 대상", "타깃·지역·기간·콘셉트 조건 입력" 두 지정과제 문구에 직결. Phase 3(결정론/analysisKey)의 결함도 role/nationality를 키에 넣으려면 같이 손봐야 하므로 P0-3에 흡수 |
-| **P0-4** | 대표 시나리오 3개(제천/강릉/경주) 결과 차별화 + E2E | 마스터 문서 2-3절이 요구하는 "입력 차이 → 결과 차이" 심사 시연의 직접 증거. P0-1~3이 실제로 동작하는지 검증하는 마지막 단계이자 발표력(15점) 대비 자료 |
+> **2026-07-26 갱신**: Phase 5(다채널 홍보 초안)의 5-A~5-D에 해당하는 구현(도메인 생성 함수, 저장/조회/
+> 서버 액션, 편집기 UI, 인쇄 출력)이 로컬에서 전부 끝나고 자동 테스트도 통과했다(커밋 `5b8d872`/
+> `fc5e8f8`/`7460365`/`a264db6`, 상세는 `docs/implementation-status.md`의 Phase 5 절). 다만 이 커밋들은
+> 아직 `origin/main`에 push되지 않았고, `SelectedPlan.promoContent` migration도 원격 DB에 미적용이라
+> **P0-2 자리는 완료로 이동**하고, 아래 표의 우선순위는 그만큼 당겨졌다 — Phase 4가 새 P0-1이다. 원래
+> 2026-07-23 계획 표는 그대로 두고, 실제 다음 순서는 `docs/implementation-status.md` 상단 "다음 작업
+> 순서(P0)" 절을 따른다: P0-1 Phase 4 → P0-2 대표 시나리오 3개 → P0-3 DB migration 적용 + 통합 검증 →
+> P0-4 원격 반영 + 배포.
+
+| 순위(2026-07-23 원안) | Phase | 재조정 근거 | 2026-07-26 현재 상태 |
+|---|---|---|---|
+| P0-1 | Phase 1 (provenance + 실제 raw snapshot 저장) | 지정과제 채점표 "데이터 활용 적절성"(20점) 직결, `LIVE 5/5` 오표시는 심사에서 가장 먼저 드러날 리스크 | 완료(로컬+배포) |
+| P0-2 | Phase 5 (다채널 홍보 초안) | 지정과제 7번 원문이 "다채널 마케팅 콘텐츠"를 명시 — 현재 전혀 없어 요구사항 미충족이 가장 뚜렷한 항목 | **로컬 구현+테스트 완료, 원격 반영·DB 적용·배포 대기(새 P0-3/P0-4)** |
+| P0-3 | Phase 4 (role/nationality/theme/travel month 실질 반영) | "여행사·지자체 실무자 대상", "타깃·지역·기간·콘셉트 조건 입력" 두 지정과제 문구에 직결. Phase 3(결정론/analysisKey)의 결함도 role/nationality를 키에 넣으려면 같이 손봐야 하므로 P0-3에 흡수 | **미착수 — 새 P0-1로 승격** |
+| P0-4 | 대표 시나리오 3개(제천/강릉/경주) 결과 차별화 + E2E | 마스터 문서 2-3절이 요구하는 "입력 차이 → 결과 차이" 심사 시연의 직접 증거. P0-1~3이 실제로 동작하는지 검증하는 마지막 단계이자 발표력(15점) 대비 자료 | **미착수 — 새 P0-2로 승격** |
 | P1-5 | Phase 8 (사이트 잠금 제거 + 프로젝트별 비밀번호, 축소 구현) | 보안상 여전히 중요하나 채점표에 직접 항목 없음. 현재 사이트 전체 비밀번호로도 시연 자체는 가능 |
 | P1-6 | Phase 2 (최소 갱신 구조) | 7개 지역 규모에서는 리스크가 낮음(현재도 수동 baseYm 갱신으로 시연 가능) |
 | P1-7 | Phase 11 (CI) | 심사 노출 없음, 팀 운영 편의 |
@@ -201,14 +210,18 @@ docs/
 | 1-D | `seed.ts`의 가짜 `NORMAL SERVICE` envelope에 `provenance=ESTIMATED/CURATED` 표시, fixture와 실 API 성공을 구분 | 안전 |
 | 1-E | Network evidence를 POI 근거/관계 근거로 분리(`sourceCode` 이원화) | 안전(표시 방식 변경) |
 
-### P0-2. Phase 5
+### P0-2. Phase 5 — 로컬 구현·테스트 완료(2026-07-26), 원격 반영·DB 적용·배포는 P0-3/P0-4에서 진행
 
-| 단위 | 내용 | 배포 안전성 |
+실제로는 계획한 4단위(5-A~5-D)가 아니라 5-A(도메인 생성 함수) → 5-B(저장/조회/서버 액션, migration
+포함) → 5-C(편집기 UI + 인쇄 출력) + 보완(재생성 확인 버그 수정) 순서로 구현했다 — migration은 계획과
+달리 5-A가 아니라 5-B에서 추가했다(순수 도메인 함수 단계에서는 Prisma를 아예 참조하지 않기 위함).
+
+| 단위 | 내용 | 상태 |
 |---|---|---|
-| 5-A | Migration: `SelectedPlan.promoContent`(Json, nullable) 추가 | 안전 |
-| 5-B | 순수 함수 `buildPromoContent()`(요약 3문장/랜딩 제목·본문/SNS 카피·해시태그/블로그 소개문/판매포인트 or 보도자료 요약) — 기존 전략 템플릿·Evidence만 사용, role/nationality 분기는 P0-3과 함께 구현 | 안전(도메인 함수, 아직 UI 미노출) |
-| 5-C | 실행안 편집기에 "홍보 콘텐츠" 섹션 + 복사 버튼 + 편집/저장 배선 | 배포 시 신규 UI 노출, 기존 화면 무변화 |
-| 5-D | 인쇄 화면에 선택적 포함 | 안전 |
+| 5-A | 순수 함수 `buildPromoContent()`(제안서 3문장/랜딩 제목·본문/Instagram 캡션·해시태그/블로그 제목·본문/역할별 discriminated union) — 기존 SelectedPlan·Evidence만 사용, Prisma 미의존 | **DONE**(`5b8d872`, 테스트 21개) |
+| 5-B | Migration `SelectedPlan.promoContent`(Json, nullable) + Prisma↔도메인 변환 경계 + 생성/조회/저장 서비스 + 덮어쓰기 보호 + 서버 액션 | **DONE(로컬)**(`fc5e8f8`, 테스트 30개) — migration은 원격 DB 미적용 |
+| 5-C | 실행안 편집기에 "홍보자료" 섹션 + 개별/전체 복사 + 인쇄 화면 출력 | **DONE(로컬)**(`7460365`, 테스트 27개) |
+| 보완 | 재생성 확인 없이 덮어쓰기가 발생하던 두 경로(최초 생성의 `alreadyExists`, 손상 콘텐츠 복구) 수정 | **DONE(로컬)**(`a264db6`, 테스트 11개) |
 
 ### P0-3. Phase 4 (+ Phase 3 결함 동시 해결)
 
@@ -268,8 +281,8 @@ docs/
 
 ## 4. Migration 순서 (제안, 미적용, 재조정 반영)
 
-1. `add_provenance_tracking` — P0-1(Phase 1-A): provenance enum + `NormalizedMetric`/`Evidence` 컬럼
-2. `add_promo_content` — P0-2(Phase 5-A): `SelectedPlan.promoContent`
+1. `20260723000000_add_data_provenance` — P0-1(Phase 1-A): provenance enum + `NormalizedMetric`/`Evidence` 컬럼(적용 완료, 배포 반영됨)
+2. `20260726000000_add_selected_plan_promo_content` — P0-2(Phase 5-B): `SelectedPlan.promoContent`(작성 완료, **원격 DB 미적용** — 실제 파일명은 계획 당시 예상한 `add_promo_content`와 다르며, 5-A가 아니라 5-B에서 추가했다)
 3. `add_project_access_control` — P1-5(Phase 8-A): `OwnerSession`/`ProjectAccessSession`/`ProjectAccessAttempt`/`Project.publicId` 등(`ProjectOwnerRecovery` 제외)
 4. `extend_data_source_watermark` — P1-6(Phase 2-A): `DataSource`에 필드 3개만 추가(신규 테이블 아님)
 5. (P2 진입 후) `add_operational_event` — Phase 10-A
@@ -293,8 +306,9 @@ P0-3(Phase 4)·P0-4(시나리오)는 스키마 변경이 필수는 아니다(기
 1. **기존 프로젝트 공개 전환 방식(Phase 8, P1-5)**: 여전히 미결정 — 일괄 공개 전환 vs 소유자 개별 안내 후 전환.
 2. **role/nationality 반영 시 기존 분석 결과 처리(P0-3)**: `dataVersion`/`analysisKey`가 바뀌면 기존
    프로젝트는 새 키 기준 "최신"이 아니게 된다. 일괄 재분석 vs 열람 시 안내만 — 결정 필요.
-3. **Phase 5 홍보 문구 템플릿 방향(P0-2)**: role/nationality별 완전 신규 템플릿 vs 기존
-   `strategyTemplates.ts` 재조합 — 후자를 권장하되 최종 결정 필요.
+3. ~~Phase 5 홍보 문구 템플릿 방향~~ — **해소됨(2026-07-26)**: 완전 신규 템플릿이 아니라 저장된
+   `SelectedPlan`(sellingPoints/targetSummary/course 등)과 `Evidence`를 결정론적 템플릿으로 재조합하는
+   방식을 채택해 구현했다(`src/lib/domain/promoContent.ts`). LLM은 사용하지 않는다.
 4. **Phase 12 착수 시점(P2-9)**: `route-api-status.md` 잔여 항목 확인 후 재논의.
 
 (재분석 정책 질문과 `ProjectOwnerRecovery` 여부는 이번 재조정으로 해소됨 — 재분석은 P1 이후로 보류,

@@ -1,8 +1,34 @@
-# 구현 상태 (REVIEW_ONLY 재검증, 2026-07-23)
+# 구현 상태 (2026-07-26 갱신 — Phase 5 완료 반영)
 
-> 기준 커밋: `5e16dec`. 상태값: `NOT_STARTED` / `BLOCKED` / `IN_PROGRESS` / `DONE`.
-> 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
+> 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C 및 보완 커밋 반영해 갱신.
+> 현재 로컬 HEAD: `a264db6`(`fix: require confirmation before overwriting existing promo content`).
+> `origin/main`은 아직 `a13e98d`에 머물러 있다 — 이 문서가 "DONE"이라고 적은 항목이라도 **로컬 구현 완료**를
+> 뜻할 뿐 원격 반영·DB 적용·배포 완료를 의미하지 않는다(각 항목에서 이 네 가지를 구분해 표기한다).
+> 상태값: `NOT_STARTED` / `BLOCKED` / `IN_PROGRESS` / `DONE(로컬)` / `DONE(배포)`.
+> 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
+
+## 다음 작업 순서 (P0, 2026-07-26 재조정)
+
+Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다. 지금부터는 다음 순서로 진행한다.
+
+1. **P0-1. Phase 4 구현** — 아래 "Phase 4" 절 참고. 역할·국적·테마·여행월이 실제 분석 결과(DNA 점수
+   가중치, 전략 선정, 실행안 템플릿)에 반영되도록 하고, 동일 입력에는 동일 결과가 나오는 결정적 구조를
+   유지한다. Phase 3의 `dataVersion`/`analysisKey` 결함(아래 Phase 3 절)도 role/nationality를 키에
+   넣으려면 함께 손봐야 하므로 이 단계에서 같이 해결한다.
+2. **P0-2. 대표 시나리오 3개 완성** — 강릉·경주·제천(세 지역 모두 `src/lib/fixtures/regions.ts`에 이미
+   시드 데이터 존재, 신규 지역 추가 불필요) 각각 서로 다른 역할·국적·테마·여행월로 분석→전략→실행안→
+   홍보자료→인쇄 전체 흐름을 실제로 시연 가능하게 만든다. P0-1 완료 후 진행해야 역할/국적별 차이가
+   실제로 나타난다.
+3. **P0-3. DB migration 적용 및 통합 검증** — P0-1·P0-2 이후 진행. 적용 대상 Neon DB가 개발용인지
+   운영용인지부터 확인하고, 미적용 migration(`20260726000000_add_selected_plan_promo_content` 포함)을
+   적용하기 전 백업·영향 범위를 확인한다. 적용 후 실제 DB·브라우저로 홍보자료 생성·편집·저장·재조회,
+   새로고침 유지, 재생성 취소/승인, 개별/전체 복사, 여행사·지자체 역할 화면, 모바일 레이아웃, 인쇄
+   미리보기, Phase 4 조건별 결과 차이, 기존 실행안 화면 회귀를 검증한다.
+4. **P0-4. 원격 반영 및 배포** — 통합 검증 후 커밋 범위를 확인하고 push, Vercel 빌드 확인, 운영
+   환경변수·운영 DB migration 상태 확인, 배포 URL smoke test까지 진행한다.
+
+아래 "요약 테이블"의 우선순위 열은 이 순서를 반영해 갱신했다.
 
 ## 실행안 일정 품질 보완 (2026-07-26, 기준 커밋 `608a09a` 이후)
 
@@ -155,9 +181,44 @@
 - `nationality`(`Nationality`)도 domain 계층에 없다 — FOREIGN 선택 시 외국어 안내/국제결제/문화 설명 체크리스트가 생성되지 않는다.
 - 테마는 `strategy.ts`의 문자열 포함 검사 수준(보너스 +10, 완전 배제)만 있고, 구조화된 테마 코드 체계는 없다.
 
-## Phase 5. 다채널 홍보 초안 — `NOT_STARTED`
+## Phase 5. 다채널 홍보 초안 — `DONE(로컬)` — 원격/DB/배포는 별도 확인 필요
 
-- 코드 전체에서 SNS/블로그/랜딩페이지 카피 생성 기능 없음. `strategyTemplates.ts`의 "SNS 언급량"은 KPI 측정 방법 문구일 뿐 콘텐츠 생성이 아니다.
+4개 커밋으로 순차 구현했다. 상태를 아래처럼 명확히 구분한다.
+
+| 구분 | 상태 |
+|---|---|
+| 로컬 코드 구현 | 완료 |
+| 로컬 자동 테스트 | 완료(신규 89개: 5-A 21 + 5-B 30 + 5-C 27 + 보완 11) |
+| GitHub `origin/main` 반영 | **미완료** — 4개 커밋 전부 로컬 `main`에만 있음 |
+| DB migration 적용 | **미완료** — `20260726000000_add_selected_plan_promo_content` 미적용(`prisma migrate status`로 확인, 원격 Neon DB 대상) |
+| 실제 브라우저 통합 검증 | **미완료** — 위 migration이 적용된 DB가 없어 수행 불가 |
+| 운영 배포 반영 | **미완료** |
+
+- **5-A** (`5b8d872 feat: add deterministic promo content builder`) — `src/lib/domain/promoContent.ts`의
+  `buildPromoContent()`: 저장된 Project/SelectedPlan/Evidence만 입력받는 결정론적 순수 함수. 제안서
+  요약(정확히 3문장), 랜딩페이지(제목/본문), Instagram(캡션/해시태그), 블로그(제목/본문),
+  역할별(`TRAVEL_AGENCY`/`LOCAL_GOV`) discriminated union 콘텐츠를 생성한다. `MISSING`/`provenance` 없음
+  Evidence는 제외, `ESTIMATED`는 추정 표시, course 순서·`timeSlot`·`mealPurpose` 보존. LLM 미사용,
+  임의 수치·장소 생성 없음. 테스트 21개(`tests/unit/promoContent.test.ts`).
+- **5-B** (`fc5e8f8 feat: persist promo content`) — `SelectedPlan.promoContent Json?` 컬럼 추가
+  (migration `20260726000000_add_selected_plan_promo_content`, 기존 행은 NULL 유지). Prisma 조회 결과
+  → `BuildPromoContentInput` 매핑(`promoContentAdapter.ts`, Evidence의 `rawValue`/`provenance`/`axis`를
+  명시적으로 변환, 이중 단언 없음), `PromoContent` → Prisma JSON 안전 직렬화(재귀 검증, Date/Map/Set/
+  non-finite 거부), 저장된 JSON의 Zod 런타임 검증(`promoContentAdapter.ts`, `promoContent.schema.ts`),
+  생성/조회/저장 서비스(`promoContentService.ts`)와 덮어쓰기 보호(`overwrite` 옵션, `Prisma.DbNull` 조건부
+  `updateMany`로 동시성 재확인), 서버 액션 3종(`plan/actions.ts`). 테스트 30개.
+- **5-C** (`7460365 feat: add promo content editor`) — 실행안 화면에 `PromoContentEditor` 섹션 추가,
+  역할별 편집 UI(`ProposalSummaryEditor`/`LandingEditor`/`InstagramEditor`/`BlogEditor`/`RoleContentEditor`/
+  `PromoContentSources`), 개별/전체 클립보드 복사(`promoContentFormat.ts`), 저장되지 않은 변경 상태 표시,
+  인쇄 화면(`print/page.tsx`)에 검증된 홍보자료만 출력(잘못된 JSON은 조용히 미출력). 테스트 27개.
+- **보완** (`a264db6 fix: require confirmation before overwriting existing promo content`) — 최초 생성
+  호출이 `alreadyExists`를 반환하거나 손상된 콘텐츠(`invalidContent`)를 복구할 때도 사용자 확인 없이
+  `overwrite:true`를 호출하지 않도록 수정(원래 계획대로 "재생성" 버튼만 사전 확인을 받고 있었음).
+  `print/page.tsx` 홍보자료 출력에 대한 자동 테스트(`PrintPage.test.tsx`, 6개) 추가. 테스트 11개.
+- **알려진 설계 트레이드오프**: `promoContent.ts`/`promoContentFormat.ts`가 `@/lib/format`,
+  `@/lib/validation/codes`를 import한다 — 다른 domain 계층 파일은 domain 밖을 전혀 import하지 않는
+  기존 관례에서 벗어난 의도적 예외(기존 라벨·포맷터 재사용 지시를 따르기 위함).
+- **다음 확인 필요**: 위 표의 미완료 4개 항목. 상세 순서는 이 문서 상단 "다음 작업 순서(P0)"의 P0-3/P0-4.
 
 ## Phase 6. 조건 수정 및 안전한 재분석 — `NOT_STARTED`
 
@@ -197,30 +258,36 @@
 - `CourseMap.tsx`는 Haversine 직선거리 기반 Polyline만 그린다. `RouteProvider`, `KAKAO_NAVI`, `directions` 등 실제 경로 API 연동 코드 없음(전체 검색 0건).
 - 무료 쿼터 조건 자체가 아직 확인되지 않았음 — `docs/route-api-status.md` 참고, Phase 12는 그 문서의 선검증 완료 전까지 `BLOCKED`로 둔다.
 
-## 요약 테이블 (2026-07-23 재조정 — 지정과제 7번 직접 요구사항·심사 노출도 기준)
+## 요약 테이블 (2026-07-26 재조정 — Phase 5 로컬 완료 반영)
 
-> 이전 버전은 마스터 문서의 "첫 번째 실행 지시" 순서(보안 최우선)를 그대로 따랐다. 이번 재조정은
-> 사용자 지시에 따라 **공모전 지정과제 7번 직결 항목과 심사 노출도**를 최우선 기준으로 삼는다 — Phase 8
-> (보안)의 중요성 자체는 여전하지만, 지정과제 채점표에는 등장하지 않고 시연 데모(비밀번호 없는 단일
-> 접근)로도 충분히 넘어갈 수 있어 P1로 내렸다.
+> 2026-07-23 버전은 지정과제 7번 직결 항목과 심사 노출도를 최우선 기준으로 삼아 Phase 5를 P0-2로
+> 두었다. Phase 5가 로컬 구현·테스트를 마쳐 우선순위가 다시 바뀌었다 — 이제 Phase 4(role/nationality/
+> 테마/여행월 반영)가 P0-1이다. 우선순위 열의 "P0-1~P0-4"는 이 문서 상단 "다음 작업 순서" 절과 동일한
+> 시퀀스를 가리킨다(Phase 번호와 P0 순번은 1:1 대응이 아니다 — 시나리오·DB 적용·배포는 특정 Phase
+> 번호가 없는 작업이다).
 
-| Phase | 상태 | 우선순위(재조정) |
+| Phase | 상태 | 우선순위(재조정 2026-07-26) |
 |---|---|---|
-| 1. Provenance 모델 + 실제 snapshot 저장 | **DONE**(1-A~1-E 전부 완료) | **P0-1** |
-| 5. 다채널 홍보 초안 | NOT_STARTED | **P0-2** |
-| 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-3** |
-| (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-4** |
+| 1. Provenance 모델 + 실제 snapshot 저장 | **DONE**(1-A~1-E 전부 완료, 배포 반영됨) | 완료 |
+| 5. 다채널 홍보 초안 | **DONE(로컬)** — 원격 반영·DB 적용·배포 미완료(위 Phase 5 절 참고) | 로컬 완료, P0-3/P0-4에서 DB 적용·배포 진행 |
+| 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-1** |
+| (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-2** |
+| (신규) DB migration 적용 + 통합 검증(Phase 5 포함) | NOT_STARTED | **P0-3** |
+| (신규) 원격 반영(push) + 배포 | NOT_STARTED | **P0-4** |
 | 8. 사이트 잠금 제거/프로젝트 비밀번호(축소 구현) | NOT_STARTED | P1-5 |
 | 2. 최소 갱신 구조(축소 구현) | NOT_STARTED | P1-6 |
 | 11. 빌드/CI 정비 | NOT_STARTED | P1-7 |
 | 10. `/admin/ops` | NOT_STARTED | P2-8 |
 | 12. 실제 경로 API | NOT_STARTED(BLOCKED — 쿼터/REST키/약관 일부 미확인) | P2-9 |
-| 3. 결정론/dataVersion | IN_PROGRESS(결함 확인) | P0-3에 흡수(role/nationality를 analysisKey에 넣으려면 3의 결함도 같이 손봐야 함) |
+| 3. 결정론/dataVersion | IN_PROGRESS(결함 확인) | P0-1(Phase 4)에 흡수(role/nationality를 analysisKey에 넣으려면 3의 결함도 같이 손봐야 함) |
 | 6. 조건 수정/안전 재분석 | NOT_STARTED | P1 이후(P0~P1 완료 후 재검토) |
 | 7. 코호트/행정범위 설명 | IN_PROGRESS(부분) | P1 이후(표시만 남은 작업이라 낮은 리스크로 아무 때나 끼워넣기 가능) |
 | 9. 무료 운영비 가드 | NOT_STARTED | 전 Phase 횡단 적용(외부 API를 새로 호출하는 모든 구현 단위에 동시 적용) |
 
-기존 76개 단위 테스트(`tests/unit/*` 11개 파일)와 8개 E2E(`e2e/core-flow.spec.ts`)는 모두 현재 보존되어 있으며, 이번 검토에서는 실행하지 않았다(REVIEW_ONLY, 코드 미수정이므로 재실행 불필요 — 마지막 실행은 직전 세션 커밋 `9e509ce` 기준 전부 통과).
+단위 테스트는 `tests/unit/*` 24개 파일에 319개(2026-07-26, 이 문서 갱신 시점에 로컬 HEAD `a264db6`
+기준으로 직접 재실행해 확인 — 과거 실행 결과를 인용한 것이 아니다), E2E는 `e2e/core-flow.spec.ts` 8개
+(이번 문서 갱신에서는 재실행하지 않음 — 코드 변경이 없어 마지막 통과 상태가 그대로 유효하다고 판단).
+`npm run typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인했다.
 
 ## Phase 2 축소 검토 결과
 

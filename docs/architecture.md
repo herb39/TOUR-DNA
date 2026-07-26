@@ -98,6 +98,8 @@ src/lib/domain/          순수 함수, DB/Next 의존 없음, 유닛테스트 �
   analysisKey.ts         analysisKey 해시
   dataVersion.ts         dataVersion 해시
   constants.ts           MODEL_VERSION
+  promoContent.ts        buildPromoContent — 홍보자료 5종 결정론적 생성(Phase 5-A)
+  promoContentFormat.ts  홍보자료 복사용 텍스트 포맷 순수 함수(Phase 5-C)
 
 src/lib/services/        DB 조회·조립 (Prisma 사용)
   db.ts                  PrismaClient 싱글턴(driver adapter 사용, Prisma 7)
@@ -106,6 +108,8 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
   poiDetails.ts           fetchPoiDetailsInOrder, searchPoisInRegion(실행안 "장소 추가" 검색)
   analyzeProject.ts       runAnalysisForProject — 분석 실행+저장
   planService.ts          ensureSelectedPlan
+  promoContentAdapter.ts  Prisma ↔ PromoContent 변환 경계(Evidence 매핑, JSON 직렬화, Phase 5-B)
+  promoContentService.ts  generatePromoContentForProject / getPromoContentForProject / savePromoContentForProject(Phase 5-B)
   projectQueries.ts       목록/상세 조회 (읽기 전용 페이지용)
   regionQueries.ts        시도/시군구 드롭다운 옵션
   syncService.ts          runTourismDataSync

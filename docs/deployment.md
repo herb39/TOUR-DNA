@@ -74,3 +74,21 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 - `curl -I https://<도메인>/api/cron/sync-tourism-data` → 인증 없이 401인지 확인(사이트 게이트와 무관하게
   항상 401이어야 한다)
 - `npm run build`가 로컬에서 통과했는지, Vercel 빌드 로그에 오류가 없는지 확인
+
+## 8. Phase 5(홍보자료) 배포 시 주의사항 (2026-07-26)
+
+로컬 `main`에는 홍보자료 생성·편집·저장 기능(Phase 5-A~5-C + 보완, 커밋 `5b8d872`/`fc5e8f8`/`7460365`/
+`a264db6`)이 이미 구현·테스트되어 있지만, 이 문서 작성 시점 기준으로 **아직 `origin/main`에 push되지
+않았고, 해당 기능이 쓰는 `SelectedPlan.promoContent` 컬럼도 원격 Neon DB에 적용되지 않았다**
+(`npx prisma migrate status`로 확인 가능, 읽기 전용 명령이라 언제든 안전하게 재확인할 수 있다).
+
+이 기능을 배포할 때는 Phase 1 때와 동일한 원칙을 따른다(additive migration이므로 순서만 지키면 안전):
+
+1. 대상 Neon DB가 개발용인지 운영용인지 먼저 확인한다.
+2. `npm run db:migrate`(`prisma migrate deploy`)로 `20260726000000_add_selected_plan_promo_content`를
+   포함한 누적 migration을 적용한다 — 컬럼 추가(nullable JSONB)만 있고 기존 데이터를 변경하지 않는다.
+3. migration 적용을 확인한 뒤에 해당 커밋이 반영된 배포가 나가도록 한다(반대 순서로 배포부터 하면,
+   새 코드가 아직 없는 컬럼을 조회/저장하려다 런타임에 실패한다 — Phase 1 배포 점검과 동일한 위험 패턴).
+4. 배포 후 실제 브라우저에서 홍보자료 생성 → 편집 → 저장 → 새로고침 → 재생성 → 복사 → 인쇄까지
+   한 번은 수동으로 확인한다(이 기능은 로컬 자동 테스트만 거쳤고 실제 DB·브라우저 검증은 아직
+   수행된 적이 없다).
