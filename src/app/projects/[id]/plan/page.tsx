@@ -2,7 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { getProjectDetail } from "@/lib/services/projectQueries";
 import { ensureSelectedPlan } from "@/lib/services/planService";
+import { getPromoContentForProject } from "@/lib/services/promoContentService";
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
+import { PromoContentEditor } from "@/components/plan/PromoContentEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // ensureSelectedPlan은 selectedPlan.strategyResultId가 현재 선택된 전략과 다르면 새로 생성하고,
   // 같으면 기존 값(사용자 편집분 포함)을 그대로 반환한다 — 항상 호출해야 전략 재선택이 반영된다.
   const planRow = await ensureSelectedPlan(id);
+  const promoContentResult = await getPromoContentForProject(id);
 
   const planData: PlanEditorData = {
     id: planRow.id,
@@ -69,6 +72,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         </p>
         <div className="mt-6">
           <PlanEditor plan={planData} />
+        </div>
+        <div className="mt-6">
+          <PromoContentEditor projectId={id} initial={promoContentResult} />
         </div>
       </main>
     </>

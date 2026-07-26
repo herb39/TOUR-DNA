@@ -6,6 +6,7 @@ import { formatBaseYm, formatDateTime } from "@/lib/format";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { PrintButton } from "@/components/plan/PrintButton";
 import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
+import { parsePromoContent } from "@/lib/validation/promoContent.schema";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   const selectedStrategy = analysisResult.strategyResults.find((s) => s.id === plan.strategyResultId);
   const course = plan.course as unknown as { days: CourseDay[] };
   const evidenceSummary = analysisResult.evidences.slice(0, 6);
+
+  // 저장된 promoContent가 없으면(DB NULL) 섹션 자체를 만들지 않는다. 값이 있어도 Phase 5-B와 동일한
+  // 검증 경계(parsePromoContent)를 통과하지 못하면 잘못된 데이터를 그대로 출력하지 않고 조용히 생략한다.
+  const promoContentParsed = plan.promoContent !== null ? parsePromoContent(plan.promoContent) : null;
+  const promoContent = promoContentParsed?.ok ? promoContentParsed.value : null;
 
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
@@ -136,6 +142,84 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           </tbody>
         </table>
       </section>
+
+      {promoContent ? (
+        <section className="mt-4 border-t border-slate-300 pt-3">
+          <h2 className="text-sm font-semibold">홍보자료</h2>
+
+          <div className="mt-2">
+            <h3 className="text-xs font-semibold text-slate-700">제안서 요약</h3>
+            <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-xs text-slate-700">
+              {promoContent.proposalSummary.sentences.map((sentence, i) => (
+                <li key={i}>{sentence}</li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700">랜딩페이지</h3>
+              <p className="mt-1 text-xs font-medium text-slate-800">{promoContent.landing.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-slate-700">{promoContent.landing.body}</p>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700">블로그</h3>
+              <p className="mt-1 text-xs font-medium text-slate-800">{promoContent.blog.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-slate-700">{promoContent.blog.body}</p>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <h3 className="text-xs font-semibold text-slate-700">Instagram</h3>
+            <p className="mt-1 text-xs text-slate-700">{promoContent.instagram.caption}</p>
+            {promoContent.instagram.hashtags.length > 0 ? (
+              <p className="mt-0.5 text-xs text-slate-500">
+                {promoContent.instagram.hashtags.map((tag) => `#${tag}`).join(" ")}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-3">
+            {promoContent.roleContent.role === "TRAVEL_AGENCY" ? (
+              <>
+                <h3 className="text-xs font-semibold text-slate-700">여행상품 홍보자료</h3>
+                <p className="mt-1 text-xs text-slate-700">
+                  <span className="font-medium">{promoContent.roleContent.productName}</span> ·{" "}
+                  {promoContent.roleContent.targetAudience}
+                </p>
+                <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                  {promoContent.roleContent.sellingPoints.map((point, i) => (
+                    <li key={i}>{point}</li>
+                  ))}
+                </ul>
+                <p className="mt-0.5 text-xs text-slate-700">{promoContent.roleContent.itineraryHighlight}</p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-xs font-semibold text-slate-700">보도자료</h3>
+                <p className="mt-1 text-xs font-medium text-slate-800">{promoContent.roleContent.title}</p>
+                <p className="mt-0.5 text-xs text-slate-700">{promoContent.roleContent.lead}</p>
+                <p className="mt-0.5 text-xs text-slate-700">추진 배경: {promoContent.roleContent.background}</p>
+                <p className="mt-0.5 text-xs text-slate-700">핵심 프로그램: {promoContent.roleContent.coreProgram}</p>
+                {promoContent.roleContent.dataBasedEvidence.length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                    {promoContent.roleContent.dataBasedEvidence.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {promoContent.roleContent.expectedEffects.length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                    {promoContent.roleContent.expectedEffects.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <footer className="mt-6 flex justify-between border-t border-slate-300 pt-2 text-[10px] text-slate-400">
         <span>
