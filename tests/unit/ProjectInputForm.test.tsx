@@ -48,4 +48,39 @@ describe("ProjectInputForm", () => {
 
     expect(screen.getByText("2026년 3월")).toBeInTheDocument();
   });
+
+  it("대표 시나리오 카드 3개가 표시된다", () => {
+    render(<ProjectInputForm regionOptions={regionOptions} baseYm="202509" />);
+    expect(screen.getByRole("button", { name: /강릉 여름 미식·자연 상품/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /경주 가을 문화·역사 전략/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /제천 겨울 웰니스 상품/ })).toBeInTheDocument();
+  });
+
+  it("경주 시나리오 카드를 고르면 폼 필드에 정확한 값이 채워진다", () => {
+    const wideRegionOptions: RegionOption[] = [
+      ...regionOptions,
+      { code: "SIDO_GYEONGBUK", name: "경상북도", sigungus: [{ code: "SGG_GYEONGJU", name: "경주시" }] },
+    ];
+    render(<ProjectInputForm regionOptions={wideRegionOptions} baseYm="202509" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /경주 가을 문화·역사 전략/ }));
+
+    expect((screen.getByLabelText("시·도") as HTMLSelectElement).value).toBe("SIDO_GYEONGBUK");
+    expect((screen.getByLabelText("시·군·구") as HTMLSelectElement).value).toBe("SGG_GYEONGJU");
+    expect((screen.getByLabelText("여행 월") as HTMLSelectElement).value).toBe("10");
+    expect((screen.getByRole("radio", { name: "지자체/관광재단" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "내국인" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("선호 테마 (쉼표로 구분, 선택)") as HTMLInputElement).value).toBe("문화, 역사");
+  });
+
+  it("프리셋 적용 후에도 사용자가 값을 자유롭게 다시 수정할 수 있다", () => {
+    render(<ProjectInputForm regionOptions={regionOptions} baseYm="202509" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /제천 겨울 웰니스 상품/ }));
+    expect((screen.getByLabelText("여행 월") as HTMLSelectElement).value).toBe("12");
+
+    const monthSelect = screen.getByLabelText("여행 월") as HTMLSelectElement;
+    fireEvent.change(monthSelect, { target: { value: "6" } });
+    expect(monthSelect.value).toBe("6");
+  });
 });

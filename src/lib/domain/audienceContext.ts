@@ -276,3 +276,28 @@ export function computeRoleChecklistNotes(role: UserRoleCode | undefined): strin
   }
   return ["예약/판매 채널(OTA 등) 연동 및 가격 정책 사전 확정 필요"];
 }
+
+export interface KpiTemplate {
+  name: string;
+  method: string;
+}
+
+/** 역할별 KPI 관점 추가(CURATED) — 템플릿 고유 KPI는 그대로 두고, 지자체는 정책 성과 지표를, 여행사는
+ * 판매 전환 지표를 하나씩 더한다. 같은 전략(templateId)이 서로 다른 시나리오의 1위로 뽑히더라도 역할이
+ * 다르면 KPI 목록이 실제로 달라지도록 하기 위한 일반 규칙이다(특정 지역·시나리오 전용 분기가 아니다). */
+export function computeRoleKpiNotes(role: UserRoleCode | undefined): KpiTemplate[] {
+  if (!role) return [];
+  if (role === "LOCAL_GOV") {
+    return [
+      { name: "정책 성과 보고 지표", method: "체류시간·지역경제 파급효과 등 행정 보고용 지표 달성률을 분기별로 점검" },
+    ];
+  }
+  return [{ name: "상품 판매 전환율", method: "예약 채널별 문의 대비 실제 예약 완료 비율 추적" }];
+}
+
+/** 국적별 KPI 관점 추가(CURATED) — 외국인 대상일 때만, 허위 방문객 수치 대신 측정 방법 자체를 KPI로
+ * 제시한다(실측 데이터 없이 수치를 지어내지 않는다는 원칙 유지). */
+export function computeNationalityKpiNotes(nationality: NationalityCode | undefined): KpiTemplate[] {
+  if (nationality !== "FOREIGN") return [];
+  return [{ name: "외국인 예약 비중 추이", method: "예약 시스템의 국적 입력값 기준 외국인 예약 건수 비율을 추적" }];
+}

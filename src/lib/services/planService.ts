@@ -89,7 +89,7 @@ export async function ensureSelectedPlan(projectId: string) {
     preferredThemes: project.input.preferredThemes,
   };
   const operationChecklist = buildOperationChecklist(strategy.templateId, audienceContext);
-  const kpis = buildKpis(strategy.templateId);
+  const kpis = buildKpis(strategy.templateId, audienceContext);
   const risks = buildRisks(strategy.templateId, audienceContext);
 
   const data = {

@@ -11,12 +11,37 @@ import {
   PRIMARY_GOAL_OPTIONS,
   ROLE_OPTIONS,
   TRANSPORT_OPTIONS,
+  labelForNationality,
+  labelForRole,
 } from "@/lib/validation/codes";
 import type { RegionOption } from "@/lib/services/regionQueries";
 import { createProjectAction, type CreateProjectFormState } from "@/app/projects/new/actions";
 import { formatBaseYm } from "@/lib/format";
+import { REPRESENTATIVE_SCENARIOS, type RepresentativeScenario } from "@/lib/domain/contestScenarios";
 
 const initialState: CreateProjectFormState = { success: true, errors: {} };
+
+/** 시나리오 카드 선택 시 폼 상태만 채운다 — 이 함수는 어떤 분석 결과도 만들지 않는다(단순 필드 매핑). */
+function scenarioToFormValues(s: RepresentativeScenario) {
+  return {
+    sidoCode: s.sidoCode,
+    sigunguCode: s.sigunguCode,
+    role: s.role,
+    nationality: s.nationality,
+    ageGroups: s.ageGroups,
+    companionType: s.companionType,
+    primaryGoal: s.primaryGoal,
+    secondaryGoal: s.secondaryGoal ?? "",
+    duration: s.duration,
+    budgetLevel: s.budgetLevel,
+    transport: s.transport,
+    groupType: s.groupType,
+    preferredThemesText: s.preferredThemes.join(", "),
+    excludedThemesText: s.excludedThemes.join(", "),
+    travelYear: s.travelYear,
+    travelMonth: s.travelMonth,
+  };
+}
 
 function FieldError({ messages }: { messages?: string[] }) {
   if (!messages || messages.length === 0) return null;
@@ -36,18 +61,57 @@ export function ProjectInputForm({
 }) {
   const [state, formAction, isPending] = useActionState(createProjectAction, initialState);
   const [sidoCode, setSidoCode] = useState(regionOptions[0]?.code ?? "");
+  const [sigunguCode, setSigunguCode] = useState(regionOptions[0]?.sigungus[0]?.code ?? "");
+  const [role, setRole] = useState<string>("TRAVEL_AGENCY");
+  const [nationality, setNationality] = useState<string>("DOMESTIC");
   const [ageGroups, setAgeGroups] = useState<string[]>([]);
+  const [companionType, setCompanionType] = useState<string>(COMPANION_TYPE_OPTIONS[0].code);
   const [primaryGoal, setPrimaryGoal] = useState<string>(PRIMARY_GOAL_OPTIONS[0].code);
   const [secondaryGoal, setSecondaryGoal] = useState("");
+  const [duration, setDuration] = useState<string>("ONE_NIGHT_TWO_DAYS");
+  const [budgetLevel, setBudgetLevel] = useState<string>("MID");
+  const [transport, setTransport] = useState<string>("MIXED");
+  const [groupType, setGroupType] = useState<string>("SMALL_10_20");
+  const [preferredThemesText, setPreferredThemesText] = useState("");
+  const [excludedThemesText, setExcludedThemesText] = useState("");
   const [travelYear, setTravelYear] = useState(2026);
   const [travelMonth, setTravelMonth] = useState(9);
   const [projectName, setProjectName] = useState("");
   const [projectNameTouched, setProjectNameTouched] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 
   const sigunguOptions = useMemo(
     () => regionOptions.find((r) => r.code === sidoCode)?.sigungus ?? [],
     [regionOptions, sidoCode],
   );
+
+  function handleSidoChange(nextSidoCode: string) {
+    setSidoCode(nextSidoCode);
+    setSigunguCode(regionOptions.find((r) => r.code === nextSidoCode)?.sigungus[0]?.code ?? "");
+  }
+
+  /** 대표 시나리오 카드를 고르면 입력폼 상태만 채운다 — 분석 결과나 점수는 여기서 계산하지 않는다.
+   * 적용 후에도 사용자는 아래 필드를 자유롭게 다시 수정할 수 있다(모두 controlled 상태이므로). */
+  function applyPreset(scenario: RepresentativeScenario) {
+    const values = scenarioToFormValues(scenario);
+    setSelectedPresetId(scenario.id);
+    setSidoCode(values.sidoCode);
+    setSigunguCode(values.sigunguCode);
+    setRole(values.role);
+    setNationality(values.nationality);
+    setAgeGroups(values.ageGroups);
+    setCompanionType(values.companionType);
+    setPrimaryGoal(values.primaryGoal);
+    setSecondaryGoal(values.secondaryGoal);
+    setDuration(values.duration);
+    setBudgetLevel(values.budgetLevel);
+    setTransport(values.transport);
+    setGroupType(values.groupType);
+    setPreferredThemesText(values.preferredThemesText);
+    setExcludedThemesText(values.excludedThemesText);
+    setTravelYear(values.travelYear);
+    setTravelMonth(values.travelMonth);
+  }
 
   const sidoName = regionOptions.find((r) => r.code === sidoCode)?.name ?? "";
   const suggestedProjectName = `${sidoName} ${travelMonth}월 소규모 여행 기획`;
@@ -62,6 +126,37 @@ export function ProjectInputForm({
             {errors._root[0]}
           </div>
         ) : null}
+
+        <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-sm font-semibold text-slate-900">대표 시나리오로 빠르게 시작(선택)</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            아래 카드를 고르면 지역·역할·타깃·테마·여행 월이 자동으로 채워집니다. 적용 후에도 모든 값을
+            자유롭게 다시 수정할 수 있습니다. 직접 입력하려면 카드를 고르지 않고 아래 폼을 바로 채우면 됩니다.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {REPRESENTATIVE_SCENARIOS.map((scenario) => (
+              <button
+                key={scenario.id}
+                type="button"
+                aria-pressed={selectedPresetId === scenario.id}
+                onClick={() => applyPreset(scenario)}
+                className={`cursor-pointer rounded-lg border p-4 text-left text-sm transition-colors ${
+                  selectedPresetId === scenario.id
+                    ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900"
+                    : "border-slate-200 bg-white hover:border-slate-400"
+                }`}
+              >
+                <p className="font-semibold text-slate-900">{scenario.title}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {scenario.regionLabel} · {labelForRole(scenario.role)} · {labelForNationality(scenario.nationality)} ·{" "}
+                  {scenario.preferredThemes.join("·")} · {scenario.travelMonth}월
+                </p>
+                <p className="mt-2 text-xs text-slate-600">{scenario.description}</p>
+                <p className="mt-2 text-[11px] text-slate-400">{scenario.intent}</p>
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-sm font-semibold text-slate-900">기본 정보</h2>
@@ -89,7 +184,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex gap-4">
                 {ROLE_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="role" value={o.code} defaultChecked={o.code === "TRAVEL_AGENCY"} />
+                    <input
+                      type="radio"
+                      name="role"
+                      value={o.code}
+                      checked={role === o.code}
+                      onChange={() => setRole(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -105,7 +206,7 @@ export function ProjectInputForm({
                 id="sidoCode"
                 name="sidoCode"
                 value={sidoCode}
-                onChange={(e) => setSidoCode(e.target.value)}
+                onChange={(e) => handleSidoChange(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 {regionOptions.map((r) => (
@@ -124,6 +225,8 @@ export function ProjectInputForm({
               <select
                 id="sigunguCode"
                 name="sigunguCode"
+                value={sigunguCode}
+                onChange={(e) => setSigunguCode(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 {sigunguOptions.map((s) => (
@@ -185,7 +288,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex gap-4">
                 {NATIONALITY_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="nationality" value={o.code} defaultChecked={o.code === "DOMESTIC"} />
+                    <input
+                      type="radio"
+                      name="nationality"
+                      value={o.code}
+                      checked={nationality === o.code}
+                      onChange={() => setNationality(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -200,6 +309,8 @@ export function ProjectInputForm({
               <select
                 id="companionType"
                 name="companionType"
+                value={companionType}
+                onChange={(e) => setCompanionType(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 {COMPANION_TYPE_OPTIONS.map((o) => (
@@ -290,7 +401,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex flex-col gap-1.5">
                 {DURATION_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="duration" value={o.code} defaultChecked={o.code === "ONE_NIGHT_TWO_DAYS"} />
+                    <input
+                      type="radio"
+                      name="duration"
+                      value={o.code}
+                      checked={duration === o.code}
+                      onChange={() => setDuration(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -303,7 +420,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex flex-col gap-1.5">
                 {BUDGET_LEVEL_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="budgetLevel" value={o.code} defaultChecked={o.code === "MID"} />
+                    <input
+                      type="radio"
+                      name="budgetLevel"
+                      value={o.code}
+                      checked={budgetLevel === o.code}
+                      onChange={() => setBudgetLevel(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -316,7 +439,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex flex-col gap-1.5">
                 {TRANSPORT_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="transport" value={o.code} defaultChecked={o.code === "MIXED"} />
+                    <input
+                      type="radio"
+                      name="transport"
+                      value={o.code}
+                      checked={transport === o.code}
+                      onChange={() => setTransport(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -329,7 +458,13 @@ export function ProjectInputForm({
               <div className="mt-1 flex flex-col gap-1.5">
                 {GROUP_TYPE_OPTIONS.map((o) => (
                   <label key={o.code} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input type="radio" name="groupType" value={o.code} defaultChecked={o.code === "SMALL_10_20"} />
+                    <input
+                      type="radio"
+                      name="groupType"
+                      value={o.code}
+                      checked={groupType === o.code}
+                      onChange={() => setGroupType(o.code)}
+                    />
                     {o.label}
                   </label>
                 ))}
@@ -351,6 +486,8 @@ export function ProjectInputForm({
                 name="preferredThemes"
                 type="text"
                 placeholder="예: 미식, 야경"
+                value={preferredThemesText}
+                onChange={(e) => setPreferredThemesText(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <FieldError messages={errors.preferredThemes} />
@@ -364,6 +501,8 @@ export function ProjectInputForm({
                 name="excludedThemes"
                 type="text"
                 placeholder="예: 축제"
+                value={excludedThemesText}
+                onChange={(e) => setExcludedThemesText(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <FieldError messages={errors.excludedThemes} />

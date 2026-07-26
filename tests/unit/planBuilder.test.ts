@@ -1607,10 +1607,23 @@ describe("buildOperationChecklist / buildRisks — Phase 4 컨텍스트 반영",
     expect(invalidMonth).toEqual(base);
   });
 
-  it("buildKpis는 템플릿 고유 KPI를 그대로 반환한다(회귀)", () => {
+  it("buildKpis는 템플릿 고유 KPI를 그대로 반환한다(컨텍스트 없이 호출해도 회귀 없음)", () => {
     const kpis = buildKpis("LOCAL_FOOD_MARKET");
     expect(kpis.length).toBeGreaterThan(0);
     expect(kpis[0]).toHaveProperty("name");
     expect(kpis[0]).toHaveProperty("method");
+  });
+
+  it("buildKpis는 같은 템플릿이라도 역할·국적에 따라 KPI 관점이 추가돼 목록이 달라진다", () => {
+    const base = buildKpis("NIGHT_STAY_EXTENSION");
+    const localGov = buildKpis("NIGHT_STAY_EXTENSION", { role: "LOCAL_GOV" });
+    const travelAgencyForeign = buildKpis("NIGHT_STAY_EXTENSION", { role: "TRAVEL_AGENCY", nationality: "FOREIGN" });
+    expect(localGov.length).toBeGreaterThan(base.length);
+    expect(travelAgencyForeign.length).toBeGreaterThan(localGov.length);
+    expect(localGov).not.toEqual(travelAgencyForeign);
+    for (const k of base) {
+      expect(localGov).toContainEqual(k);
+      expect(travelAgencyForeign).toContainEqual(k);
+    }
   });
 });

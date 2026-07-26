@@ -4,7 +4,9 @@ import { orderByNearestNeighbor, haversineDistanceKm } from "./geo";
 import {
   classifyThemes,
   computeNationalityChecklistNotes,
+  computeNationalityKpiNotes,
   computeRoleChecklistNotes,
+  computeRoleKpiNotes,
   computeSeasonalRiskNotes,
   computeThemeChecklistNotes,
   normalizeMonth,
@@ -847,8 +849,10 @@ export function buildOperationChecklist(templateId: string, context?: AudiencePl
   ];
 }
 
-export function buildKpis(templateId: string): { name: string; method: string }[] {
-  return getTemplateById(templateId).kpiTemplates;
+export function buildKpis(templateId: string, context?: AudiencePlanContext): { name: string; method: string }[] {
+  const template = getTemplateById(templateId);
+  const { role, nationality } = normalizeAudienceContext(context);
+  return [...template.kpiTemplates, ...computeRoleKpiNotes(role), ...computeNationalityKpiNotes(nationality)];
 }
 
 export function buildRisks(templateId: string, context?: AudiencePlanContext): { risk: string; mitigation: string }[] {
