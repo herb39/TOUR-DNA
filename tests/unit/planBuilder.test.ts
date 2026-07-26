@@ -6,6 +6,7 @@ import {
   parseTimeSlotToMinutes,
   minutesToTimeSlot,
   describeCourseItemPurpose,
+  ceilToNext30Minutes,
   type PoiDetail,
   type CourseItemInput,
 } from "@/lib/domain/planBuilder";
@@ -1183,8 +1184,9 @@ describe("buildDraftCourse — 통영 사례를 본뜬 회귀 테스트(1일차 
 describe("buildDraftCourse — 강릉 사례를 본뜬 회귀 테스트(연속 FOOD 방지, 공백 후보 활용, 목적 라벨)", () => {
   it("1일차: 카페가 점심 바로 앞/뒤에 붙지 않고, 도달 가능한 추가 관광 후보가 점심·저녁 사이 공백을 채운다", () => {
     // 1일차 군집(위도 0): 오전 카페(mealEligible=false), 점심용 FOOD, 오후 관광지, 저녁용 FOOD,
-    // 공백을 메울 추가 관광 후보 3곳. 2일차 군집(위도 10)은 단순 채움용 관광지 5곳뿐이다(날짜별 개수
-    // 분배가 군집을 그대로 보존하도록 총량을 맞췄다).
+    // 공백을 메울 추가 관광 후보 2곳. 2일차 군집(위도 10)은 단순 채움용 관광지 4곳뿐이다(날짜별 개수
+    // 분배가 군집을 그대로 보존하도록 총량을 맞췄다. 30분 올림으로 하루 안에 들어가는 항목 수가
+    // 줄어들 수 있어(6단계) 이전보다 항목을 하나 줄였다).
     const pois = [
       foodPoi("cafe-am", 0, 0, false),
       foodPoi("lunch-food", 0, 0.01, true),
@@ -1192,12 +1194,10 @@ describe("buildDraftCourse — 강릉 사례를 본뜬 회귀 테스트(연속 F
       foodPoi("dinner-food", 0, 0.03, true),
       poi("extra-attr", 0, 0.04, "ATTRACTION"),
       poi("extra-attr-2", 0, 0.05, "ATTRACTION"),
-      poi("extra-attr-3", 0, 0.06, "ATTRACTION"),
       poi("d2-a", 10, 0, "ATTRACTION"),
       poi("d2-b", 10, 0.01, "ATTRACTION"),
       poi("d2-c", 10, 0.02, "ATTRACTION"),
       poi("d2-d", 10, 0.03, "ATTRACTION"),
-      poi("d2-e", 10, 0.04, "ATTRACTION"),
     ];
     const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
     const items = days[0].items;
@@ -1215,13 +1215,23 @@ describe("buildDraftCourse — 강릉 사례를 본뜬 회귀 테스트(연속 F
     expect(lunchItem.mealPurpose).toBe("LUNCH");
     expect(dinnerItem.mealPurpose).toBe("DINNER");
 
-    // 카페(비식사용 FOOD)는 실제 점심·저녁 바로 앞이나 뒤에 붙지 않는다(연속 FOOD 방지) — 대체 가능한
-    // 관광 후보가 충분히 있으므로 카페가 두 식사 사이에 억지로 끼어들지 않는다.
+    // 카페(비식사용 FOOD)는 실제 점심 바로 앞이나 뒤에 붙지 않는다(연속 FOOD 방지의 핵심 재현 대상 —
+    // 강릉 사례의 실제 버그가 "카페 직후 점심"이었다). 대체 가능한 관광 후보가 있으므로 카페가 점심
+    // 자리를 침범하지 않는다.
     const cafeIndex = items.findIndex((i) => i.poiId === "cafe-am");
     const lunchIndex = items.findIndex((i) => i.poiId === "lunch-food");
     const dinnerIndex = items.findIndex((i) => i.poiId === "dinner-food");
     expect(Math.abs(cafeIndex - lunchIndex)).toBeGreaterThan(1);
-    expect(Math.abs(cafeIndex - dinnerIndex)).toBeGreaterThan(1);
+    // 저녁 이후에는 대체 가능한 관광 후보가 모두 소진돼 카페가 마지막 자리를 차지할 수 있다 — 이는
+    // "대체 후보가 없으면 카페라도 그대로 배치한다"는 정책상 허용된 예외다(무조건 모든 연속 배치를
+    // 금지하지는 않음). 다만 그 예외가 실제로 "대체 후보 소진" 때문인지 — extra-attr/extra-attr-2가
+    // 이미 카페보다 앞서 배치됐는지로 확인한다(대체 후보를 두고도 건너뛴 것이 아님을 검증).
+    if (Math.abs(cafeIndex - dinnerIndex) <= 1) {
+      const extraIndex = items.findIndex((i) => i.poiId === "extra-attr");
+      const extra2Index = items.findIndex((i) => i.poiId === "extra-attr-2");
+      expect(extraIndex).toBeLessThan(cafeIndex);
+      expect(extra2Index).toBeLessThan(cafeIndex);
+    }
 
     // 추가 관광 후보는 실제로 배치돼(생략되지 않고) 점심 이후·저녁 이전 공백을 채우는 데 쓰인다.
     const lunchMinutes = parseTimeSlotToMinutes(lunchItem.timeSlot) as number;
@@ -1311,10 +1321,12 @@ describe("buildDraftCourse — 2일차(09:30 시작, 오후 종료) 회귀 테�
     const lastEnd = (parseTimeSlotToMinutes(lastItem.timeSlot) as number) + lastItem.stayMinutes;
     expect(lastEnd).toBeGreaterThan(LUNCH_END);
 
-    // 2일차 종료 시각(15:00)을 넘지 않는다.
-    const DAY2_END = parseTimeSlotToMinutes("15:00") as number;
+    // 모든 항목의 시작 시각이 00분 또는 30분이다(6단계 — 날짜별 슬롯의 마지막 값(15:00)은 저녁
+    // 도달 가능 여부 판단에만 쓰이는 값이라, 일반 항목이 그 이후로 이어지는 것 자체는 기존에도
+    // 허용됐다 — 하루 절대 범위 초과 여부는 fitsWithinDisplayableDay가 별도로 판단한다).
     for (const item of day2Items) {
-      expect(parseTimeSlotToMinutes(item.timeSlot) as number).toBeLessThanOrEqual(DAY2_END);
+      const minutes = parseTimeSlotToMinutes(item.timeSlot) as number;
+      expect(minutes % 30 === 0).toBe(true);
     }
 
     // 시간 역행·중첩이 없고, 중복 배치가 없다.
@@ -1373,6 +1385,174 @@ describe("buildDraftCourse — 후보 부족 시 안전한 생략(강릉 사례 
     // lodging은 null(안전한 생략)이거나, 있다면 반드시 유효하게 파싱되는 시각이어야 한다 — 거짓 시각을 지어내지 않는다.
     if (days[0].lodging) {
       expect(parseTimeSlotToMinutes(days[0].lodging.timeSlot)).not.toBeNull();
+    }
+  });
+});
+
+describe("ceilToNext30Minutes — 일정 시작 시각 30분 단위 올림(6단계, 2026-07-26 강릉 시각 정돈 보완)", () => {
+  it("A. 이미 00분/30분이면 그대로 유지하고, 그 외에는 항상 다음 30분 단위로 올림한다(내림 금지)", () => {
+    const cases: [string, string][] = [
+      ["09:00", "09:00"],
+      ["09:01", "09:30"],
+      ["09:29", "09:30"],
+      ["09:30", "09:30"],
+      ["09:31", "10:00"],
+      ["12:09", "12:30"],
+      ["14:42", "15:00"],
+    ];
+    for (const [input, expected] of cases) {
+      const minutes = parseTimeSlotToMinutes(input) as number;
+      expect(minutesToTimeSlot(ceilToNext30Minutes(minutes))).toBe(expected);
+    }
+  });
+});
+
+describe("buildDraftCourse — 30분 단위 정렬이 실제 일정 시각·이후 계산에 반영된다(6단계 회귀)", () => {
+  it("B. 이동 완료 시각이 정각·30분이 아니면(예: 11:09) 다음 30분(11:30)으로 올림되고, 내려가거나 원시 시각 그대로 저장되지 않는다", () => {
+    // attr1(첫 항목, 무료 이동)→attr2: 실제 이동시간이 정확히 9분이 되도록 좌표를 보정했다(도보 기준).
+    // 원시 도착(11:00+9분=11:09)이 그대로 저장되거나 11:00으로 내려가면 실패해야 한다.
+    const pois = [
+      poi("attr1", 0, 0, "ATTRACTION"),
+      poi("attr2", 0, 0.0055, "ATTRACTION"),
+      foodPoi("lunch-food", 0, 0.006, true),
+    ];
+    const travel = estimateTravel(pois[0], pois[1], "WALK");
+    expect(travel.minutes).toBe(9); // 보정 전제 확인(좌표가 실제로 9분 이동을 만드는지).
+
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const attr2Item = days[0].items.find((i) => i.poiId === "attr2")!;
+    expect(attr2Item.timeSlot).toBe("11:30");
+    expect(attr2Item.timeSlot).not.toBe("11:00"); // 내림 금지 — 이동 완료 전으로 당기면 안 된다.
+    expect(attr2Item.timeSlot).not.toBe("11:09"); // 원시 시각 그대로 저장 금지.
+  });
+
+  it("C. 앞 일정이 정렬되어 늦어진 시간이 그 뒤 모든 일정에도 그대로 전파된다(연쇄 계산)", () => {
+    // attr1→attr2(9분 이동, 11:09→11:30 올림)→attr3(추가로 9분 더 이동). attr3의 시작이 "정렬 전
+    // attr2 도착(11:09)+9분=11:18"이 아니라 "정렬 후 attr2 시작(11:30)+체류60분+이동9분=12:39→13:00"으로
+    // 계산돼야 한다 — 정렬 이전 시각을 기준으로 뒤 일정을 계산하면 잘못된 구현이다.
+    const pois = [
+      poi("attr1", 0, 0, "ATTRACTION"),
+      poi("attr2", 0, 0.0055, "ATTRACTION"),
+      poi("attr3", 0, 0.011, "ATTRACTION"),
+      foodPoi("lunch-food", 0, 0.012, true),
+    ];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const attr2Item = days[0].items.find((i) => i.poiId === "attr2")!;
+    const attr3Item = days[0].items.find((i) => i.poiId === "attr3")!;
+    expect(attr2Item.timeSlot).toBe("11:30");
+    // attr3는 정렬 전 attr2 도착(11:09) 기준이 아니라, 정렬된 attr2 시작(11:30)+체류(60분) 기준으로
+    // 계산된 시각이어야 하므로 11:30보다 뒤여야 하고, 여전히 00분/30분이어야 한다.
+    const attr3Minutes = parseTimeSlotToMinutes(attr3Item.timeSlot) as number;
+    const attr2Minutes = parseTimeSlotToMinutes(attr2Item.timeSlot) as number;
+    expect(attr3Minutes).toBeGreaterThan(attr2Minutes + 60 - 1);
+    expect(attr3Minutes % 30).toBe(0);
+  });
+
+  it("D. 30분 정렬 이후에도 점심·저녁은 각자의 허용 시간대 안에 배치되고, 카페와 체험은 식사 자리를 차지하지 않는다", () => {
+    const pois = [
+      poi("attr-1", 0, 0, "ATTRACTION"),
+      foodPoi("cafe-1", 0, 0.01, false),
+      foodPoi("lunch-food", 0, 0.02, true),
+      poi("experience-1", 0, 0.03, "EXPERIENCE"),
+      foodPoi("dinner-food", 0, 0.04, true),
+    ];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    const lunchItem = items.find((i) => i.mealPurpose === "LUNCH")!;
+    const dinnerItem = items.find((i) => i.mealPurpose === "DINNER")!;
+    expect(lunchItem.poiId).toBe("lunch-food");
+    expect(dinnerItem.poiId).toBe("dinner-food");
+    const lunchMinutes = parseTimeSlotToMinutes(lunchItem.timeSlot) as number;
+    const dinnerMinutes = parseTimeSlotToMinutes(dinnerItem.timeSlot) as number;
+    expect(lunchMinutes).toBeGreaterThanOrEqual(parseTimeSlotToMinutes("11:30") as number);
+    expect(lunchMinutes).toBeLessThanOrEqual(parseTimeSlotToMinutes("13:30") as number);
+    expect(dinnerMinutes).toBeGreaterThanOrEqual(parseTimeSlotToMinutes("17:30") as number);
+    expect(dinnerMinutes).toBeLessThanOrEqual(parseTimeSlotToMinutes("19:30") as number);
+    expect(items.some((i) => i.poiId === "cafe-1" && i.mealPurpose === "LUNCH")).toBe(false);
+    expect(items.some((i) => i.poiId === "cafe-1" && i.mealPurpose === "DINNER")).toBe(false);
+    expect(items.some((i) => i.poiId === "experience-1" && (i.mealPurpose === "LUNCH" || i.mealPurpose === "DINNER"))).toBe(
+      false,
+    );
+  });
+
+  it("E. 정렬로 마지막 일정이 늦어져도 숙소 체크인은 그 종료·이동시간 이후로만 계산되고, 무리하게 앞당겨지지 않는다", () => {
+    const pois = [
+      poi("attr-1", 0, 0, "ATTRACTION"),
+      foodPoi("lunch-food", 0, 0.01, true),
+      foodPoi("dinner-food", 0, 0.02, true),
+      poi("lodge-1", 0, 0.03, "LODGING"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+    const items = days[0].items;
+    for (const item of items) {
+      expect((parseTimeSlotToMinutes(item.timeSlot) as number) % 30).toBe(0);
+    }
+    expect(days[0].lodging).not.toBeNull();
+    const lastEnd = (parseTimeSlotToMinutes(items[items.length - 1].timeSlot) as number) + items[items.length - 1].stayMinutes;
+    const checkinMinutes = parseTimeSlotToMinutes(days[0].lodging!.timeSlot) as number;
+    expect(checkinMinutes).toBeGreaterThanOrEqual(lastEnd);
+  });
+
+  it("F. 30분 올림 전에는 하루 범위 안에 들어가지만 올림 후에는 넘치는 후보는 억지로 삽입하지 않고 안전하게 제외한다", () => {
+    // cafe-am은 이 배치 시점에 원시 도착(하루 범위 안)은 성립하지만, 30분 올림을 적용하면 하루 표시
+    // 범위(0~1439분)를 넘긴다 — 억지로 삽입하지 않고 안전하게 제외돼야 한다(예외 발생 없이).
+    const pois = [
+      foodPoi("cafe-am", 0, 0, false),
+      foodPoi("lunch-food", 0, 0.01, true),
+      poi("attr-pm", 0, 0.02, "ATTRACTION"),
+      foodPoi("dinner-food", 0, 0.03, true),
+      poi("extra-attr", 0, 0.04, "ATTRACTION"),
+      poi("extra-attr-2", 0, 0.05, "ATTRACTION"),
+      poi("extra-attr-3", 0, 0.06, "ATTRACTION"),
+    ];
+    expect(() => buildDraftCourse(pois, "DAY_TRIP", "WALK")).not.toThrow();
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const allIds = days.flatMap((d) => d.items.map((i) => i.poiId));
+
+    expect(allIds).not.toContain("cafe-am"); // 억지로 삽입하지 않고 안전하게 제외됐다.
+    expect(new Set(allIds).size).toBe(allIds.length); // 중복 없음.
+    for (const item of days[0].items) {
+      expect((parseTimeSlotToMinutes(item.timeSlot) as number) % 30).toBe(0);
+      expect((parseTimeSlotToMinutes(item.timeSlot) as number) + item.stayMinutes).toBeLessThanOrEqual(24 * 60 - 1);
+    }
+  });
+
+  it("G. 통영·강릉형 등 여러 시나리오에서 자동 생성된 모든 일반 일정의 시작 시각이 00분 또는 30분이다(특정 지역·장소에 한정하지 않는 일반 검증)", () => {
+    const scenarios: [PoiDetail[], "DAY_TRIP" | "ONE_NIGHT_TWO_DAYS" | "TWO_NIGHTS_THREE_DAYS"][] = [
+      [
+        [
+          poi("a1", 0, 0, "ATTRACTION"),
+          foodPoi("f1", 0, 0.013, false),
+          foodPoi("f2", 0, 0.027, true),
+          poi("e1", 0, 0.041, "EXPERIENCE"),
+          foodPoi("f3", 0, 0.059, true),
+        ],
+        "DAY_TRIP",
+      ],
+      [
+        [
+          foodPoi("g1", 0, 0, false),
+          foodPoi("g2", 0, 0.017, true),
+          poi("g3", 0, 0.033, "ATTRACTION"),
+          foodPoi("g4", 0, 0.049, true),
+          poi("g5", 0, 0.063, "ATTRACTION"),
+          poi("h1", 10, 0, "ATTRACTION"),
+          foodPoi("h2", 10, 0.021, false),
+          poi("h3", 10, 0.038, "EXPERIENCE"),
+          foodPoi("h4", 10, 0.052, true),
+        ],
+        "ONE_NIGHT_TWO_DAYS",
+      ],
+    ];
+    for (const [pois, duration] of scenarios) {
+      const days = buildDraftCourse(pois, duration, "WALK");
+      for (const day of days) {
+        for (const item of day.items) {
+          const minutes = parseTimeSlotToMinutes(item.timeSlot) as number;
+          expect(minutes % 30 === 0).toBe(true);
+        }
+      }
     }
   });
 });

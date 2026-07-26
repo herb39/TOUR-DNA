@@ -274,6 +274,52 @@ describe("PlanEditor FOOD 목적 라벨(5단계 — 식사와 일반 방문 구�
   });
 });
 
+describe("PlanEditor 30분 단위 정렬 시각 저장·재진입 일관성(6단계 회귀)", () => {
+  function makePlanWithAlignedTimes(): PlanEditorData {
+    const base = makePlan();
+    base.course.days[0].items = [
+      { order: 1, poiId: "p1", poiName: "P1장소", category: "ATTRACTION", timeSlot: "11:00", stayMinutes: 60, travel: "숙소/집결지에서 이동" },
+      { order: 2, poiId: "p2", poiName: "P2장소", category: "FOOD", timeSlot: "12:30", stayMinutes: 60, travel: "", mealPurpose: "LUNCH" },
+      { order: 3, poiId: "p3", poiName: "P3장소", category: "ATTRACTION", timeSlot: "14:00", stayMinutes: 60, travel: "" },
+    ];
+    return base;
+  }
+
+  it("자동 생성 결과(00분/30분 timeSlot)가 화면에 그대로 표시되고, 저장 payload에도 그대로 유지된다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-07-26T00:00:00.000Z" });
+    render(<PlanEditor plan={makePlanWithAlignedTimes()} />);
+
+    expect(timeInputValue("P1장소")).toBe("11:00");
+    expect(timeInputValue("P2장소")).toBe("12:30");
+    expect(timeInputValue("P3장소")).toBe("14:00");
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    const lastCall = vi.mocked(savePlanAction).mock.calls[vi.mocked(savePlanAction).mock.calls.length - 1];
+    const submittedFormData = lastCall[3] as FormData;
+    const submittedItems = JSON.parse(submittedFormData.get("courseJson") as string).days[0].items;
+
+    for (const item of submittedItems) {
+      const [, minute] = item.timeSlot.split(":").map(Number);
+      expect(minute === 0 || minute === 30).toBe(true);
+    }
+    // mealPurpose 라벨도 저장 후 그대로 유지된다.
+    expect(submittedItems.find((i: { poiId: string }) => i.poiId === "p2").mealPurpose).toBe("LUNCH");
+  });
+
+  it("순서를 변경해도 각 항목의 정렬된 timeSlot 값 자체는 바뀌지 않는다(화면 표시만 바뀌는 것이 아님을 확인)", () => {
+    render(<PlanEditor plan={makePlanWithAlignedTimes()} />);
+
+    fireEvent.click(screen.getByLabelText("P2장소 위로 이동"));
+
+    // 순서만 바뀌고 각 장소의 timeSlot 값 자체는 그대로 유지된다.
+    expect(timeInputValue("P1장소")).toBe("11:00");
+    expect(timeInputValue("P2장소")).toBe("12:30");
+    expect(timeInputValue("P3장소")).toBe("14:00");
+  });
+});
+
 describe("PlanEditor 숙박 읽기 전용 표시", () => {
   function makePlanWithLodging(): PlanEditorData {
     const base = makePlan();

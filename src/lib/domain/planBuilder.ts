@@ -149,6 +149,15 @@ export function minutesToTimeSlot(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** 자동 생성 일정의 시작 시각을 다음 30분 단위로 올림한다(6단계, 2026-07-26 강릉 시각 정돈 보완).
+ * 이미 00분/30분이면 그대로 유지한다(내림 없음 — 이동 완료 전으로 시각을 당기지 않는다). 절대 분
+ * 기준으로 동작하므로 자정을 넘는 누적값에도 그대로 적용할 수 있다(minutesToTimeSlot과 동일한 절대
+ * 분 체계). scheduleDayWithMeals의 모든 배치 결정 지점(점심·저녁 도착, 관광지 큐, 식사 시간대 판단용
+ * 가상 도착 시각 계산)이 이 함수 하나만 공유해 중복 구현을 피한다. */
+export function ceilToNext30Minutes(absoluteMinutes: number): number {
+  return Math.ceil(absoluteMinutes / 30) * 30;
+}
+
 /** 자리(0-based index)에 대한 기본 시간대. 주어진 슬롯 배열 안이면 그 값을, 넘어가면 마지막 슬롯에서
  * 일정 간격으로 이어간다. */
 function defaultTimeSlotFor(index: number, timeSlots: string[]): string {
@@ -370,7 +379,10 @@ function splitMealCandidates(
 }
 
 /** 관광지를 하나 더 배치한 뒤 이 식사 장소로 이동한다면, 식사 시간대 종료 시각을 넘겨버리는지 판단한다
- * (원래 요구사항의 "관광지를 하나 더 배치하면 식사 시간대를 명백히 놓치는 상황"에 대응). */
+ * (원래 요구사항의 "관광지를 하나 더 배치하면 식사 시간대를 명백히 놓치는 상황"에 대응). 실제 배치되는
+ * 시각은 30분 단위로 올림되므로(6단계), 이 가상 시나리오도 그 관광지·식사 각각의 실제 배치 시각을
+ * 그대로 반영해 판단해야 한다 — 반올림 전 시각으로만 판단하면 실제로는 시간대를 놓치는데도 놓치지
+ * 않는다고 잘못 판단할 수 있다. */
 function wouldMissMealWindowIfSightPlacedFirst(
   clockMinutes: number,
   prevPoi: PoiDetail | null,
@@ -380,8 +392,9 @@ function wouldMissMealWindowIfSightPlacedFirst(
   transport: TransportCode,
 ): boolean {
   const windowEnd = parseTimeSlotToMinutes(MEAL_WINDOWS[meal].end) ?? 0;
-  const afterSightClock = clockMinutes + travelMinutesFrom(prevPoi, nextSight, transport) + DEFAULT_ITEM_STAY_MINUTES;
-  const mealArrivalAfterSight = afterSightClock + travelMinutesFrom(nextSight, mealPoi, transport);
+  const sightStart = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, nextSight, transport));
+  const afterSightClock = sightStart + DEFAULT_ITEM_STAY_MINUTES;
+  const mealArrivalAfterSight = ceilToNext30Minutes(afterSightClock + travelMinutesFrom(nextSight, mealPoi, transport));
   return mealArrivalAfterSight > windowEnd;
 }
 
@@ -405,7 +418,10 @@ function shouldPlaceMealNow(
 /** 식사 하나를 배치할 절대 시각(분): 자연스러운 도착 시각(이전 일정 종료 + 이동시간)과 식사 시간대
  * 시작 중 늦은 쪽을 쓴다. 너무 일찍 도착하면 별도 "대기" 일정 없이 시간대 시작 시각으로 맞추고, 이미
  * 자연스러운 도착이 시간대보다 늦었다면 그 도착 시각을 그대로 쓴다(역행 방지, 강제 충족보다
- * 시간 유효성을 우선한다). 문자열 변환·자정 방어는 호출부(place)에서 한 곳에만 둔다. */
+ * 시간 유효성을 우선한다). 마지막으로 30분 단위로 올림한다(6단계) — MEAL_WINDOWS의 시작 시각은 이미
+ * 30분 단위라 자연스러운 도착이 그보다 늦을 때만 실제로 값이 바뀐다. 이 반환값을 그대로 배치
+ * 가능 여부 판단(fitsWithinDisplayableDay)과 실제 배치(place) 양쪽에 써서 판단·배치가 항상 일치하게
+ * 한다. 문자열 변환·자정 방어는 호출부(place)에서 한 곳에만 둔다. */
 function computeMealArrivalMinutes(
   clockMinutes: number,
   prevPoi: PoiDetail | null,
@@ -415,7 +431,7 @@ function computeMealArrivalMinutes(
 ): number {
   const windowStart = parseTimeSlotToMinutes(MEAL_WINDOWS[meal].start) ?? 0;
   const arrivalMinutes = clockMinutes + travelMinutesFrom(prevPoi, mealPoi, transport);
-  return Math.max(arrivalMinutes, windowStart);
+  return ceilToNext30Minutes(Math.max(arrivalMinutes, windowStart));
 }
 
 /**
@@ -503,7 +519,9 @@ function scheduleDayWithMeals(
       // 뒤의 짧고 가까운 후보까지 통째로 포기하지 않는다.
       while (remainingSights.length > 0) {
         const candidate = remainingSights[0];
-        const start = clockMinutes + travelMinutesFrom(prevPoi, candidate, transport);
+        // 30분 단위로 올림한 시각을 기준으로 배치 가능 여부를 판단한다(6단계) — 원시 도착 시각이
+        // 하루 범위 안에 들어와도 올림 후에는 넘길 수 있으므로, 반드시 올림한 값으로 검증해야 한다.
+        const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, candidate, transport));
         if (!fitsWithinDisplayableDay(start)) {
           remainingSights.shift(); // 이 후보는 제외한다(재큐잉하지 않음) — 계속 다음 후보를 확인한다.
           continue;
@@ -524,7 +542,7 @@ function scheduleDayWithMeals(
           remainingSights.unshift(deferredNonMealFood); // 다음 기회에 다시 시도한다(삭제하지 않음).
         } else {
           // 대체 후보가 없었다 — 미뤄뒀던 카페를 그대로 배치한다(생략하지 않음, 기존 정책 유지).
-          const start = clockMinutes + travelMinutesFrom(prevPoi, deferredNonMealFood, transport);
+          const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, deferredNonMealFood, transport));
           if (fitsWithinDisplayableDay(start)) {
             place(deferredNonMealFood, start, "GENERAL");
             placedSomething = true;
