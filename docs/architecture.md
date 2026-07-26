@@ -93,6 +93,7 @@ src/lib/domain/          순수 함수, DB/Next 의존 없음, 유닛테스트 �
   normalize.ts           min-max 정규화, 반올림 규칙
   dna.ts                 computeDna — 5축 계산
   strategyTemplates.ts   7개 전략 템플릿 정의
+  audienceContext.ts     역할·국적·테마·여행월 조건별 가중치/체크리스트 정책(Phase 4)
   strategy.ts            computeStrategies — 점수식/정렬/근거 수집
   planBuilder.ts         코스/체크리스트/KPI/위험 결정론적 생성
   analysisKey.ts         analysisKey 해시

@@ -1,26 +1,29 @@
-# 구현 상태 (2026-07-26 갱신 — Phase 5 완료 반영)
+# 구현 상태 (2026-07-26 갱신 — Phase 4 완료 반영)
 
-> 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C 및 보완 커밋 반영해 갱신.
-> 현재 로컬 HEAD: `a264db6`(`fix: require confirmation before overwriting existing promo content`).
-> `origin/main`은 아직 `a13e98d`에 머물러 있다 — 이 문서가 "DONE"이라고 적은 항목이라도 **로컬 구현 완료**를
-> 뜻할 뿐 원격 반영·DB 적용·배포 완료를 의미하지 않는다(각 항목에서 이 네 가지를 구분해 표기한다).
+> 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C+보완, 문서 갱신, Phase 4 순으로
+> 갱신. 현재 로컬 HEAD는 이 문서 갱신 커밋 직전이며, `origin/main`은 아직 `a13e98d`에 머물러 있다 —
+> 이 문서가 "DONE"이라고 적은 항목이라도 **로컬 구현 완료**를 뜻할 뿐 원격 반영·DB 적용·배포 완료를
+> 의미하지 않는다(각 항목에서 이 네 가지를 구분해 표기한다).
 > 상태값: `NOT_STARTED` / `BLOCKED` / `IN_PROGRESS` / `DONE(로컬)` / `DONE(배포)`.
 > 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
-## 다음 작업 순서 (P0, 2026-07-26 재조정)
+## 다음 작업 순서 (P0, 2026-07-26 갱신 — Phase 4 로컬 구현 완료 반영)
 
-Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다. 지금부터는 다음 순서로 진행한다.
+Phase 4가 로컬 구현·테스트를 마치면서 P0-1이 완료됐다. 지금부터는 다음 순서로 진행한다.
 
-1. **P0-1. Phase 4 구현** — 아래 "Phase 4" 절 참고. 역할·국적·테마·여행월이 실제 분석 결과(DNA 점수
-   가중치, 전략 선정, 실행안 템플릿)에 반영되도록 하고, 동일 입력에는 동일 결과가 나오는 결정적 구조를
-   유지한다. Phase 3의 `dataVersion`/`analysisKey` 결함(아래 Phase 3 절)도 role/nationality를 키에
-   넣으려면 함께 손봐야 하므로 이 단계에서 같이 해결한다.
+1. **P0-1. Phase 4 구현 — 완료(로컬)** — 아래 "Phase 4" 절 참고. 역할·국적·테마·여행월을 전략 점수
+   (`roleFit`/`targetFit`/`feasibilityFit`/`seasonFit`)·추천 근거·실행안 체크리스트·위험요인에 실제로
+   반영했다. 지역 객관적 DNA(`demandFit`/`supplyFit`)는 그대로 유지해 조건별 해석과 분리했다. DB
+   스키마 변경 없이(기존 저장 필드만 사용) 완료했으며, `analysisKey`에 role/nationality를 포함시켜
+   Phase 3의 결함 중 하나("`analysisKey`에 role/nationality 포함" 결함, 아래 Phase 3 절)도 함께
+   해소됐다 — 단, `dataVersion`의 나머지 두 결함(휘발성 `collectedAt` 포함, 코호트 변경 미반영)은 이번
+   범위가 아니라 그대로 남아 있다.
 2. **P0-2. 대표 시나리오 3개 완성** — 강릉·경주·제천(세 지역 모두 `src/lib/fixtures/regions.ts`에 이미
    시드 데이터 존재, 신규 지역 추가 불필요) 각각 서로 다른 역할·국적·테마·여행월로 분석→전략→실행안→
-   홍보자료→인쇄 전체 흐름을 실제로 시연 가능하게 만든다. P0-1 완료 후 진행해야 역할/국적별 차이가
-   실제로 나타난다.
-3. **P0-3. DB migration 적용 및 통합 검증** — P0-1·P0-2 이후 진행. 적용 대상 Neon DB가 개발용인지
+   홍보자료→인쇄 전체 흐름을 실제로 시연 가능하게 만든다. P0-1이 완료돼 역할/국적/테마/월별 차이가
+   실제 점수·근거·실행안에 나타나므로 이제 진행할 수 있다.
+3. **P0-3. DB migration 적용 및 통합 검증** — P0-2 이후 진행. 적용 대상 Neon DB가 개발용인지
    운영용인지부터 확인하고, 미적용 migration(`20260726000000_add_selected_plan_promo_content` 포함)을
    적용하기 전 백업·영향 범위를 확인한다. 적용 후 실제 DB·브라우저로 홍보자료 생성·편집·저장·재조회,
    새로고침 유지, 재생성 취소/승인, 개별/전체 복사, 여행사·지자체 역할 화면, 모바일 레이아웃, 인쇄
@@ -171,15 +174,36 @@ Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다
 |---|---|---|
 | `dataVersion`에서 휘발성 값 제거 | **결함 확인** | [buildDnaEngineInput.ts:44](../src/lib/services/buildDnaEngineInput.ts#L44) `collectedAt: new Date().toISOString()`가 `networkInputs`에 포함되고, [dataVersion.ts:15](../src/lib/domain/dataVersion.ts#L15) `network: input.networkInputs` 전체가 해시 입력에 들어간다 — **동일 데이터로 재분석해도 매번 `dataVersion`이 달라진다.** 마스터 문서가 지목한 문제가 정확히 재현됨 |
 | 코호트 변경 시 dataVersion 변경 | **결함 확인** | [dataVersion.ts:7-9](../src/lib/domain/dataVersion.ts#L7-L9) `ownMetrics`는 `cohort.find(c => c.regionCode === input.regionCode)`로 **대상 지역 값만** 뽑아 해시한다 — 다른 지역 값이 바뀌어 min-max 정규화 결과가 달라져도 dataVersion은 그대로 유지됨 |
-| `analysisKey`에 role/nationality 포함 | **결함 확인** | [analyzeProject.ts:46-58](../src/lib/services/analyzeProject.ts#L46-L58)의 `scoringInput`(analysisKey 입력)에 `role`/`nationality` 필드 자체가 없음 |
+| `analysisKey`에 role/nationality 포함 | **DONE(로컬, 2026-07-26 Phase 4에서 해소)** | [analyzeProject.ts](../src/lib/services/analyzeProject.ts)의 `scoringInput`(analysisKey 입력)에 `role`/`nationality`를 `normalizeRole`/`normalizeNationality`로 정규화해 포함시켰다 — 역할·국적이 바뀌면 analysisKey도 달라진다 |
 | 배열 정렬 후 해시 | DONE | [analysisKey.ts:3-14](../src/lib/domain/analysisKey.ts#L3-L14) `sortDeep`이 객체 키를 정렬(단, 배열 요소 자체의 순서는 정렬하지 않음 — `preferredThemes` 등 배열의 원소 순서가 바뀌면 키가 달라질 수 있어 "의미상 순서 없는 배열은 정렬 후 해시"라는 요구를 완전히 충족하지 못함) |
 | 같은 입력/데이터 → 같은 결과 테스트 | 부분 DONE | `analysisKey.test.ts`(4), `strategy.test.ts`(12)에 결정론 테스트 존재. 단 위 두 결함 때문에 "동일 데이터=동일 dataVersion" 전제 자체가 깨져 있어 테스트가 결함을 못 잡고 있을 가능성 있음(재검토 필요) |
 
-## Phase 4. 역할·국적·테마 반영 — `NOT_STARTED`
+## Phase 4. 역할·국적·테마·여행월 반영 — `DONE(로컬)` — 원격/DB/배포는 별도 확인 필요
 
-- `role`(`UserRole`)은 domain 계층(`src/lib/domain/*`) 어디에도 등장하지 않는다(전체 검색 결과 0건) — role별 산출물(제목/배경/체크리스트/KPI/인쇄 구성)이 전혀 분기되지 않는다.
-- `nationality`(`Nationality`)도 domain 계층에 없다 — FOREIGN 선택 시 외국어 안내/국제결제/문화 설명 체크리스트가 생성되지 않는다.
-- 테마는 `strategy.ts`의 문자열 포함 검사 수준(보너스 +10, 완전 배제)만 있고, 구조화된 테마 코드 체계는 없다.
+DB 스키마 변경 없이(role/nationality/travelMonth/preferredThemes는 이미 저장돼 있던 필드) 도메인 로직만
+추가했다. 지역 객관적 데이터(`demandFit`/`supplyFit`)는 조건이 바뀌어도 값 자체가 바뀌지 않도록 분리를
+유지했다(`docs/`가 지정한 4.1 원칙).
+
+| 조건 | 반영 위치 | 반영 내용 | 근거(CURATED/실측) |
+|---|---|---|---|
+| 역할(`role`) | [strategy.ts](../src/lib/domain/strategy.ts) `roleFit`(신규 breakdown 키, 총점 가중치 0.10), 추천 근거 문구 | 지자체는 지역경제/계절분산/방문객증가를, 여행사는 체류소비/신규시장/재방문을 상대적으로 우선하는 목표 우선순위 테이블([audienceContext.ts](../src/lib/domain/audienceContext.ts) `ROLE_GOAL_PRIORITY`)로 템플릿별 점수가 갈린다(예: 축제형은 지자체 90 vs 여행사 60). `planBuilder.ts`의 실행 체크리스트에도 역할별 문구 1건씩 추가 | CURATED(기획 규칙, 실측 매출 아님 — 근거 문구에 항상 명시) |
+| 국적(`nationality`) | [strategy.ts](../src/lib/domain/strategy.ts) `feasibilityFit`에 델타 반영, `planBuilder.ts` 체크리스트 | 내국인은 조정 없음(객관적 데이터 불변). 외국인은 템플릿별 "외국인 서비스 준비도" 조정치(`foreignReadinessAdjustment`, -8~+8, [strategyTemplates.ts](../src/lib/domain/strategyTemplates.ts))만 반영하고, 실제 방문객 수요 수치는 만들지 않음. 체크리스트에 "다국어 안내판 준비 확인" 1건 추가 | CURATED(서비스 준비도 추정 — 실측 방문객 데이터 아님을 근거 문구에 명시) |
+| 테마(`preferredThemes`/`excludedThemes`) | [strategy.ts](../src/lib/domain/strategy.ts) `targetFit` 가산점, `planBuilder.ts` 체크리스트 | 자유 텍스트를 7개 내부 카테고리(미식/자연/문화역사/웰니스/축제/반려동물/레저)로 키워드 분류(`classifyThemes`) 후 템플릿별 가산점(최대 15점, 기존 substring +10 규칙과 합산)을 적용. 반려동물은 대응 템플릿이 없어 점수에는 반영하지 않고 체크리스트 안내만 추가(MISSING으로 명시) | CURATED(템플릿-카테고리 연관성 기획값) |
+| 여행월(`travelMonth`) | 기존 `seasonFit`(가중치 0.20, 변경 없음) + [planBuilder.ts](../src/lib/domain/planBuilder.ts) `buildRisks` 신규 위험요인 | 장마철(6~7월)/혹서기(7~8월)/혹한기(12~2월)에 실외 비중이 큰 템플릿(ATTRACTION/EXPERIENCE/FESTIVAL 포함)에만 계절 위험요인을 추가. 실내 위주 템플릿이나 월 정보가 없으면(레거시) 추가하지 않음 | CURATED(통상적 계절 구간 규칙 — 실제 기상 API 미연동) |
+
+전체 점수 공식은 `demandFit*0.35 + supplyFit*0.25 + seasonFit*0.20 + targetFit*0.05 + feasibilityFit*0.05
++ roleFit*0.10`(합계 1.0)으로 재조정했다 — `demandFit`/`supplyFit`/`seasonFit` 가중치는 Phase 1~3과
+동일하게 유지해 기존 순위 안정성을 지키고, `targetFit`/`feasibilityFit`에서 줄인 만큼을 `roleFit`에
+배정했다. 동점 처리(`totalScore` → `supplyFit` → `demandFit` → `templateId`)는 변경하지 않았다.
+
+레거시 데이터(role/nationality/travelMonth/preferredThemes가 없거나 알 수 없는 값)는
+`normalizeRole`/`normalizeNationality`/`normalizeMonth`/`normalizeThemeList`(모두
+[audienceContext.ts](../src/lib/domain/audienceContext.ts))로 안전하게 처리해, 값이 없으면 해당 조건의
+조정만 건너뛰고 런타임 오류 없이 기존 동작(중립값)을 유지한다.
+
+신규 테스트: `audienceContext.test.ts`(27) + `strategy.test.ts`/`planBuilder.test.ts`/
+`planService.test.ts`에 추가한 조건별 차이 검증(역할별 점수 역전, 국적별 feasibilityFit 변화, 테마별
+targetFit 변화, 계절 위험요인, 서로 다른 3개 조합 결과 비교 및 재실행 결정론성 포함).
 
 ## Phase 5. 다채널 홍보 초안 — `DONE(로컬)` — 원격/DB/배포는 별도 확인 필요
 
@@ -258,11 +282,11 @@ Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다
 - `CourseMap.tsx`는 Haversine 직선거리 기반 Polyline만 그린다. `RouteProvider`, `KAKAO_NAVI`, `directions` 등 실제 경로 API 연동 코드 없음(전체 검색 0건).
 - 무료 쿼터 조건 자체가 아직 확인되지 않았음 — `docs/route-api-status.md` 참고, Phase 12는 그 문서의 선검증 완료 전까지 `BLOCKED`로 둔다.
 
-## 요약 테이블 (2026-07-26 재조정 — Phase 5 로컬 완료 반영)
+## 요약 테이블 (2026-07-26 갱신 — Phase 4 로컬 완료 반영)
 
 > 2026-07-23 버전은 지정과제 7번 직결 항목과 심사 노출도를 최우선 기준으로 삼아 Phase 5를 P0-2로
-> 두었다. Phase 5가 로컬 구현·테스트를 마쳐 우선순위가 다시 바뀌었다 — 이제 Phase 4(role/nationality/
-> 테마/여행월 반영)가 P0-1이다. 우선순위 열의 "P0-1~P0-4"는 이 문서 상단 "다음 작업 순서" 절과 동일한
+> 두었다. Phase 5, 이어서 Phase 4가 로컬 구현·테스트를 마쳐 우선순위가 다시 바뀌었다 — 이제 대표
+> 시나리오 3개 완성이 P0-2다. 우선순위 열의 "P0-1~P0-4"는 이 문서 상단 "다음 작업 순서" 절과 동일한
 > 시퀀스를 가리킨다(Phase 번호와 P0 순번은 1:1 대응이 아니다 — 시나리오·DB 적용·배포는 특정 Phase
 > 번호가 없는 작업이다).
 
@@ -270,7 +294,7 @@ Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다
 |---|---|---|
 | 1. Provenance 모델 + 실제 snapshot 저장 | **DONE**(1-A~1-E 전부 완료, 배포 반영됨) | 완료 |
 | 5. 다채널 홍보 초안 | **DONE(로컬)** — 원격 반영·DB 적용·배포 미완료(위 Phase 5 절 참고) | 로컬 완료, P0-3/P0-4에서 DB 적용·배포 진행 |
-| 4. role/nationality/테마/여행월 반영 | NOT_STARTED | **P0-1** |
+| 4. role/nationality/테마/여행월 반영 | **DONE(로컬)** — 원격 반영·배포 미완료, DB 적용 대상 스키마 변경 없음(위 Phase 4 절 참고) | 로컬 완료 |
 | (신규) 대표 시나리오 3개 차별화 + E2E | NOT_STARTED | **P0-2** |
 | (신규) DB migration 적용 + 통합 검증(Phase 5 포함) | NOT_STARTED | **P0-3** |
 | (신규) 원격 반영(push) + 배포 | NOT_STARTED | **P0-4** |
@@ -279,15 +303,15 @@ Phase 5가 로컬 구현·테스트를 마치면서 우선순위가 바뀌었다
 | 11. 빌드/CI 정비 | NOT_STARTED | P1-7 |
 | 10. `/admin/ops` | NOT_STARTED | P2-8 |
 | 12. 실제 경로 API | NOT_STARTED(BLOCKED — 쿼터/REST키/약관 일부 미확인) | P2-9 |
-| 3. 결정론/dataVersion | IN_PROGRESS(결함 확인) | P0-1(Phase 4)에 흡수(role/nationality를 analysisKey에 넣으려면 3의 결함도 같이 손봐야 함) |
+| 3. 결정론/dataVersion | IN_PROGRESS(1개 결함 해소, 2개 결함 잔존 — 위 Phase 3 절) | P1 이후(휘발성 `collectedAt`/코호트 미반영 결함은 별도 작업 필요) |
 | 6. 조건 수정/안전 재분석 | NOT_STARTED | P1 이후(P0~P1 완료 후 재검토) |
 | 7. 코호트/행정범위 설명 | IN_PROGRESS(부분) | P1 이후(표시만 남은 작업이라 낮은 리스크로 아무 때나 끼워넣기 가능) |
 | 9. 무료 운영비 가드 | NOT_STARTED | 전 Phase 횡단 적용(외부 API를 새로 호출하는 모든 구현 단위에 동시 적용) |
 
-단위 테스트는 `tests/unit/*` 24개 파일에 319개(2026-07-26, 이 문서 갱신 시점에 로컬 HEAD `a264db6`
-기준으로 직접 재실행해 확인 — 과거 실행 결과를 인용한 것이 아니다), E2E는 `e2e/core-flow.spec.ts` 8개
-(이번 문서 갱신에서는 재실행하지 않음 — 코드 변경이 없어 마지막 통과 상태가 그대로 유효하다고 판단).
-`npm run typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인했다.
+단위 테스트는 `tests/unit/*` 25개 파일에 361개(2026-07-26, 이 문서 갱신 시점에 직접 재실행해 확인 —
+과거 실행 결과를 인용한 것이 아니다), E2E는 `e2e/core-flow.spec.ts` 8개(이번 문서 갱신에서는 재실행하지
+않음 — 핵심 화면 흐름 자체는 변경이 없어 마지막 통과 상태가 그대로 유효하다고 판단). `npm run
+typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인했다.
 
 ## Phase 2 축소 검토 결과
 

@@ -157,19 +157,20 @@ docs/
 
 > **2026-07-26 갱신**: Phase 5(다채널 홍보 초안)의 5-A~5-D에 해당하는 구현(도메인 생성 함수, 저장/조회/
 > 서버 액션, 편집기 UI, 인쇄 출력)이 로컬에서 전부 끝나고 자동 테스트도 통과했다(커밋 `5b8d872`/
-> `fc5e8f8`/`7460365`/`a264db6`, 상세는 `docs/implementation-status.md`의 Phase 5 절). 다만 이 커밋들은
-> 아직 `origin/main`에 push되지 않았고, `SelectedPlan.promoContent` migration도 원격 DB에 미적용이라
-> **P0-2 자리는 완료로 이동**하고, 아래 표의 우선순위는 그만큼 당겨졌다 — Phase 4가 새 P0-1이다. 원래
-> 2026-07-23 계획 표는 그대로 두고, 실제 다음 순서는 `docs/implementation-status.md` 상단 "다음 작업
-> 순서(P0)" 절을 따른다: P0-1 Phase 4 → P0-2 대표 시나리오 3개 → P0-3 DB migration 적용 + 통합 검증 →
+> `fc5e8f8`/`7460365`/`a264db6`, 상세는 `docs/implementation-status.md`의 Phase 5 절). 이어서 Phase 4
+> (role/nationality/theme/travel month 실질 반영)도 로컬 구현·테스트를 마쳤다(DB 스키마 변경 없이
+> 완료 — 아래 "3. Phase별 원자적 구현 단위"의 P0-3 절 참고). 다만 이 커밋들은 아직 `origin/main`에
+> push되지 않았고, `SelectedPlan.promoContent` migration도 원격 DB에 미적용이다. 원래 2026-07-23
+> 계획 표는 그대로 두고, 실제 다음 순서는 `docs/implementation-status.md` 상단 "다음 작업 순서(P0)"
+> 절을 따른다: P0-1 Phase 4(완료) → P0-2 대표 시나리오 3개 → P0-3 DB migration 적용 + 통합 검증 →
 > P0-4 원격 반영 + 배포.
 
 | 순위(2026-07-23 원안) | Phase | 재조정 근거 | 2026-07-26 현재 상태 |
 |---|---|---|---|
 | P0-1 | Phase 1 (provenance + 실제 raw snapshot 저장) | 지정과제 채점표 "데이터 활용 적절성"(20점) 직결, `LIVE 5/5` 오표시는 심사에서 가장 먼저 드러날 리스크 | 완료(로컬+배포) |
 | P0-2 | Phase 5 (다채널 홍보 초안) | 지정과제 7번 원문이 "다채널 마케팅 콘텐츠"를 명시 — 현재 전혀 없어 요구사항 미충족이 가장 뚜렷한 항목 | **로컬 구현+테스트 완료, 원격 반영·DB 적용·배포 대기(새 P0-3/P0-4)** |
-| P0-3 | Phase 4 (role/nationality/theme/travel month 실질 반영) | "여행사·지자체 실무자 대상", "타깃·지역·기간·콘셉트 조건 입력" 두 지정과제 문구에 직결. Phase 3(결정론/analysisKey)의 결함도 role/nationality를 키에 넣으려면 같이 손봐야 하므로 P0-3에 흡수 | **미착수 — 새 P0-1로 승격** |
-| P0-4 | 대표 시나리오 3개(제천/강릉/경주) 결과 차별화 + E2E | 마스터 문서 2-3절이 요구하는 "입력 차이 → 결과 차이" 심사 시연의 직접 증거. P0-1~3이 실제로 동작하는지 검증하는 마지막 단계이자 발표력(15점) 대비 자료 | **미착수 — 새 P0-2로 승격** |
+| P0-3 | Phase 4 (role/nationality/theme/travel month 실질 반영) | "여행사·지자체 실무자 대상", "타깃·지역·기간·콘셉트 조건 입력" 두 지정과제 문구에 직결. `analysisKey`에 role/nationality를 포함시키는 부분은 이번에 같이 해결했으나, `dataVersion`의 나머지 두 결함(휘발성 `collectedAt`, 코호트 미반영)은 별도로 남아 있음 | **로컬 구현+테스트 완료(새 P0-1로 승격, 완료) — 원격 반영·배포 대기** |
+| P0-4 | 대표 시나리오 3개(제천/강릉/경주) 결과 차별화 + E2E | 마스터 문서 2-3절이 요구하는 "입력 차이 → 결과 차이" 심사 시연의 직접 증거. P0-1~3이 실제로 동작하는지 검증하는 마지막 단계이자 발표력(15점) 대비 자료 | **미착수 — 새 P0-2로 승격, 이제 진행 가능(Phase 4 완료로 조건별 차이가 실제로 나타남)** |
 | P1-5 | Phase 8 (사이트 잠금 제거 + 프로젝트별 비밀번호, 축소 구현) | 보안상 여전히 중요하나 채점표에 직접 항목 없음. 현재 사이트 전체 비밀번호로도 시연 자체는 가능 |
 | P1-6 | Phase 2 (최소 갱신 구조) | 7개 지역 규모에서는 리스크가 낮음(현재도 수동 baseYm 갱신으로 시연 가능) |
 | P1-7 | Phase 11 (CI) | 심사 노출 없음, 팀 운영 편의 |
@@ -223,15 +224,22 @@ docs/
 | 5-C | 실행안 편집기에 "홍보자료" 섹션 + 개별/전체 복사 + 인쇄 화면 출력 | **DONE(로컬)**(`7460365`, 테스트 27개) |
 | 보완 | 재생성 확인 없이 덮어쓰기가 발생하던 두 경로(최초 생성의 `alreadyExists`, 손상 콘텐츠 복구) 수정 | **DONE(로컬)**(`a264db6`, 테스트 11개) |
 
-### P0-3. Phase 4 (+ Phase 3 결함 동시 해결)
+### P0-1(신규). Phase 4 — 로컬 구현·테스트 완료(2026-07-26)
 
-| 단위 | 내용 | 배포 안전성 |
+실제로는 계획했던 "Phase 3 결함까지 전부 동시 해결"이 아니라, `analysisKey`에 role/nationality를
+포함시키는 결함 하나만 이번 범위에서 함께 해소했다 — `dataVersion.ts`의 나머지 두 결함(휘발성
+`collectedAt` 포함, 코호트 변경 미반영)은 지역 객관적 데이터 계산 자체를 건드리는 별도 작업이라
+의도적으로 범위 밖에 두었다(DB schema 변경도 필요 없어 P0-3 자리에 미리 당겨 하지 않고 이 순서 그대로
+진행). 새 정책 모듈 `audienceContext.ts` 하나에 역할/국적/테마/월 규칙을 전부 모아 흩어진 `if`문을
+피했다.
+
+| 단위 | 내용 | 상태 |
 |---|---|---|
-| 4-A | `dataVersion.ts`에서 `networkInputs.collectedAt`(휘발성 `new Date()`) 제거, POI/관계 `updatedAt` 최댓값으로 대체 — Phase 3 결함 우선 수정 | 배포 시 기존 프로젝트의 `dataVersion`이 한 번 바뀜(재분석 전까지는 기존 분석에 영향 없음) |
-| 4-B | `analyzeProject.ts`의 `scoringInput`/`analysisKey` 입력에 `role`/`nationality` 추가 | 위와 동일 — 신규 분석부터 적용, 기존 저장된 분석은 그대로 유지 |
-| 4-C | role별(`TRAVEL_AGENCY`/`LOCAL_GOV`) 실행안 제목/배경/체크리스트/KPI 템플릿 분기 로직(`planBuilder.ts`/`strategyTemplates.ts`) | 신규 프로젝트부터 적용 |
-| 4-D | `nationality=FOREIGN`일 때 외국어 안내/국제결제/문화설명 체크리스트 항목 추가 | 위와 동일 |
-| 4-E | (선택, 작업량 크면 P1로 이관 가능) 구조화된 테마 코드 체계 도입 | 별도 판단 |
+| 4-A | 역할별 목표 우선순위 테이블(`ROLE_GOAL_PRIORITY`) + `computeRoleFit()` → `strategy.ts`에 `roleFit`(신규 breakdown 키) 추가, 총점 공식 재조정(`demandFit*0.35+supplyFit*0.25+seasonFit*0.20+targetFit*0.05+feasibilityFit*0.05+roleFit*0.10`) | **DONE(로컬)** |
+| 4-B | `analyzeProject.ts`의 `scoringInput`/`analysisKey` 입력에 `role`/`nationality` 추가(정규화 함수로 레거시 값 안전 처리) — Phase 3의 "analysisKey에 role/nationality 없음" 결함 해소 | **DONE(로컬)** |
+| 4-C | role별(`TRAVEL_AGENCY`/`LOCAL_GOV`) 실행 체크리스트 문구 분기(`planBuilder.ts` `computeRoleChecklistNotes`), 추천 근거 문구에 역할 관점 반영 | **DONE(로컬)** — 계획 당시 예상한 "제목/배경 템플릿 분기"까지는 하지 않음(기존 제목·배경 문구 구조를 유지하는 편이 하위 호환에 더 안전하다고 판단, 대신 체크리스트·근거·점수로 반영) |
+| 4-D | `nationality=FOREIGN`일 때 템플릿별 서비스 준비도 조정치(`foreignReadinessAdjustment`, `strategyTemplates.ts`)를 `feasibilityFit`에 반영 + 다국어 안내 체크리스트 1건 추가. 내국인/실측 데이터는 건드리지 않음(CURATED로 명시) | **DONE(로컬)** — 계획한 "국제결제/문화설명" 항목까지는 세분화하지 않고 서비스 준비도 하나로 통합(과도한 세분화보다 명확한 CURATED 근거 하나가 낫다고 판단) |
+| 4-E | 자유 텍스트 테마를 7개 내부 카테고리로 분류(`classifyThemes`) 후 템플릿별 가산점 반영(`targetFit`, 최대 15점) + 월별 계절 위험요인(`computeSeasonalRiskNotes`, 장마철/혹서기/혹한기) | **DONE(로컬)** — "선택, 작업량 크면 P1로 이관" 옵션이었으나 이번 범위에 포함해 완료 |
 
 ### P0-4. 대표 시나리오 3개 차별화 + E2E
 
@@ -287,15 +295,17 @@ docs/
 4. `extend_data_source_watermark` — P1-6(Phase 2-A): `DataSource`에 필드 3개만 추가(신규 테이블 아님)
 5. (P2 진입 후) `add_operational_event` — Phase 10-A
 
-P0-3(Phase 4)·P0-4(시나리오)는 스키마 변경이 필수는 아니다(기존 Json 컬럼과 해시 로직 수정 위주).
-모든 migration은 컬럼/테이블 추가만 사용한다.
+Phase 4(2026-07-26 로컬 구현 완료)는 실제로 스키마 변경이 필요하지 않았다 — role/nationality/
+travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽어 도메인 로직(`audienceContext.ts`)에서
+해석했다. 대표 시나리오(P0-2, 신 번호) 작업도 스키마 변경이 필수는 아니다. 모든 migration은 컬럼/테이블
+추가만 사용한다.
 
 ## 5. 테스트·배포 검증 계획
 
 - Phase별 표적 테스트 먼저 실행 후, 영향 범위에 비례해 전체 게이트 실행:
   `npm ci && npm run lint && npm run typecheck && npm test && npm run build && npm run test:e2e && npm audit --omit=dev`
-- P0-1의 1-C(하드코딩 제거)와 P0-3의 4-A/4-B(dataVersion/analysisKey 변경)는 배포 전 데모 프로젝트로
-  축 상태·`LIVE 5/5` 배지·기존 분석 유지 여부를 수동으로도 1회 확인한다.
+- P0-1의 1-C(하드코딩 제거)와 Phase 4의 4-B(analysisKey 변경)는 배포 전 데모 프로젝트로 축 상태·
+  `LIVE 5/5` 배지·기존 분석 유지 여부를 수동으로도 1회 확인한다.
 - Phase 8-E(컷오버)는 스테이징에서 비밀번호 없는 프로젝트 열람/보호 프로젝트 잠금/OWNER 편집/VIEWER
   mutation 차단을 수동으로도 1회 확인한 뒤 production 배포한다.
 - P0-4의 시나리오 E2E는 3개 프로젝트의 role/nationality/전략명/홍보문구 텍스트가 서로 다름을 assertion으로
@@ -304,8 +314,10 @@ P0-3(Phase 4)·P0-4(시나리오)는 스키마 변경이 필수는 아니다(기
 ## 6. 위험 및 확인 필요 질문 (남은 것만, 재조정 후 축소)
 
 1. **기존 프로젝트 공개 전환 방식(Phase 8, P1-5)**: 여전히 미결정 — 일괄 공개 전환 vs 소유자 개별 안내 후 전환.
-2. **role/nationality 반영 시 기존 분석 결과 처리(P0-3)**: `dataVersion`/`analysisKey`가 바뀌면 기존
-   프로젝트는 새 키 기준 "최신"이 아니게 된다. 일괄 재분석 vs 열람 시 안내만 — 결정 필요.
+2. **role/nationality 반영 시 기존 분석 결과 처리(Phase 4)**: 여전히 미결정 — `analysisKey`가 role/
+   nationality를 포함하도록 바뀌어(2026-07-26 구현 완료) 기존 저장된 프로젝트는 새 키 기준 "최신"이
+   아니게 된다. 일괄 재분석 vs 열람 시 안내만 — 실제 DB 데이터가 있는 P0-3(DB migration 적용) 단계에서
+   함께 결정해야 한다.
 3. ~~Phase 5 홍보 문구 템플릿 방향~~ — **해소됨(2026-07-26)**: 완전 신규 템플릿이 아니라 저장된
    `SelectedPlan`(sellingPoints/targetSummary/course 등)과 `Evidence`를 결정론적 템플릿으로 재조합하는
    방식을 채택해 구현했다(`src/lib/domain/promoContent.ts`). LLM은 사용하지 않는다.

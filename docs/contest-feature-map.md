@@ -1,8 +1,8 @@
-# 공모전 지정과제 7번 기능 매핑 (2026-07-23 작성, 2026-07-26 Phase 5 반영 갱신)
+# 공모전 지정과제 7번 기능 매핑 (2026-07-23 작성, 2026-07-26 Phase 4 반영 갱신)
 
-> 최초 기준 커밋: `5e16dec`. 2026-07-26 갱신 시점 로컬 HEAD: `a264db6`(Phase 5-A~5-C + 보완, 아직
-> `origin/main`에는 미반영 — `origin/main`은 `a13e98d`). 이 문서는 `TOUR-DNA-Claude-Code-Implementation-Prompt.md`의
-> 최초 검토용 프롬프트 4번 항목 산출물로 시작했고, 이번 갱신은 문서 정리만 수행했다(코드 미수정).
+> 최초 기준 커밋: `5e16dec`. 2026-07-26 갱신 시점 로컬 HEAD는 Phase 5-A~5-C+보완, 문서 갱신, Phase 4
+> 순으로 이어진 최신 커밋이며, 아직 `origin/main`에는 미반영 — `origin/main`은 `a13e98d`. 이 문서는
+> `TOUR-DNA-Claude-Code-Implementation-Prompt.md`의 최초 검토용 프롬프트 4번 항목 산출물로 시작했다.
 > 아래는 **현재 저장소를 직접 읽어 재검증한 사실**이다. "구현됨"은 로컬 코드 기준이며, 배포 URL
 > (https://tour-dna.lib.lc)에 아직 반영되지 않은 항목은 별도로 표시한다.
 
@@ -10,8 +10,8 @@
 
 | 지정과제 요구 | 현재 화면/기능 | 사용 API/데이터 | 테스트 | 시연 시나리오 | 상태 |
 |---|---|---|---|---|---|
-| 여행사·지자체 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV) 입력, 저장·표시 | 없음(입력값만) | 없음(role 분기 로직 자체가 없음) | 없음 | **미구현** — `role`은 DB에 저장·표시만 되고 domain 계층(`src/lib/domain/*`)에는 전혀 등장하지 않음(`role` 리터럴 검색 결과 domain 폴더 0건, [buildDnaEngineInput.ts](../src/lib/services/buildDnaEngineInput.ts)/[analyzeProject.ts](../src/lib/services/analyzeProject.ts)의 `scoringInput`에도 없음) |
-| 타깃·지역·기간·콘셉트 조건 입력 | `/projects/new` 폼 7개 지역, 여행월, 연령/동반유형/목적/기간/예산/이동수단/그룹규모/선호·제외테마/메모 | `ProjectInput` 테이블 | `project-input-schema.test.ts`(6), `ProjectInputForm.test.tsx`(3) | 입력→분석 E2E 1건 | **부분 구현** — 대부분 필드는 `targetFit`/`feasibilityFit`에 실제 반영([scoring-model.md](scoring-model.md) §3). 단 `nationality`(FOREIGN/DOMESTIC)와 `memo`는 저장만 되고 산출물에 미반영, `preferredThemes`/`excludedThemes`는 템플릿명/콘셉트 문자열 포함 검사 수준([strategy.ts](../src/lib/domain/strategy.ts)) |
+| 여행사·지자체 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV) 입력, 저장·표시, 분석 화면 요약에도 노출 | 없음(입력값 + 기획 규칙) | `audienceContext.test.ts`(27), `strategy.test.ts` 역할 관련 3건 | 아직 없음(P0-2에서 대표 시나리오에 포함 예정) | **구현됨(2026-07-26 Phase 4, 로컬)** — `role`이 [audienceContext.ts](../src/lib/domain/audienceContext.ts)의 역할별 목표 우선순위 테이블을 거쳐 [strategy.ts](../src/lib/domain/strategy.ts)의 `roleFit`(전략 점수 구성요소)과 추천 근거 문구, `planBuilder.ts`의 실행 체크리스트에 실제로 반영된다. 배포 URL에는 아직 미반영(push 전) |
+| 타깃·지역·기간·콘셉트 조건 입력 | `/projects/new` 폼 7개 지역, 여행월, 연령/동반유형/목적/기간/예산/이동수단/그룹규모/선호·제외테마/메모 | `ProjectInput` 테이블 | `project-input-schema.test.ts`(6), `ProjectInputForm.test.tsx`(3), `audienceContext.test.ts`(27) | 입력→분석 E2E 1건 | **구현됨(2026-07-26 Phase 4로 국적·테마 반영 추가)** — `nationality`(FOREIGN/DOMESTIC)는 `feasibilityFit`(운영 적합도)에 템플릿별 CURATED 서비스 준비도로 반영, `preferredThemes`/`excludedThemes`는 내부 카테고리 분류([strategy.ts](../src/lib/domain/strategy.ts) `targetFit`)로 반영된다. `memo`는 여전히 저장만 되고 산출물에 미반영(자유 서술 메모라 구조화 반영 대상이 아님) |
 | 데이터 기반 관광 수요·관광지 분석 | `/projects/[id]/analysis` DNA 5축 레이더, 근거 보기 패널 | `AreaTarDemDsService`(체류/소비), `AreaTarResDemService`(서비스수요), `AreaTarDivService`(다양성), `KorService2`(POI) — [public-api-status.md](public-api-status.md) | `dna.test.ts`(9), `strategy.test.ts`(12) | 데모 프로젝트 열람 E2E | **핵심 구현됨, 신뢰성 결함 있음** — `isSnapshotFallback: false`가 [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23)과 [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45)에 하드코딩되어, fixture/추정값도 `LIVE`로 표시될 수 있음(provenance 필드 자체가 schema에 없음) |
 | 맞춤형 상품 운영 초안 | `/projects/[id]/plan` 코스/체류시간/체크리스트/위험/KPI 편집, 카카오맵 동선 | POI(TourAPI), 카카오맵 JS SDK | `planBuilder.test.ts`(11), `PlanEditor.test.tsx`(10), `CourseMap.test.tsx`(5) | 전략선택→실행안 편집→인쇄 E2E | **구현됨** — 이동시간은 Haversine 직선거리 추정(도로 경로 아님), 실행 가능성 경고 포함 |
 | 다채널 마케팅 콘텐츠 | `/projects/[id]/plan`의 "홍보자료" 섹션(제안서 요약/랜딩/Instagram/블로그/역할별 자료 생성·편집·복사), 인쇄 화면 출력 | 없음(저장된 실행안/Evidence만 재사용, LLM·외부 API 미사용) | `promoContent.test.ts`(21), `promoContentAdapter.test.ts`(14), `promoContentService.test.ts`(16), `PromoContentEditor.test.tsx`(16+11), `PrintPage.test.tsx`(6) | 아직 없음(P0-2에서 대표 시나리오에 포함 예정) | **로컬 구현 완료(2026-07-26), 배포 미반영** — 관련 커밋 4개(`5b8d872`/`fc5e8f8`/`7460365`/`a264db6`)가 `origin/main`에 push되지 않았고, `SelectedPlan.promoContent` migration도 원격 DB에 미적용이라 **현재 배포 URL에서는 확인할 수 없다.** 상세: [docs/implementation-status.md](implementation-status.md)의 Phase 5 절 |
@@ -36,15 +36,16 @@
 - 핵심 흐름(입력→분석→전략선택→실행안 편집→카카오맵→인쇄)은 E2E 8건으로 매 커밋 검증되고 있어 **시연 가능한 상태**.
 - 다만 아래는 심사 시 바로 드러날 수 있는 리스크:
   1. `LIVE 5/5` 표시가 실제로는 추정값 포함 여부와 무관하게 뜰 수 있음(데이터 신뢰성 항목에서 감점 가능성).
-  2. 다채널 홍보 카피 생성 기능은 로컬에는 구현·테스트가 끝났지만(위 표 참고) **아직 이 배포 URL에는
-     반영되지 않았다** — 원격 push·DB migration 적용·재배포가 끝나야 지정과제 7번의 "다채널 마케팅
-     콘텐츠" 요구가 실제 시연 화면에서도 충족된다.
+  2. 다채널 홍보 카피 생성 기능(Phase 5)과 역할·국적·테마·여행월 조건별 반영(Phase 4)은 로컬에는
+     구현·테스트가 끝났지만(위 표 참고) **아직 이 배포 URL에는 반영되지 않았다** — 원격 push·(Phase 5는)
+     DB migration 적용·재배포가 끝나야 지정과제 7번의 "다채널 마케팅 콘텐츠"와 "여행사·지자체 실무자
+     대상" 요구가 실제 시연 화면에서도 충족된다.
   3. 사이트 전체 비밀번호 하나로 모든 프로젝트가 열리거나 막혀, 프로젝트별 소유권 개념이 없음(공개 심사 시연에는 문제 없으나 실 서비스 신뢰성 항목에서 지적 가능).
   4. 대전 DNA는 유성구 지표, 추천 POI는 대전 전체라는 행정범위 불일치가 화면에 라벨 하나로만 표시됨(`"대전광역시 (DNA 지표는 유성구 기준)"`, [regionQueries.ts]) — 근거 패널에 코호트 수(N)나 정규화 범위는 표시되지 않음.
 
 ## 5. 다음 단계
 
-Phase 1과 Phase 5는 로컬 구현이 끝났다(위 표, [docs/implementation-status.md](implementation-status.md) 참고).
-다음 순서는 P0-1(Phase 4 구현) → P0-2(대표 시나리오 3개 완성) → P0-3(DB migration 적용 + 통합 검증) →
-P0-4(원격 반영 + 배포)이며, 근거와 세부 항목은 `docs/implementation-status.md`의 "다음 작업 순서" 절과
-`docs/implementation-plan.md` Part 2를 함께 읽는다.
+Phase 1, Phase 5, Phase 4가 로컬 구현이 끝났다(위 표, [docs/implementation-status.md](implementation-status.md) 참고).
+다음 순서는 P0-2(대표 시나리오 3개 완성) → P0-3(DB migration 적용 + 통합 검증) → P0-4(원격 반영 + 배포)이며,
+근거와 세부 항목은 `docs/implementation-status.md`의 "다음 작업 순서" 절과 `docs/implementation-plan.md`
+Part 2를 함께 읽는다.
