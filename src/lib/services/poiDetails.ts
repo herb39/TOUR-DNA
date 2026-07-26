@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { PoiCategory } from "@/generated/prisma/enums";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
 import { isMealEligibleFoodCat3 } from "@/lib/public-data/adapters/tourInfo";
 
@@ -84,6 +85,29 @@ export async function fetchAdditionalMealEligibleFood(
     .map(mapRowToPoiDetail)
     .filter((p) => p.mealEligible === true)
     .slice(0, limit);
+}
+
+/** 식사 선점(MEAL_RESERVE_TARGET_BY_DURATION)이 원래 목표했던 비숙박 밀도(NON_LODGING_POI_TARGET_
+ * BY_DURATION) 예산을 그대로 갉아먹기 때문에(2026-07-26 강릉 사례: 하루 4개 목표 중 2개가 식사로
+ * 소진돼 실제 관광 시간을 채울 후보가 2개뿐이었다), 같은 지역의 FOOD가 아닌 일반 방문 POI(관광지·체험·
+ * 축제·쇼핑)를 지역 DB에서 보충한다. mealEligible 판별이 필요 없으므로 넉넉히 가져올 필요도 없다. */
+const GENERAL_BACKFILL_CATEGORIES: PoiCategory[] = ["ATTRACTION", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
+
+/** 최초 후보 풀의 비숙박 POI 개수가 이 기간의 원래 목표 밀도에 못 미칠 때(주로 식사 선점이 예산을
+ * 나눠 쓴 결과), 같은 지역 DB에서 일반 방문 후보를 보충한다(planService.ts에서 사용 — 서비스 계층에서만
+ * DB를 조회하고, planBuilder.ts 등 도메인 계산 함수에는 이미 확보된 PoiDetail[]만 인자로 전달한다).
+ * excludeIds에 있는 POI는 이미 후보에 포함돼 있으므로 다시 뽑지 않는다(중복 방지). */
+export async function fetchAdditionalGeneralPois(
+  regionId: string,
+  excludeIds: string[],
+  limit: number,
+): Promise<PoiDetail[]> {
+  if (limit <= 0) return [];
+  const rows = await prisma.poi.findMany({
+    where: { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } },
+    take: limit,
+  });
+  return rows.map(mapRowToPoiDetail);
 }
 
 const POI_SEARCH_LIMIT = 20;

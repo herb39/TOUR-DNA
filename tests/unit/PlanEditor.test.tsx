@@ -220,6 +220,60 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
   });
 });
 
+describe("PlanEditor FOOD 목적 라벨(5단계 — 식사와 일반 방문 구분)", () => {
+  function makePlanWithPurposes(): PlanEditorData {
+    const base = makePlan();
+    base.course.days[0].items = [
+      { order: 1, poiId: "lunch-poi", poiName: "점심장소", category: "FOOD", timeSlot: "12:00", stayMinutes: 60, travel: "숙소/집결지에서 이동", mealPurpose: "LUNCH" },
+      { order: 2, poiId: "dinner-poi", poiName: "저녁장소", category: "FOOD", timeSlot: "18:00", stayMinutes: 60, travel: "", mealPurpose: "DINNER" },
+      { order: 3, poiId: "cafe-poi", poiName: "카페장소", category: "FOOD", timeSlot: "15:00", stayMinutes: 60, travel: "", mealPurpose: "GENERAL" },
+      { order: 4, poiId: "attr-poi", poiName: "관광장소", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "" },
+      { order: 5, poiId: "legacy-poi", poiName: "레거시장소", category: "FOOD", timeSlot: "20:00", stayMinutes: 60, travel: "" }, // mealPurpose 필드 자체가 없는 기존 저장 데이터
+    ];
+    return base;
+  }
+
+  it("점심·저녁·카페(일반 방문)를 서로 다른 라벨로 표시하고, ATTRACTION은 그대로 카테고리만 표시한다", () => {
+    render(<PlanEditor plan={makePlanWithPurposes()} />);
+
+    expect(screen.getByText(/FOOD · 점심/)).toBeInTheDocument();
+    expect(screen.getByText(/FOOD · 저녁/)).toBeInTheDocument();
+    expect(screen.getByText(/FOOD · 카페\/일반 방문/)).toBeInTheDocument();
+    expect(screen.getByText(/\(ATTRACTION,/)).toBeInTheDocument();
+  });
+
+  it("mealPurpose 필드가 없는 legacy FOOD 항목도 크래시 없이 렌더링된다", () => {
+    expect(() => render(<PlanEditor plan={makePlanWithPurposes()} />)).not.toThrow();
+    expect(screen.getByText("레거시장소")).toBeInTheDocument();
+  });
+
+  it("장소를 다른 날짜로 옮기거나 순서를 바꿔도 mealPurpose 라벨이 그대로 유지된다", () => {
+    render(<PlanEditor plan={makePlanWithPurposes()} />);
+
+    fireEvent.click(screen.getByLabelText("점심장소 위로 이동"));
+
+    expect(screen.getByText(/FOOD · 점심/)).toBeInTheDocument();
+    expect(screen.getByText(/FOOD · 저녁/)).toBeInTheDocument();
+  });
+
+  it("저장 시 courseJson에 mealPurpose가 optional 필드로 그대로 포함된다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-07-26T00:00:00.000Z" });
+    render(<PlanEditor plan={makePlanWithPurposes()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    const lastCall = vi.mocked(savePlanAction).mock.calls[vi.mocked(savePlanAction).mock.calls.length - 1];
+    const submittedFormData = lastCall[3] as FormData;
+    const submittedItems = JSON.parse(submittedFormData.get("courseJson") as string).days[0].items;
+
+    expect(submittedItems.find((i: { poiId: string }) => i.poiId === "lunch-poi").mealPurpose).toBe("LUNCH");
+    expect(submittedItems.find((i: { poiId: string }) => i.poiId === "dinner-poi").mealPurpose).toBe("DINNER");
+    expect(submittedItems.find((i: { poiId: string }) => i.poiId === "cafe-poi").mealPurpose).toBe("GENERAL");
+    expect(submittedItems.find((i: { poiId: string }) => i.poiId === "legacy-poi").mealPurpose).toBeUndefined();
+  });
+});
+
 describe("PlanEditor 숙박 읽기 전용 표시", () => {
   function makePlanWithLodging(): PlanEditorData {
     const base = makePlan();

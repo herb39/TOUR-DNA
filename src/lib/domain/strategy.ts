@@ -149,7 +149,10 @@ function templateHash(seed: string): number {
 }
 
 /** 기간별 목표 비숙박 POI 개수 — 관광상품으로서 최소한의 밀도를 보장하기 위한 상수(하루 2개 문제의 개선 1단계). */
-const NON_LODGING_POI_TARGET_BY_DURATION: Record<DurationCode, number> = {
+/** planService.ts도 이 값을 재사용해 "이 기간에 원래 목표했던 비숙박 밀도"를 알아낸다(단일 기준
+ * 유지, 하드코딩 중복 없음) — 식사 선점이 이 목표 예산을 갉아먹은 만큼 일반 관광 후보를 보충할 때
+ * 기준으로 쓴다(planBuilder.ts의 DAILY_ITEM_TARGETS_BY_DURATION 합과 정확히 같은 값이다). */
+export const NON_LODGING_POI_TARGET_BY_DURATION: Record<DurationCode, number> = {
   DAY_TRIP: 4,
   ONE_NIGHT_TWO_DAYS: 7,
   TWO_NIGHTS_THREE_DAYS: 11,

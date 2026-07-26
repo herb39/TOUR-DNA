@@ -8,6 +8,7 @@ import {
   estimateTravel,
   parseTimeSlotToMinutes,
   minutesToTimeSlot,
+  describeCourseItemPurpose,
   type CourseItem,
   type CourseDay,
   type CourseItemInput,
@@ -106,6 +107,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
       lat: item.lat,
       lng: item.lng,
       timeSlot: item.timeSlot,
+      mealPurpose: item.mealPurpose,
     };
   }
 
@@ -381,7 +383,7 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                             {item.poiName}
                           </span>
                           <span className="ml-2 text-xs text-slate-500">
-                            ({item.category}, 체류{" "}
+                            ({describeCourseItemPurpose(item)}, 체류{" "}
                             <input
                               type="number"
                               min={0}

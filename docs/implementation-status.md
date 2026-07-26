@@ -4,6 +4,43 @@
 > 각 항목은 실제 코드/스키마를 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
+## 실행안 일정 품질 보완 (2026-07-26, 기준 커밋 `608a09a` 이후)
+
+식사 누락 수정(`608a09a` "fix: ensure meal coverage in generated itineraries") 배포 후 운영
+강릉 실행안에서 다음 품질 문제가 새로 확인됐다 — **`DONE`**.
+
+- **확인된 문제**: (1) 카페(mealEligible=false FOOD)가 실제 점심 바로 앞에 배치됨(11:00 카페 →
+  12:05 점심), (2) 오후 공백(14:25~17:30, 약 3시간) 방치, (3) 2일차가 점심 직후(13:11)에 조기 종료.
+- **근본 원인**: (a) `scheduleDayWithMeals`의 일반 방문 큐가 카페와 일반 관광지를 동일하게 취급해
+  식사 직전/직후 배치를 막는 규칙이 없었다. (b) 직전 턴에 추가한 식사 선점(`MEAL_RESERVE_TARGET_BY_
+  DURATION`, strategy.ts)이 기존 비숙박 목표 밀도(`NON_LODGING_POI_TARGET_BY_DURATION`) **예산 안에서**
+  이뤄져, 실제 일반 관광 후보 수가 그만큼 줄어들었다(하루 목표 4개 중 2개가 식사로 소진 → 실제 관광
+  시간을 채울 후보가 2개뿐).
+- **연속 FOOD 방지**: `src/lib/domain/planBuilder.ts`의 `scheduleDayWithMeals`에 회피 로직 추가 —
+  식사가 아직 남아있거나(`mealPending`) 방금 실제 식사를 마쳤으면(`justHadMeal`), 대체 가능한(FOOD가
+  아닌) 후보가 큐에 남아있는 동안은 그 후보를 먼저 시도한다. 대체 후보가 전혀 없으면(카페뿐이면) 그대로
+  배치한다(방문 생략 안 함 — 데이터상 합리적 예외).
+- **일반 방문 후보 보충**: `src/lib/services/poiDetails.ts`에 `fetchAdditionalGeneralPois`(FOOD 아닌
+  ATTRACTION/EXPERIENCE/FESTIVAL/SHOPPING만 조회) 신규. `planService.ts`가 비숙박 POI 총량이
+  `NON_LODGING_POI_TARGET_BY_DURATION[duration] + mealReserveTarget`(식사 선점이 갉아먹은 예산을
+  복원하는 기준)에 못 미치면 같은 지역 DB에서 보충한다. `buildDraftCourse`의 기존 최근접 이웃 정렬 +
+  날짜별 개수 분배(초과분 재배분 포함)를 그대로 재사용하므로 planBuilder.ts는 손대지 않았다.
+- **2일차 종료 시각**: `DAY_TIME_SLOTS_BY_DURATION`(기존)에 이미 날짜별 슬롯이 정의돼 있고, 사용자가
+  별도로 종료 시각을 입력하는 UI/필드는 없다 — 이 고정 슬롯이 시스템의 기본 종료 정책이다(변경 없음,
+  문서화만 보완). 공급 부족으로 조기 종료되던 문제는 위 일반 방문 후보 보충으로 완화된다.
+- **UI 목적 라벨**: `CourseItem`/`CourseItemInput`에 optional `mealPurpose?: "LUNCH"|"DINNER"|"GENERAL"`
+  필드 추가(Prisma 변경 없음 — 기존 `course` Json 컬럼에 추가 필드로만 저장됨). `scheduleDayWithMeals`가
+  배치 시점에 실제로 결정한 목적을 그대로 실어 나르고(장소명·시각으로 추정하지 않음), `describeCourseItemPurpose()`
+  (planBuilder.ts, export)를 실행안 편집기(`PlanEditor.tsx`)와 인쇄 화면(`print/page.tsx`)이 공용으로
+  사용해 "FOOD · 점심"/"FOOD · 저녁"/"FOOD · 카페/일반 방문"으로 표시한다. `mealPurpose`가 없는 legacy
+  실행안은 카테고리만 표시되며 크래시하지 않는다.
+- **Phase 5(다채널 홍보 초안)는 이번 작업 대상이 아니며 여전히 `NOT_STARTED`다** — 아래 요약 테이블
+  참고, 이번 보완은 그 우선순위 조정과 무관하게 실행안 생성 버그 수정 작업으로 별도 처리했다.
+- **테스트**: `tests/unit/planBuilder.test.ts`(강릉형 회귀 3건 + 2일차 회귀 1건 + 후보 부족 3건 +
+  `describeCourseItemPurpose` 3건), `tests/unit/poiDetails.test.ts`(`fetchAdditionalGeneralPois` 3건),
+  `tests/unit/planService.test.ts`(일반 방문 보충 회귀 1건 + 기존 2건 보완), `tests/unit/PlanEditor.test.tsx`
+  (목적 라벨 4건). 기존 통영 식사 보장 회귀 테스트는 삭제·완화 없이 그대로 유지, 218/218 전체 통과.
+
 ## Phase 1 배포 전 마이그레이션 점검 (2026-07-23, 코드/설정 감사만 — DB 미접속)
 
 - **현재 migration 실행 구조**: 저장소·문서 근거로 확인한 결과 **"C. 수동 migration 적용을 전제로 함"**이다.

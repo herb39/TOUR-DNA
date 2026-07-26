@@ -8,7 +8,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const poiFindMany = vi.fn();
 vi.mock("@/lib/db", () => ({ prisma: { poi: { findMany: (...args: unknown[]) => poiFindMany(...args) } } }));
 
-import { deriveMealEligible, extractCat3FromRawPayload, fetchAdditionalMealEligibleFood } from "@/lib/services/poiDetails";
+import {
+  deriveMealEligible,
+  extractCat3FromRawPayload,
+  fetchAdditionalGeneralPois,
+  fetchAdditionalMealEligibleFood,
+} from "@/lib/services/poiDetails";
 
 describe("extractCat3FromRawPayload", () => {
   it("rawPayload 객체에서 cat3 문자열을 그대로 꺼낸다", () => {
@@ -98,5 +103,49 @@ describe("fetchAdditionalMealEligibleFood — 최초 후보 부족 시 지역 DB
     poiFindMany.mockResolvedValue([foodRow("cafe-1", "A05020900"), foodRow("korean-1", "A05020100")]);
     const result = await fetchAdditionalMealEligibleFood("region-1", [], 5);
     expect(result).toHaveLength(1);
+  });
+});
+
+function attractionRow(id: string) {
+  return {
+    id,
+    name: `관광지-${id}`,
+    category: "ATTRACTION",
+    address: "주소",
+    lat: 34.8,
+    lng: 128.4,
+    operatingHours: null,
+    closedDays: null,
+    sourceType: "API",
+    rawPayload: { contenttypeid: "12" },
+  };
+}
+
+describe("fetchAdditionalGeneralPois — 비숙박 밀도 부족 시 일반 방문 후보 보충(강릉 사례 재현)", () => {
+  beforeEach(() => {
+    poiFindMany.mockReset();
+  });
+
+  it("FOOD가 아닌 카테고리(관광/체험/축제/쇼핑)만 조회 조건에 포함한다", async () => {
+    poiFindMany.mockResolvedValue([attractionRow("a1")]);
+    await fetchAdditionalGeneralPois("region-1", ["already-1"], 2);
+
+    const calledWith = poiFindMany.mock.calls[0][0];
+    expect(calledWith.where.regionId).toBe("region-1");
+    expect(calledWith.where.category).toEqual({ in: ["ATTRACTION", "EXPERIENCE", "FESTIVAL", "SHOPPING"] });
+    expect(calledWith.where.id.notIn).toEqual(["already-1"]);
+    expect(calledWith.take).toBe(2);
+  });
+
+  it("limit이 0 이하면 DB를 조회하지 않는다", async () => {
+    const result = await fetchAdditionalGeneralPois("region-1", [], 0);
+    expect(result).toEqual([]);
+    expect(poiFindMany).not.toHaveBeenCalled();
+  });
+
+  it("조회된 행을 PoiDetail로 매핑해 그대로 반환한다(mealEligible 필터링 없음 — FOOD가 아니므로 무의미)", async () => {
+    poiFindMany.mockResolvedValue([attractionRow("a1"), attractionRow("a2")]);
+    const result = await fetchAdditionalGeneralPois("region-1", [], 5);
+    expect(result.map((p) => p.id)).toEqual(["a1", "a2"]);
   });
 });

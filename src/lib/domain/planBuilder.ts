@@ -19,6 +19,13 @@ export interface PoiDetail {
   mealEligible?: boolean;
 }
 
+/** FOOD 항목이 실제로 왜 이 시각에 배치됐는지(5단계, 2026-07-26 강릉 사례 보완) — 장소명이나 시작
+ * 시각만 보고 화면에서 추정하지 않고, 실제 배치를 결정한 scheduleDayWithMeals가 그 시점에 이미 아는
+ * 정보를 그대로 실어 나른다. LUNCH/DINNER는 splitMealCandidates가 고른 실제 식사, GENERAL은 그 외
+ * 일반 방문(카페/전통찻집 등 mealEligible=false FOOD 포함)이다. FOOD가 아닌 항목이나 이 필드가 추가되기
+ * 전(2026-07-26 이전) 저장된 실행안에는 없을 수 있다(legacy 호환, undefined면 카테고리만 표시). */
+export type MealPurpose = "LUNCH" | "DINNER" | "GENERAL";
+
 export interface CourseItem {
   order: number;
   poiId: string;
@@ -30,6 +37,7 @@ export interface CourseItem {
   /** 이동 텍스트 재계산용 좌표. 이 필드가 추가되기 전(2026-07-21 이전) 저장된 실행안에는 없을 수 있다. */
   lat?: number;
   lng?: number;
+  mealPurpose?: MealPurpose;
 }
 
 export interface CourseDay {
@@ -53,6 +61,7 @@ export interface CourseItemInput {
   lat?: number;
   lng?: number;
   timeSlot?: string;
+  mealPurpose?: MealPurpose;
 }
 
 const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
@@ -91,7 +100,7 @@ const LODGING_CATEGORY = "LODGING";
 /** 숙박 체크인 기본 시각. 그 날 마지막 일반 일정 종료 시각이 이보다 늦으면 그 이후로 늦춘다. */
 const DEFAULT_LODGING_CHECKIN = "20:00";
 
-const FOOD_CATEGORY = "FOOD";
+export const FOOD_CATEGORY = "FOOD";
 /** 새로 생성하는 일반 일정의 기본 체류시간(분). buildDraftCourse 전체에서 공용으로 쓴다(3단계에서 상수화). */
 const DEFAULT_ITEM_STAY_MINUTES = 60;
 
@@ -195,6 +204,7 @@ export function recomputeDayItems(
       travel: prev ? estimateTravel(prev, item, transport).label : "숙소/집결지에서 이동",
       lat: item.lat,
       lng: item.lng,
+      mealPurpose: item.mealPurpose,
     };
   });
 }
@@ -283,6 +293,24 @@ function isFoodPoi(poi: { category: string }): boolean {
  * 내려온다). 이 값이 아예 없는 호출부(기존 테스트 등)는 하위 호환을 위해 식사 가능으로 취급한다. */
 function isMealEligiblePoi(poi: PoiDetail): boolean {
   return isFoodPoi(poi) && poi.mealEligible !== false;
+}
+
+/** FOOD이지만 식사 후보로 쓰지 않는 장소(카페/전통찻집 등, mealEligible===false) — 삭제하지 않고
+ * 일반 방문 후보로 유지하되(기존 정책), 실제 식사 직전·직후로 붙는 부자연스러운 배치는 피한다
+ * (5단계, 2026-07-26 강릉 사례 보완). */
+function isNonMealFoodPoi(poi: PoiDetail): boolean {
+  return isFoodPoi(poi) && !isMealEligiblePoi(poi);
+}
+
+/** 화면에 보여줄 FOOD 항목의 목적 라벨. 장소명이나 시작 시각으로 추정하지 않고, 실제 배치 시점에
+ * scheduleDayWithMeals가 결정한 mealPurpose(있으면)만 근거로 쓴다 — FOOD가 아니거나 mealPurpose가
+ * 없는 legacy 항목은 카테고리만 그대로 반환한다(크래시 없이 안전한 기본값). */
+export function describeCourseItemPurpose(item: { category: string; mealPurpose?: MealPurpose }): string {
+  if (item.category !== FOOD_CATEGORY) return item.category;
+  if (item.mealPurpose === "LUNCH") return `${item.category} · 점심`;
+  if (item.mealPurpose === "DINNER") return `${item.category} · 저녁`;
+  if (item.mealPurpose === "GENERAL") return `${item.category} · 카페/일반 방문`;
+  return item.category;
 }
 
 /** 그 날 첫 배치(prevPoi=null)는 이동시간을 0으로 본다 — 기존 관례상 하루의 첫 일정이 "숙소/집결지에서
@@ -396,15 +424,23 @@ function computeMealArrivalMinutes(
  * 시계(clockMinutes)를 앞으로만 진행시키므로 역행·중복은 발생하지 않는다. FOOD가 없는 날짜는 이
  * 함수를 아예 타지 않고 기존 방식(날짜별 고정 슬롯)을 그대로 쓴다.
  */
+/** 하루 스케줄 결과 항목 하나 — purpose는 scheduleDayWithMeals가 그 자리에서 실제로 결정한 배치 목적
+ * 그대로다(5단계, UI 목적 라벨용으로 나중에 다시 추정하지 않는다). */
+interface ScheduledItem {
+  poi: PoiDetail;
+  timeSlot: string;
+  purpose: MealPurpose;
+}
+
 function scheduleDayWithMeals(
   dayPois: PoiDetail[],
   dayStartTimeSlot: string,
   dayEndTimeSlot: string,
   transport: TransportCode,
-): { poi: PoiDetail; timeSlot: string }[] {
+): ScheduledItem[] {
   const { lunch, dinner, rest } = splitMealCandidates(dayPois, dayEndTimeSlot);
   const remainingSights = [...rest];
-  const scheduled: { poi: PoiDetail; timeSlot: string }[] = [];
+  const scheduled: ScheduledItem[] = [];
 
   let clockMinutes = parseTimeSlotToMinutes(dayStartTimeSlot) ?? 0;
   let prevPoi: PoiDetail | null = null;
@@ -414,8 +450,10 @@ function scheduleDayWithMeals(
   // startMinutesAbsolute는 항상 "누적 절대 분"이다 — 표시용 wrap(minutesToTimeSlot)은 여기서 한 번만
   // 적용하고, clockMinutes는 그 wrap 이전의 절대 분을 그대로 이어받는다(문자열을 다시 파싱해 되먹이면
   // 자정을 넘긴 경과 시간 정보가 사라져 다음 항목이 더 이른 시각으로 계산되는 역행 버그가 생긴다).
-  const place = (poi: PoiDetail, startMinutesAbsolute: number) => {
-    scheduled.push({ poi, timeSlot: minutesToTimeSlot(startMinutesAbsolute) });
+  // purpose는 이 시점에 실제로 결정된 배치 목적을 그대로 실어 나른다(5단계, UI 목적 라벨용) — 나중에
+  // 시각/카테고리로 다시 추정하지 않는다.
+  const place = (poi: PoiDetail, startMinutesAbsolute: number, purpose: MealPurpose) => {
+    scheduled.push({ poi, timeSlot: minutesToTimeSlot(startMinutesAbsolute), purpose });
     clockMinutes = startMinutesAbsolute + DEFAULT_ITEM_STAY_MINUTES;
     prevPoi = poi;
   };
@@ -433,7 +471,7 @@ function scheduleDayWithMeals(
     if (lunchPending && shouldPlaceMealNow(clockMinutes, prevPoi, lunchPending, "lunch", remainingSights[0], transport)) {
       const arrival = computeMealArrivalMinutes(clockMinutes, prevPoi, lunchPending, "lunch", transport);
       if (fitsWithinDisplayableDay(arrival)) {
-        place(lunchPending, arrival);
+        place(lunchPending, arrival, "LUNCH");
         placedSomething = true;
       }
       lunchPending = null; // 배치했든 하루 범위를 넘어 제외했든, 이 후보는 다시 검토하지 않는다.
@@ -442,26 +480,56 @@ function scheduleDayWithMeals(
     if (!placedSomething && dinnerPending && shouldPlaceMealNow(clockMinutes, prevPoi, dinnerPending, "dinner", remainingSights[0], transport)) {
       const arrival = computeMealArrivalMinutes(clockMinutes, prevPoi, dinnerPending, "dinner", transport);
       if (fitsWithinDisplayableDay(arrival)) {
-        place(dinnerPending, arrival);
+        place(dinnerPending, arrival, "DINNER");
         placedSomething = true;
       }
       dinnerPending = null;
     }
 
     if (!placedSomething) {
+      // 연속 FOOD 방지(5단계, 2026-07-26 강릉 사례 보완): 식사가 아직 남아있거나(mealPending) 방금
+      // 실제 식사를 마쳤다면(justHadMeal), 카페 등 비식사용 FOOD가 그 식사 바로 앞/뒤에 붙지 않도록
+      // 대체 가능한(FOOD가 아닌) 후보가 큐에 남아있는 동안은 그 후보를 먼저 시도한다. 대체 후보가
+      // 전혀 없으면(카페뿐이면) 평소처럼 그대로 배치한다 — 방문 자체를 생략하지는 않는다.
+      const mealPending = Boolean(lunchPending) || Boolean(dinnerPending);
+      const justHadMeal = prevPoi !== null && isMealEligiblePoi(prevPoi);
+      const avoidNonMealFoodNow = mealPending || justHadMeal;
+      const hasNonFoodAlternative = avoidNonMealFoodNow && remainingSights.some((p) => !isNonMealFoodPoi(p));
+
+      let deferredNonMealFood: PoiDetail | null = null;
+
       // 관광지 큐를 순서대로 훑어 "지금 배치해도 하루 범위를 넘지 않는" 첫 후보를 찾는다. 그 전에
       // 넘는 후보를 만나면 큐에서 제거(제외)하고 다음 후보를 계속 확인한다 — 앞 후보 하나 때문에
       // 뒤의 짧고 가까운 후보까지 통째로 포기하지 않는다.
       while (remainingSights.length > 0) {
         const candidate = remainingSights[0];
         const start = clockMinutes + travelMinutesFrom(prevPoi, candidate, transport);
-        remainingSights.shift();
-        if (fitsWithinDisplayableDay(start)) {
-          place(candidate, start);
-          placedSomething = true;
-          break;
+        if (!fitsWithinDisplayableDay(start)) {
+          remainingSights.shift(); // 이 후보는 제외한다(재큐잉하지 않음) — 계속 다음 후보를 확인한다.
+          continue;
         }
-        // 이 후보는 제외한다(재큐잉하지 않음) — 계속 다음 후보를 확인한다.
+        if (hasNonFoodAlternative && !deferredNonMealFood && isNonMealFoodPoi(candidate)) {
+          // 대체 가능한 비-FOOD 후보가 남아있으니, 이 카페는 잠시 미루고 그 후보를 먼저 찾는다.
+          deferredNonMealFood = remainingSights.shift() ?? null;
+          continue;
+        }
+        remainingSights.shift();
+        place(candidate, start, "GENERAL");
+        placedSomething = true;
+        break;
+      }
+
+      if (deferredNonMealFood) {
+        if (placedSomething) {
+          remainingSights.unshift(deferredNonMealFood); // 다음 기회에 다시 시도한다(삭제하지 않음).
+        } else {
+          // 대체 후보가 없었다 — 미뤄뒀던 카페를 그대로 배치한다(생략하지 않음, 기존 정책 유지).
+          const start = clockMinutes + travelMinutesFrom(prevPoi, deferredNonMealFood, transport);
+          if (fitsWithinDisplayableDay(start)) {
+            place(deferredNonMealFood, start, "GENERAL");
+            placedSomething = true;
+          }
+        }
       }
     }
 
@@ -489,7 +557,7 @@ function scheduleDayPois(
   dayPois: PoiDetail[],
   slotsForDay: string[],
   transport: TransportCode,
-): { poi: PoiDetail; timeSlot: string }[] | null {
+): ScheduledItem[] | null {
   if (!dayPois.some(isFoodPoi)) return null;
   return scheduleDayWithMeals(
     dayPois,
@@ -500,7 +568,7 @@ function scheduleDayPois(
 }
 
 /** 그 날짜의 최종 스케줄 결과에 점심/저녁 FOOD가 실제로(시간대 안에) 배치됐는지 확인한다. */
-function mealSlotStatus(scheduled: { poi: PoiDetail; timeSlot: string }[] | null): { hasLunch: boolean; hasDinner: boolean } {
+function mealSlotStatus(scheduled: ScheduledItem[] | null): { hasLunch: boolean; hasDinner: boolean } {
   if (!scheduled) return { hasLunch: false, hasDinner: false };
   const lunchStart = parseTimeSlotToMinutes(MEAL_WINDOWS.lunch.start) ?? 0;
   const lunchEnd = parseTimeSlotToMinutes(MEAL_WINDOWS.lunch.end) ?? 0;
@@ -529,7 +597,7 @@ function mealSlotStatus(scheduled: { poi: PoiDetail; timeSlot: string }[] | null
  */
 function repairMealCoverage(
   dayPoisList: PoiDetail[][],
-  scheduledList: ({ poi: PoiDetail; timeSlot: string }[] | null)[],
+  scheduledList: (ScheduledItem[] | null)[],
   daySlotsForDayList: string[][],
   transport: TransportCode,
 ): void {
@@ -653,7 +721,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
     const scheduled = scheduledList[d];
     const finalOrderedPois = scheduled ? scheduled.map((s) => s.poi) : dayPois;
     const itemInputs: CourseItemInput[] = scheduled
-      ? scheduled.map(({ poi, timeSlot }) => ({
+      ? scheduled.map(({ poi, timeSlot, purpose }) => ({
           poiId: poi.id,
           poiName: poi.name,
           category: poi.category,
@@ -661,6 +729,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           lat: poi.lat,
           lng: poi.lng,
           timeSlot,
+          mealPurpose: purpose,
         }))
       : dayPois.map((p) => ({
           poiId: p.id,

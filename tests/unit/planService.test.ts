@@ -114,7 +114,7 @@ describe("ensureSelectedPlan — 최초 후보에 식사 가능 FOOD가 부족�
     expect(plan).toEqual({ id: "plan-1" });
   });
 
-  it("최초 후보에 이미 식사 가능 FOOD가 충분하면 지역 DB 보충 조회를 하지 않는다", async () => {
+  it("최초 후보에 이미 식사 가능 FOOD가 충분하면 식사 보충 조회는 하지 않는다(일반 방문 후보 보충은 별개)", async () => {
     const ids = ["food-1", "food-2", "a1", "a2"];
     projectFindUniqueOrThrow.mockResolvedValue({
       id: "project-2",
@@ -134,17 +134,71 @@ describe("ensureSelectedPlan — 최초 후보에 식사 가능 FOOD가 부족�
       reasons: ["r1", "r2", "r3"],
       poiIds: ids,
     });
-    poiFindMany.mockResolvedValue([
-      foodRow("food-1", "A05020100"),
-      foodRow("food-2", "A05020200"),
-      attractionRow("a1", 128.41),
-      attractionRow("a2", 128.42),
-    ]);
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [
+          foodRow("food-1", "A05020100"),
+          foodRow("food-2", "A05020200"),
+          attractionRow("a1", 128.41),
+          attractionRow("a2", 128.42),
+        ];
+      }
+      // 식사 보충(category:"FOOD")이 아니라 일반 방문 후보 보충(category:{in:[...]})만 호출돼야 한다.
+      expect(where.category).not.toBe("FOOD");
+      return [];
+    });
 
     await ensureSelectedPlan("project-2");
 
-    // DAY_TRIP 식사 선점 목표(2개)를 이미 충족하므로 보충용 findMany(카테고리 조건)는 호출되지 않아야 한다
-    // — 호출은 fetchPoiDetailsInOrder의 1회(전체 id 목록 조회)만 있어야 한다.
-    expect(poiFindMany).toHaveBeenCalledTimes(1);
+    // DAY_TRIP 식사 선점 목표(2개)는 이미 충족하므로 식사 보충(category:"FOOD" 단일 조건) 호출은 없다.
+    const foodSupplementCalls = poiFindMany.mock.calls.filter(([{ where }]) => where.category === "FOOD");
+    expect(foodSupplementCalls).toHaveLength(0);
+  });
+
+  it("비숙박 POI 총량이 이 기간의 원래 목표 밀도(식사 선점 포함)에 못 미치면 같은 지역의 일반 방문 후보로 보충한다(강릉 사례 재현)", async () => {
+    // DAY_TRIP 목표(4) + 식사 선점 목표(2) = 6. 최초 후보는 4개(식사 2 + 관광 2)뿐이라 2개가 부족하다.
+    const ids = ["food-1", "food-2", "a1", "a2"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-3",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-3",
+      selectedPlan: null,
+      input: { duration: "DAY_TRIP", transport: "WALK" },
+      region: { name: "강릉시" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-3",
+      templateId: "LOCAL_FOOD_MARKET",
+      name: "로컬미식·시장 연계형",
+      concept: "강릉 로컬 미식",
+      totalScore: 80,
+      targetDescription: "미식 여행객",
+      reasons: ["r1", "r2", "r3"],
+      poiIds: ids,
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [
+          foodRow("food-1", "A05020100"),
+          foodRow("food-2", "A05020200"),
+          attractionRow("a1", 128.41),
+          attractionRow("a2", 128.42),
+        ];
+      }
+      // 일반 방문 후보 보충 호출: FOOD 카테고리가 아니라 관광/체험/축제/쇼핑 카테고리 목록으로 조회한다.
+      expect(where.regionId).toBe(REGION_ID);
+      expect(where.category).toEqual({ in: ["ATTRACTION", "EXPERIENCE", "FESTIVAL", "SHOPPING"] });
+      return [attractionRow("a3", 128.43), attractionRow("a4", 128.44)];
+    });
+
+    const plan = await ensureSelectedPlan("project-3");
+
+    const savedCourse = selectedPlanUpsert.mock.calls[0][0].create.course as {
+      days: { items: { poiId: string }[] }[];
+    };
+    const allIds = savedCourse.days.flatMap((d) => d.items.map((i) => i.poiId));
+    expect(allIds).toContain("a3");
+    expect(allIds).toContain("a4");
+    expect(plan).toEqual({ id: "plan-1" });
   });
 });

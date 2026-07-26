@@ -5,6 +5,7 @@ import {
   estimateTravel,
   parseTimeSlotToMinutes,
   minutesToTimeSlot,
+  describeCourseItemPurpose,
   type PoiDetail,
   type CourseItemInput,
 } from "@/lib/domain/planBuilder";
@@ -73,6 +74,23 @@ describe("buildDraftCourse", () => {
     // 앞 4자리는 DAY_TRIP 전용 고정 슬롯(2단계: 날짜별 시간대 분리), 5번째부터는 마지막 슬롯(17:30)에서
     // 150분씩 이어간다
     expect(days[0].items.map((i) => i.timeSlot)).toEqual(["10:00", "12:30", "15:00", "17:30", "20:00", "22:30"]);
+  });
+});
+
+describe("describeCourseItemPurpose — 실행안/인쇄 화면이 공용으로 쓰는 FOOD 목적 라벨(5단계)", () => {
+  it("FOOD가 아니면 mealPurpose와 무관하게 카테고리만 반환한다", () => {
+    expect(describeCourseItemPurpose({ category: "ATTRACTION" })).toBe("ATTRACTION");
+    expect(describeCourseItemPurpose({ category: "EXPERIENCE", mealPurpose: "LUNCH" })).toBe("EXPERIENCE");
+  });
+
+  it("FOOD이고 mealPurpose가 있으면 목적을 붙인다", () => {
+    expect(describeCourseItemPurpose({ category: "FOOD", mealPurpose: "LUNCH" })).toBe("FOOD · 점심");
+    expect(describeCourseItemPurpose({ category: "FOOD", mealPurpose: "DINNER" })).toBe("FOOD · 저녁");
+    expect(describeCourseItemPurpose({ category: "FOOD", mealPurpose: "GENERAL" })).toBe("FOOD · 카페/일반 방문");
+  });
+
+  it("FOOD인데 mealPurpose가 없으면(legacy 실행안) 카테고리만 반환한다 — 크래시하지 않는다", () => {
+    expect(describeCourseItemPurpose({ category: "FOOD" })).toBe("FOOD");
   });
 });
 
@@ -1159,5 +1177,202 @@ describe("buildDraftCourse — 통영 사례를 본뜬 회귀 테스트(1일차 
     const allIds = days.flatMap((d) => d.items.map((i) => i.poiId));
     expect(allIds).not.toContain("d1-food-extra");
     expect(() => buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK")).not.toThrow();
+  });
+});
+
+describe("buildDraftCourse — 강릉 사례를 본뜬 회귀 테스트(연속 FOOD 방지, 공백 후보 활용, 목적 라벨)", () => {
+  it("1일차: 카페가 점심 바로 앞/뒤에 붙지 않고, 도달 가능한 추가 관광 후보가 점심·저녁 사이 공백을 채운다", () => {
+    // 1일차 군집(위도 0): 오전 카페(mealEligible=false), 점심용 FOOD, 오후 관광지, 저녁용 FOOD,
+    // 공백을 메울 추가 관광 후보 3곳. 2일차 군집(위도 10)은 단순 채움용 관광지 5곳뿐이다(날짜별 개수
+    // 분배가 군집을 그대로 보존하도록 총량을 맞췄다).
+    const pois = [
+      foodPoi("cafe-am", 0, 0, false),
+      foodPoi("lunch-food", 0, 0.01, true),
+      poi("attr-pm", 0, 0.02, "ATTRACTION"),
+      foodPoi("dinner-food", 0, 0.03, true),
+      poi("extra-attr", 0, 0.04, "ATTRACTION"),
+      poi("extra-attr-2", 0, 0.05, "ATTRACTION"),
+      poi("extra-attr-3", 0, 0.06, "ATTRACTION"),
+      poi("d2-a", 10, 0, "ATTRACTION"),
+      poi("d2-b", 10, 0.01, "ATTRACTION"),
+      poi("d2-c", 10, 0.02, "ATTRACTION"),
+      poi("d2-d", 10, 0.03, "ATTRACTION"),
+      poi("d2-e", 10, 0.04, "ATTRACTION"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+    const items = days[0].items;
+
+    // 아무것도 삭제되지 않는다 — 카페와 추가 관광 후보 모두 그대로 남아 있어야 한다.
+    const day1Ids = items.map((i) => i.poiId);
+    expect(day1Ids).toContain("cafe-am");
+    expect(day1Ids).toContain("extra-attr");
+    expect(day1Ids).toContain("attr-pm");
+    expect(new Set(day1Ids).size).toBe(day1Ids.length);
+
+    // 점심·저녁은 실제 식사 가능 FOOD여야 한다.
+    const lunchItem = items.find((i) => i.poiId === "lunch-food")!;
+    const dinnerItem = items.find((i) => i.poiId === "dinner-food")!;
+    expect(lunchItem.mealPurpose).toBe("LUNCH");
+    expect(dinnerItem.mealPurpose).toBe("DINNER");
+
+    // 카페(비식사용 FOOD)는 실제 점심·저녁 바로 앞이나 뒤에 붙지 않는다(연속 FOOD 방지) — 대체 가능한
+    // 관광 후보가 충분히 있으므로 카페가 두 식사 사이에 억지로 끼어들지 않는다.
+    const cafeIndex = items.findIndex((i) => i.poiId === "cafe-am");
+    const lunchIndex = items.findIndex((i) => i.poiId === "lunch-food");
+    const dinnerIndex = items.findIndex((i) => i.poiId === "dinner-food");
+    expect(Math.abs(cafeIndex - lunchIndex)).toBeGreaterThan(1);
+    expect(Math.abs(cafeIndex - dinnerIndex)).toBeGreaterThan(1);
+
+    // 추가 관광 후보는 실제로 배치돼(생략되지 않고) 점심 이후·저녁 이전 공백을 채우는 데 쓰인다.
+    const lunchMinutes = parseTimeSlotToMinutes(lunchItem.timeSlot) as number;
+    const dinnerMinutes = parseTimeSlotToMinutes(dinnerItem.timeSlot) as number;
+    const extraItem = items.find((i) => i.poiId === "extra-attr")!;
+    const extraMinutes = parseTimeSlotToMinutes(extraItem.timeSlot) as number;
+    expect(extraMinutes).toBeGreaterThan(lunchMinutes);
+    expect(extraMinutes).toBeLessThan(dinnerMinutes);
+
+    // 시간 역행·중첩이 없다.
+    for (let i = 1; i < items.length; i++) {
+      const prevEnd = (parseTimeSlotToMinutes(items[i - 1].timeSlot) as number) + items[i - 1].stayMinutes;
+      const curStart = parseTimeSlotToMinutes(items[i].timeSlot) as number;
+      expect(curStart).toBeGreaterThanOrEqual(prevEnd);
+    }
+  });
+
+  it("20:00 숙소 체크인은 그 날짜 마지막 일반 일정 종료 이후로 계산되고, 절대 그보다 앞서지 않는다", () => {
+    const pois = [
+      poi("attr-pm", 0, 0, "ATTRACTION"),
+      foodPoi("lunch-food", 0, 0.01, true),
+      foodPoi("dinner-food", 0, 0.02, true),
+      poi("lodge-1", 0, 0.03, "LODGING"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+    const items = days[0].items;
+
+    expect(days[0].lodging).not.toBeNull();
+    const lastEnd = (parseTimeSlotToMinutes(items[items.length - 1].timeSlot) as number) + items[items.length - 1].stayMinutes;
+    const checkinMinutes = parseTimeSlotToMinutes(days[0].lodging!.timeSlot) as number;
+    expect(checkinMinutes).toBeGreaterThanOrEqual(lastEnd);
+  });
+
+  it("대체 가능한 일반 관광 후보가 전혀 없으면(카페뿐이면) 카페라도 그대로 배치한다 — 방문 자체를 생략하지 않는다", () => {
+    const pois = [foodPoi("lunch-food", 0, 0, true), foodPoi("cafe-only", 0, 0.01, false)];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items).toHaveLength(2);
+    expect(items.some((i) => i.poiId === "cafe-only")).toBe(true);
+  });
+});
+
+describe("buildDraftCourse — 2일차(09:30 시작, 오후 종료) 회귀 테스트: 점심이 가로채이지 않고, 도달 가능한 후보가 있으면 조기 종료하지 않는다", () => {
+  it("오전 카페·체험이 있어도 점심은 실제 식사 가능 FOOD로 배치되고, 체험이 점심 시간대를 가로채지 않으며, 점심 이후에도 일정이 이어진다", () => {
+    // 1일차 군집(위도 0, 6곳)은 단순 채움용이다. 2일차 군집(위도 10)에 "09:30 시작, 오후 종료"
+    // 조건의 실제 검증 대상(카페/체험/점심/관광지 2곳, 5곳)을 둔다 — 날짜별 개수 분배가 두 군집을
+    // 정확히 6/5로 나누도록(초과분 재배분 없이) 총량을 맞췄다.
+    const pois = [
+      poi("d1-a", 0, 0, "ATTRACTION"),
+      poi("d1-b", 0, 0.01, "ATTRACTION"),
+      poi("d1-c", 0, 0.02, "ATTRACTION"),
+      poi("d1-d", 0, 0.03, "ATTRACTION"),
+      poi("d1-e", 0, 0.04, "ATTRACTION"),
+      poi("d1-f", 0, 0.05, "ATTRACTION"),
+      foodPoi("d2-cafe-am", 10, 0, false),
+      poi("d2-experience", 10, 0.01, "EXPERIENCE"),
+      foodPoi("d2-lunch", 10, 0.02, true),
+      poi("d2-attr-1", 10, 0.03, "ATTRACTION"),
+      poi("d2-attr-2", 10, 0.04, "ATTRACTION"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+    expect(days[0].items).toHaveLength(6);
+    const day2Items = days[1].items;
+    expect(day2Items).toHaveLength(5);
+
+    // 점심은 실제 식사 가능 FOOD여야 하고, 체험이 점심 시간대를 가로채지 않는다.
+    const lunchItem = day2Items.find((i) => i.poiId === "d2-lunch")!;
+    expect(lunchItem.mealPurpose).toBe("LUNCH");
+    const lunchMinutes = parseTimeSlotToMinutes(lunchItem.timeSlot) as number;
+    const LUNCH_START = parseTimeSlotToMinutes("11:30") as number;
+    const LUNCH_END = parseTimeSlotToMinutes("13:30") as number;
+    expect(lunchMinutes).toBeGreaterThanOrEqual(LUNCH_START);
+    expect(lunchMinutes).toBeLessThanOrEqual(LUNCH_END);
+    // 체험(EXPERIENCE)이 점심 자리를 대신 차지하지 않는다 — mealPurpose="LUNCH"는 오직 실제 식사 가능
+    // FOOD 하나에만 부여된다(장소명·시각이 아니라 splitMealCandidates가 결정한 값을 그대로 확인한다).
+    expect(day2Items.filter((i) => i.mealPurpose === "LUNCH")).toHaveLength(1);
+    expect(day2Items.find((i) => i.mealPurpose === "LUNCH")!.poiId).toBe("d2-lunch");
+    expect(day2Items.some((i) => i.category === "EXPERIENCE" && i.mealPurpose === "LUNCH")).toBe(false);
+
+    // 카페는 점심으로 계산되지 않는다.
+    const cafeItem = day2Items.find((i) => i.poiId === "d2-cafe-am")!;
+    expect(cafeItem.mealPurpose).not.toBe("LUNCH");
+
+    // 일정이 점심 직후(13:30) 바로 끝나지 않는다 — 도달 가능한 후보가 있으면 오후 시간대도 채운다.
+    const lastItem = day2Items[day2Items.length - 1];
+    const lastEnd = (parseTimeSlotToMinutes(lastItem.timeSlot) as number) + lastItem.stayMinutes;
+    expect(lastEnd).toBeGreaterThan(LUNCH_END);
+
+    // 2일차 종료 시각(15:00)을 넘지 않는다.
+    const DAY2_END = parseTimeSlotToMinutes("15:00") as number;
+    for (const item of day2Items) {
+      expect(parseTimeSlotToMinutes(item.timeSlot) as number).toBeLessThanOrEqual(DAY2_END);
+    }
+
+    // 시간 역행·중첩이 없고, 중복 배치가 없다.
+    for (let i = 1; i < day2Items.length; i++) {
+      const prevEnd = (parseTimeSlotToMinutes(day2Items[i - 1].timeSlot) as number) + day2Items[i - 1].stayMinutes;
+      const curStart = parseTimeSlotToMinutes(day2Items[i].timeSlot) as number;
+      expect(curStart).toBeGreaterThanOrEqual(prevEnd);
+    }
+    const allIds = days.flatMap((d) => d.items.map((i) => i.poiId));
+    expect(new Set(allIds).size).toBe(allIds.length);
+  });
+});
+
+describe("buildDraftCourse — 후보 부족 시 안전한 생략(강릉 사례 보완)", () => {
+  it("점심·저녁 외에 추가 후보가 없으면 억지로 채우지 않고, 시간 제약을 위반하지 않으며, 식사 보장은 유지된다", () => {
+    const pois = [foodPoi("lunch-only", 0, 0, true), foodPoi("dinner-only", 0, 0.01, true)];
+    expect(() => buildDraftCourse(pois, "DAY_TRIP", "WALK")).not.toThrow();
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items.some((i) => i.mealPurpose === "LUNCH")).toBe(true);
+    expect(items.some((i) => i.mealPurpose === "DINNER")).toBe(true);
+    expect(items).toHaveLength(2); // 억지로 추가 항목을 만들지 않는다.
+
+    for (let i = 1; i < items.length; i++) {
+      const prevEnd = (parseTimeSlotToMinutes(items[i - 1].timeSlot) as number) + items[i - 1].stayMinutes;
+      const curStart = parseTimeSlotToMinutes(items[i].timeSlot) as number;
+      expect(curStart).toBeGreaterThanOrEqual(prevEnd);
+    }
+  });
+
+  it("거리상 도달 가능한 추가 후보가 없으면(모두 하루 범위를 벗어나면) 억지로 삽입하지 않고 안전하게 생략한다", () => {
+    const pois = [
+      foodPoi("lunch-food", 0, 0, true),
+      foodPoi("dinner-food", 0, 0.01, true),
+      poi("unreachable-attr", 60, 0, "ATTRACTION"), // 도보로 도달 불가능할 만큼 먼 거리
+    ];
+    expect(() => buildDraftCourse(pois, "DAY_TRIP", "WALK")).not.toThrow();
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items.some((i) => i.mealPurpose === "LUNCH")).toBe(true);
+    expect(items.some((i) => i.mealPurpose === "DINNER")).toBe(true);
+    for (const item of items) {
+      expect(parseTimeSlotToMinutes(item.timeSlot) as number).toBeLessThanOrEqual(parseTimeSlotToMinutes("23:00") as number);
+    }
+  });
+
+  it("체크인까지 남은 시간이 부족해도 함수가 예외 없이 완료되고 체크인은 안전하게 생략되거나 유효한 시각을 유지한다", () => {
+    const pois = [
+      foodPoi("dinner-food", 0, 0, true),
+      poi("far-lodge", 30, 0, "LODGING"), // 저녁 이후 매우 먼 숙소
+    ];
+    expect(() => buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK")).not.toThrow();
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+    // lodging은 null(안전한 생략)이거나, 있다면 반드시 유효하게 파싱되는 시각이어야 한다 — 거짓 시각을 지어내지 않는다.
+    if (days[0].lodging) {
+      expect(parseTimeSlotToMinutes(days[0].lodging.timeSlot)).not.toBeNull();
+    }
   });
 });

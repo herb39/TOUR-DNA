@@ -7,11 +7,19 @@ import {
   type PoiDetail,
   type TransportCode,
 } from "@/lib/domain/planBuilder";
-import { MEAL_RESERVE_TARGET_BY_DURATION, type DurationCode } from "@/lib/domain/strategy";
-import { fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
+import {
+  MEAL_RESERVE_TARGET_BY_DURATION,
+  NON_LODGING_POI_TARGET_BY_DURATION,
+  type DurationCode,
+} from "@/lib/domain/strategy";
+import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
 
 function countMealEligibleFood(pois: PoiDetail[]): number {
   return pois.filter((p) => p.category === "FOOD" && p.mealEligible !== false).length;
+}
+
+function countNonLodging(pois: PoiDetail[]): number {
+  return pois.filter((p) => p.category !== "LODGING").length;
 }
 
 /**
@@ -54,6 +62,22 @@ export async function ensureSelectedPlan(projectId: string) {
       mealReserveTarget - mealEligibleCount,
     );
     if (supplement.length > 0) pois = [...pois, ...supplement];
+  }
+
+  // 식사 선점(mealReserveTarget)은 이 기간의 원래 비숙박 목표 밀도(NON_LODGING_POI_TARGET_BY_DURATION)
+  // 예산 안에서 이뤄지므로, 그만큼 일반 관광 후보가 줄어든다 — 2026-07-26 강릉 사례: 하루 목표 4개 중
+  // 2개가 식사로 쓰여 실제 관광 시간을 채울 후보가 2개뿐이었고, 그 결과 FOOD가 연속으로 붙거나 오후에
+  // 큰 공백이 생겼다. 원래 목표 밀도 + 식사 선점 목표만큼을 비숙박 POI 총량의 기준으로 삼아 부족하면
+  // 같은 지역의 일반 방문 후보(FOOD 아님)로 보충한다.
+  const desiredNonLodgingCount = NON_LODGING_POI_TARGET_BY_DURATION[duration] + mealReserveTarget;
+  const nonLodgingCount = countNonLodging(pois);
+  if (nonLodgingCount < desiredNonLodgingCount) {
+    const generalSupplement = await fetchAdditionalGeneralPois(
+      project.regionId,
+      pois.map((p) => p.id),
+      desiredNonLodgingCount - nonLodgingCount,
+    );
+    if (generalSupplement.length > 0) pois = [...pois, ...generalSupplement];
   }
 
   const course = buildDraftCourse(pois, duration, project.input.transport as TransportCode);

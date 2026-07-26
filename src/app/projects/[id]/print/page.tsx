@@ -5,7 +5,7 @@ import { labelForBudgetLevel, labelForDuration, labelForGroupType, labelForTrans
 import { formatBaseYm, formatDateTime } from "@/lib/format";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { PrintButton } from "@/components/plan/PrintButton";
-import type { CourseDay } from "@/lib/domain/planBuilder";
+import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               <ol className="mt-1 space-y-1 text-xs text-slate-700">
                 {day.items.map((item, i) => (
                   <li key={i}>
-                    {item.timeSlot} {item.poiName} ({item.category}, {item.stayMinutes}분)
+                    {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분)
                   </li>
                 ))}
               </ol>
