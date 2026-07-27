@@ -216,16 +216,45 @@ export function recomputeDayItems(
   transport: TransportCode,
   timeSlots: string[] = DEFAULT_TIME_SLOTS,
 ): CourseItem[] {
+  /** 자동 배정(명시적 timeSlot이 없는) 항목이 실제로 시작 가능한 절대 분(이전 항목 종료+이동시간).
+   * 명시적 timeSlot이 있는 항목을 만나면 그 값으로 갱신해, 사용자가 편집한 시각 이후의 자동 항목도
+   * 그 시각을 기준으로 이어진다. */
+  let cumulativeMinutes: number | null = null;
+
   return items.map((item, idx) => {
     const prev = idx === 0 ? null : items[idx - 1];
+    const travelEstimate = prev ? estimateTravel(prev, item, transport) : null;
+    const defaultMinutes = parseTimeSlotToMinutes(defaultTimeSlotFor(idx, timeSlots)) ?? 0;
+
+    let timeSlot: string;
+    if (item.timeSlot) {
+      // 사용자가 이미 편집했거나 기존에 있던 시각은 그대로 유지한다(형식을 다시 만들지 않음).
+      timeSlot = item.timeSlot;
+      cumulativeMinutes = parseTimeSlotToMinutes(item.timeSlot);
+    } else if (cumulativeMinutes !== null && travelEstimate?.minutes != null) {
+      // P0-3(2026-07-27): 새로 추가되는 항목은 자리 기준 기본 슬롯과 "실제 이동시간을 반영한 도착
+      // 시각" 중 늦은 쪽으로 배정한다 — 그렇지 않으면 이동에 오래 걸리는 후보를 골랐을 때 화면에는
+      // 기본 슬롯(예: 13:00)이 그대로 남아 여유시간이 0이거나 이동시간(예: 96분)과 슬롯 간격이
+      // 맞지 않는 것처럼 보였다. 이동시간이 짧으면(기본값 이내) 지금처럼 기본 슬롯을 그대로 쓴다.
+      const arrivalMinutes = cumulativeMinutes + travelEstimate.minutes;
+      const startMinutes = ceilToNext30Minutes(Math.max(defaultMinutes, arrivalMinutes));
+      timeSlot = minutesToTimeSlot(startMinutes);
+      cumulativeMinutes = startMinutes;
+    } else {
+      timeSlot = minutesToTimeSlot(defaultMinutes);
+      cumulativeMinutes = defaultMinutes;
+    }
+
+    cumulativeMinutes = (cumulativeMinutes ?? defaultMinutes) + item.stayMinutes;
+
     return {
       order: idx + 1,
       poiId: item.poiId,
       poiName: item.poiName,
       category: item.category,
-      timeSlot: item.timeSlot ?? defaultTimeSlotFor(idx, timeSlots),
+      timeSlot,
       stayMinutes: item.stayMinutes,
-      travel: prev ? estimateTravel(prev, item, transport).label : "숙소/집결지에서 이동",
+      travel: prev ? (travelEstimate as TravelEstimate).label : "숙소/집결지에서 이동",
       lat: item.lat,
       lng: item.lng,
       mealPurpose: item.mealPurpose,

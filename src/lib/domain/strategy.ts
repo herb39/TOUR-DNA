@@ -212,6 +212,10 @@ export const MEAL_RESERVE_TARGET_BY_DURATION: Record<DurationCode, number> = {
 /** 그래도 목표에 못 미치면 마지막으로 훑는 비숙박 카테고리 전체(고정 순서, LODGING 제외). */
 const ALL_NON_LODGING_CATEGORIES: PoiCategoryCode[] = ["ATTRACTION", "FOOD", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
 
+/** P0-3: 마지막(가장 무관한) 티어가 하루 목표 개수에서 채울 수 있는 최대 비중. 0.4 = 목표의 40%까지만
+ * "전략과 무관한" 카테고리로 채우고, 나머지는 채우지 못해도 그대로 둔다(부정확한 장소로 채우지 않음). */
+const FALLBACK_TIER_MAX_SHARE = 0.4;
+
 /** 카테고리 하나를 이름순 정렬 후, 템플릿+카테고리 조합 해시로 정한 위치부터 시작하도록 순환시킨다.
  * 입력 pool을 복사만 하고 원본은 건드리지 않는다. */
 function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, pool: PoiLike[]): PoiLike[] {
@@ -289,13 +293,23 @@ function selectPois(
   };
 
   // 티어 안에서는 카테고리를 순환하며 한 개씩 뽑아 균형 있게 채우고, 목표에 못 미치면 다음 티어로 내려간다.
+  // P0-3(2026-07-27): 마지막 티어(fallbackCats, 템플릿과 무관한 나머지 카테고리)만은 목표를 끝까지
+  // 채우지 않는다 — core+supplement 후보가 부족하다고 해서 전략과 무관한 카테고리로 억지로 채우면
+  // "전략과 무관한 음식점/캠핑장이 주요 관광지 자리를 차지"하는 문제가 생긴다. 대신 fallback 기여분을
+  // 목표치의 일부(FALLBACK_TIER_MAX_SHARE)로 제한하고, 그래도 못 채우면 더 짧은 코스로 남긴다(빈
+  // 자리를 부정확한 장소로 채우지 않는다는 원칙).
+  const fallbackTierMaxCount = Math.ceil(nonLodgingTarget * FALLBACK_TIER_MAX_SHARE);
   for (const tier of priorityTiers) {
-    if (selectedIds.size >= nonLodgingTarget) break;
+    const isFallbackTier = tier === fallbackCats;
+    const tierLimit = isFallbackTier
+      ? Math.min(nonLodgingTarget, selectedIds.size + fallbackTierMaxCount)
+      : nonLodgingTarget;
+    if (selectedIds.size >= tierLimit) continue;
     let progressed = true;
-    while (progressed && selectedIds.size < nonLodgingTarget) {
+    while (progressed && selectedIds.size < tierLimit) {
       progressed = false;
       for (const cat of tier) {
-        if (selectedIds.size >= nonLodgingTarget) break;
+        if (selectedIds.size >= tierLimit) break;
         const picked = pickNext(cat);
         if (!picked) continue;
         selectedIds.add(picked.id);

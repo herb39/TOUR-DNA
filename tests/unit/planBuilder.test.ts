@@ -147,6 +147,37 @@ describe("recomputeDayItems", () => {
     const result = recomputeDayItems(items, "WALK");
     expect(result).toHaveLength(5);
   });
+
+  it("P0-3: 이동시간이 길어 기본 슬롯보다 늦게 도착하면, 자동 배정 항목의 시각이 실제 도착 시각(30분 올림)으로 밀린다", () => {
+    // 도보로 약 96분 걸리는 거리(약 6.4km)를 만든다 — 운영에서 관찰된 "이동 약 96분" 사례를 재현.
+    const items = [
+      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 0, lng: 0 }),
+      input({ poiId: "b", poiName: "B", lat: 0, lng: 0.064 }),
+    ];
+    const result = recomputeDayItems(items, "WALK", ["10:00", "11:00"]);
+    // a: 10:00 시작 + 60분 체류 = 11:00 종료. 이동 약 96분 → 실제 도착 12:36 → 30분 올림 13:00.
+    // 기존 방식이면 자리 기준 기본값(11:00)에 그대로 고정돼, 실제로는 도착 전인데도 이미 시작한
+    // 것처럼 표시되고 여유시간이 음수가 됐다.
+    expect(result[1].timeSlot).toBe("13:00");
+  });
+
+  it("P0-3: 이동시간이 짧으면(기본 슬롯보다 일찍 도착) 기존처럼 자리 기준 기본 슬롯을 그대로 쓴다(회귀 없음)", () => {
+    const items = [
+      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 0, lng: 0 }),
+      input({ poiId: "b", poiName: "B", lat: 0, lng: 0.001 }),
+    ];
+    const result = recomputeDayItems(items, "WALK", ["10:00", "13:00"]);
+    expect(result[1].timeSlot).toBe("13:00");
+  });
+
+  it("P0-3: 좌표 정보가 없으면(기존과 동일) 자리 기준 기본 슬롯을 그대로 쓴다", () => {
+    const items = [
+      input({ poiId: "a", poiName: "A", timeSlot: "10:00" }),
+      input({ poiId: "b", poiName: "B" }),
+    ];
+    const result = recomputeDayItems(items, "WALK", ["10:00", "11:00"]);
+    expect(result[1].timeSlot).toBe("11:00");
+  });
 });
 
 /** 지정한 개수만큼 비숙박(ATTRACTION) POI를 만든다. lng를 늘려가며 배치해 최근접 이웃 정렬 결과가
@@ -193,7 +224,12 @@ describe("buildDraftCourse — 숙박 분리와 날짜별 배치(개선 2단계)
   });
 
   it("2박 3일은 1·2일차에 숙박 1개씩 배치하고 마지막 날에는 숙박이 없으며, 두 숙박은 서로 다른 POI다", () => {
-    const pois = [...makeNonLodgingPois("a", 15), ...makeLodgingPois("l", 3)];
+    // P0-3(2026-07-27) 이후 자동 슬롯은 실제 이동시간을 반영해 뒤로 밀릴 수 있다 — 이 테스트의 관심사는
+    // "숙박 분리 자체"이므로, 초과분(2일차에 몰림)이 누적돼도 하루 표시 범위를 넘지 않도록 좌표 간격을
+    // 촘촘하게(같은 구역 취급 기준인 0.3km 미만) 둔다.
+    const closeNonLodgingPois = Array.from({ length: 13 }, (_, i) => poi(`a-${i}`, 0, i * 0.002));
+    const closeLodgingPois = Array.from({ length: 3 }, (_, i) => poi(`l-${i}`, 0, 0.03 + i * 0.002, "LODGING"));
+    const pois = [...closeNonLodgingPois, ...closeLodgingPois];
     const days = buildDraftCourse(pois, "TWO_NIGHTS_THREE_DAYS", "WALK");
 
     expect(days).toHaveLength(3);

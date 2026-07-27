@@ -534,4 +534,30 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     const categories = natureWellness!.poiIds.map((id) => categoryOf(id, coreOnlyPool));
     expect(categories.filter((c) => c === "FOOD")).toHaveLength(2);
   });
+
+  it("P0-3: 핵심·보완 카테고리 후보가 부족해도 무관한 카테고리(fallback tier)로 목표를 끝까지 채우지 않는다", () => {
+    // NATURE_WELLNESS의 핵심은 ATTRACTION/EXPERIENCE, 보완은 FOOD/SHOPPING, fallback은 FESTIVAL뿐이다.
+    // 핵심·보완 후보가 딱 1개뿐이고 FESTIVAL만 풍부해도, FESTIVAL로 목표(7개)를 억지로 채우지 않아야
+    // "전략과 무관한 장소가 주요 관광지 자리를 차지"하는 문제가 재현되지 않는다.
+    const scarceRelevantPool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [poi("a1", "attraction-1", "ATTRACTION")],
+      FESTIVAL: makePois("festival", "FESTIVAL", 20),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["자연"] }),
+      scarceRelevantPool,
+      MODEL_VERSION,
+    );
+    const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    expect(natureWellness).toBeDefined();
+    // 목표(7개)를 다 채우지 못하고, fallback 기여분은 목표의 40% 이하로 제한된다(1core + ceil(7*0.4)=3 = 4).
+    expect(natureWellness!.poiIds.length).toBeLessThan(7);
+    expect(natureWellness!.poiIds.length).toBe(4);
+    const festivalCount = natureWellness!.poiIds.filter(
+      (id) => categoryOf(id, scarceRelevantPool) === "FESTIVAL",
+    ).length;
+    expect(festivalCount).toBeLessThanOrEqual(3);
+  });
 });
