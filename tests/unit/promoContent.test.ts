@@ -189,6 +189,62 @@ describe("buildPromoContent — Evidence/provenance 처리", () => {
     );
     expect(result.evidenceReferences).toHaveLength(0);
   });
+
+  it("P0-6: 근거 문구(사람이 읽는 텍스트)에 내부 지표 코드(tarSjrnDsIxVal 등)가 노출되지 않고 한글 라벨로 바뀐다", () => {
+    // evidenceReferences(구조화 데이터)에는 metricCode 원본이 그대로 남아야 한다(프로그램적으로
+    // 필요한 필드) — 이 테스트는 사람이 읽는 문구(sentences/dataBasedEvidence)만 검증한다.
+    const result = buildPromoContent(
+      baseInput({
+        evidences: [
+          evidence({ metricCode: "tarSjrnDsIxVal" }),
+          evidence({ metricCode: "tarSvcDemIxVal", sourceCode: "TAR_SVC_DEM2" }),
+        ],
+      }),
+    );
+    expect(result.proposalSummary.sentences.join(" ")).not.toContain("tarSjrnDsIxVal");
+    expect(result.proposalSummary.sentences.join(" ")).not.toContain("tarSvcDemIxVal");
+    expect(result.proposalSummary.sentences[2]).toContain("체류 강도");
+    const govResult = buildPromoContent(
+      baseInput({
+        project: {
+          role: "LOCAL_GOV",
+          regionName: "강릉시",
+          nationality: "DOMESTIC",
+          travelYear: 2026,
+          travelMonth: 9,
+          preferredThemes: [],
+        },
+        evidences: [evidence({ metricCode: "tarSjrnDsIxVal" })],
+      }),
+    );
+    if (govResult.roleContent.role === "LOCAL_GOV") {
+      expect(govResult.roleContent.dataBasedEvidence.join(" ")).toContain("체류 강도");
+      expect(govResult.roleContent.dataBasedEvidence.join(" ")).not.toContain("tarSjrnDsIxVal");
+    }
+  });
+
+  it("P0-6: 알 수 없는 metricCode는 크래시 없이 코드 자체를 안전하게 보여준다", () => {
+    const result = buildPromoContent(baseInput({ evidences: [evidence({ metricCode: "unknownMetricXyz" })] }));
+    expect(result.proposalSummary.sentences[2]).toContain("unknownMetricXyz");
+  });
+});
+
+describe("buildPromoContent — P0-6: productName 중복 표현 방지", () => {
+  it("productName이 이미 '코스'로 끝나면 '코스 코스입니다'처럼 중복되지 않는다", () => {
+    const result = buildPromoContent(baseInput({ plan: { ...baseInput().plan, productName: "강릉 미식 당일 코스" } }));
+    expect(result.proposalSummary.sentences[0]).not.toContain("코스 코스");
+    expect(result.proposalSummary.sentences[0]).toContain("강릉 미식 당일 코스");
+  });
+
+  it("productName이 '상품'으로 끝나면 '상품 상품입니다'처럼 중복되지 않는다", () => {
+    const result = buildPromoContent(baseInput({ plan: { ...baseInput().plan, productName: "강릉 미식 상품" } }));
+    expect(result.proposalSummary.sentences[0]).not.toContain("상품 상품");
+  });
+
+  it("productName이 '코스'/'상품'으로 끝나지 않으면 기존처럼 '코스입니다'를 붙인다", () => {
+    const result = buildPromoContent(baseInput({ plan: { ...baseInput().plan, productName: "강릉 미식 투어" } }));
+    expect(result.proposalSummary.sentences[0]).toContain("강릉 미식 투어' 코스입니다");
+  });
 });
 
 describe("buildPromoContent — 국적·테마·여행월 반영", () => {

@@ -1,5 +1,5 @@
 import type { CourseDay, MealPurpose } from "./planBuilder";
-import type { DataProvenance, EvidenceItem } from "./types";
+import { METRIC_CODES, type DataProvenance, type EvidenceItem } from "./types";
 import { formatBaseYm } from "@/lib/format";
 import { labelForNationality } from "@/lib/validation/codes";
 
@@ -217,10 +217,29 @@ function buildEvidenceReferences(evidences: EvidenceItem[]): PromoEvidenceRefere
   return result;
 }
 
+/** P0-6(2026-07-27): tarSjrnDsIxVal 같은 내부 지표 코드를 사용자 화면에 그대로 노출하지 않도록
+ * 한글 라벨로 바꾼다. 알 수 없는 코드(향후 추가되는 지표 등)는 코드 자체를 그대로 보여줘 안전하게
+ * degrade한다(빈 문자열이나 크래시보다 낫다). */
+const METRIC_LABEL_KO: Record<string, string> = {
+  [METRIC_CODES.DEMAND_SERVICE]: "관광 서비스 수요",
+  [METRIC_CODES.DEMAND_RESOURCE]: "관광자원 수요",
+  [METRIC_CODES.DEMAND_VISITOR_GROWTH]: "방문자수 증감률",
+  [METRIC_CODES.VISITOR_CNT]: "방문자수",
+  [METRIC_CODES.STAY]: "체류 강도",
+  [METRIC_CODES.SPEND]: "소비 강도",
+  [METRIC_CODES.DIVERSITY]: "관광 다양성",
+  networkPoiCount: "중심 관광지 수",
+  networkRelationCount: "연관 관광지 연결 수",
+};
+
+function metricLabel(metricCode: string): string {
+  return METRIC_LABEL_KO[metricCode] ?? metricCode;
+}
+
 function formatEvidenceLine(ref: PromoEvidenceReference): string {
   const valuePart = ref.unit ? `${ref.rawValue} ${ref.unit}` : `${ref.rawValue}`;
   const estimatedPart = ref.isEstimated ? ", 추정값" : "";
-  return `${ref.metricCode}: ${valuePart} (출처: ${ref.sourceCode}, 기준월 ${formatBaseYm(ref.baseYm)}${estimatedPart})`;
+  return `${metricLabel(ref.metricCode)}: ${valuePart} (출처: ${ref.sourceCode}, 기준월 ${formatBaseYm(ref.baseYm)}${estimatedPart})`;
 }
 
 function buildProposalSummary(
@@ -231,11 +250,18 @@ function buildProposalSummary(
   const { project, strategy, plan } = input;
 
   const nationalityPart = project.nationality ? `${labelForNationality(project.nationality)} 방문객 대상으로` : null;
+  // P0-6(2026-07-27): plan.productName은 이미 "...코스"/"...상품"으로 끝나는 경우가 많다
+  // (planService.ts의 productName 템플릿 참고) — 뒤에 "코스입니다"를 무조건 붙이면
+  // "'○○ 코스' 코스입니다"처럼 단어가 중복된다. 이미 그 단어로 끝나면 붙이지 않는다.
+  const productNameText = plan.productName.trim();
+  const productNamePart = /(코스|상품)$/.test(productNameText)
+    ? `기획한 '${productNameText}'입니다.`
+    : `기획한 '${productNameText}' 코스입니다.`;
   const sentence1 = joinNonEmpty([
     `${project.regionName}에서`,
     `${project.travelYear}년 ${project.travelMonth}월`,
     nationalityPart,
-    `기획한 '${plan.productName}' 코스입니다.`,
+    productNamePart,
   ]);
 
   const sentence2 =
