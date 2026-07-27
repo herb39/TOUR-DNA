@@ -211,6 +211,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold text-slate-900">관광 DNA 5축</h2>
             <DnaRadarChart data={axisData} />
+            <p className="mt-3 text-xs text-slate-500">
+              ※ 이 점수는 실제 수치가 아니라, 같은 행정단위(시군구) 비교군 안에서의 상대 순위를
+              0~100으로 환산한 정규화 점수입니다. 원값·비교 행정단위·기준월은 각 축의 &quot;근거
+              보기&quot;에서 확인할 수 있습니다.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -233,6 +238,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 <p className="mt-2 text-2xl font-bold text-slate-900">
                   {a.score === null ? "데이터 부족" : a.score}
                 </p>
+                {a.score === 0 ? (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    비교군 내 최저 상대 점수입니다 — 관광객·소비가 전혀 없다는 뜻이 아니라, 같은
+                    행정단위 비교 지역 중 상대적으로 가장 낮다는 의미입니다.
+                  </p>
+                ) : null}
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
                   <div className="mt-2">
