@@ -104,10 +104,35 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 
 **4) 국문 관광정보 서비스 — `KorService2` (✅ 실제 데이터 확인, POI 파이프라인 연결 완료)**
 - Base: `https://apis.data.go.kr/B551011/KorService2`
-- `/areaBasedList2`(지역기반 목록): 대전(areaCode=3)에서 실제 POI("갑천" 등) 정상 조회 확인.
+- `/areaBasedList2`(지역기반 목록): 대전(구 코드 areaCode=3, 2026-07-21 확인 당시 기준)에서 실제
+  POI("갑천" 등) 정상 조회 확인. **2026-07-27 신 법정동·분류체계로 전환**(아래 별도 절 참고) — 이
+  줄의 `areaCode=3`은 전환 이전에 확인했던 구 코드 값을 남긴 역사 기록이며, 신규 요청은 더 이상 이
+  값을 쓰지 않는다.
 - `contentTypeId`(공식 문서 기준): 12=관광지, 14=문화시설, 15=축제공연행사, 25=여행코스, 28=레포츠,
   32=숙박, 38=쇼핑, 39=음식점 → `PoiCategory` 매핑(`mapContentTypeToPoiCategory`, 25=여행코스는
-  개별 장소가 아니라서 제외).
+  개별 장소가 아니라서 제외). 신구 법정동·분류체계 전환과 무관 — 변경 없음.
+
+**4-A) KorService2 구→신 법정동·분류체계 전환 (2026-07-27)**
+- **구 중단**: `areaCode`/`sigunguCode`(요청 파라미터)와 `cat1`/`cat2`/`cat3`(응답 필드)는 신규
+  요청/응답 어디에도 더 이상 쓰지 않는다(`src/lib/public-data/adapters/tourInfo.ts`). 구 값은
+  `LEGACY_*` 이름으로 남겨 **구형 저장 데이터(rawPayload) 재조회 전용**으로만 참조한다.
+- **신규 사용**: 요청 파라미터 `lDongRegnCd`(법정동 시도)·`lDongSignguCd`(법정동 시군구), 응답 필드
+  `lclsSystm1~3`(신 분류체계 대/중/소분류). `Region.tourApiLdongRegnCd`/`tourApiLdongSignguCd`
+  (nullable, migration `20260727010000_add_tour_api_ldong_codes`)가 지역별 코드를 저장한다.
+- **⚠️ 미확인 사항(정직하게 기록)**: 이번 전환 세션에서 `ldongCode2`(법정동 코드 목록)/
+  `lclsSystmCode2`(분류체계 코드 목록) 오퍼레이션을 실 서비스키로 호출해 실제 코드값을 확인하려
+  했으나, `apis.data.go.kr`가 401(Unauthorized)을 반환해 실패했다(네트워크 프록시 차단이 아니라 키
+  인증 자체가 거부됨 — sandbox 네트워크 제한 해제 후에도 동일). 그 결과:
+  - `REGION_SEED`(`src/lib/fixtures/regions.ts`)의 `tourApiLdongRegnCd`/`tourApiLdongSignguCd`는
+    **전 지역 `null`**이다 — 값이 채워지기 전까지 `syncService.ts`는 TOUR_INFO를 `SKIPPED`로 표시하고
+    fixture POI를 그대로 쓴다(기존 "tourApiAreaCode 미설정" 시 동작과 동일한 패턴).
+  - `FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3`(`tourInfo.ts`)는 **빈 테이블**이다 — 카페/전통찻집에
+    해당하는 실제 lclsSystm3 코드를 확인하지 못해, 실키로 이름만 바꿔 채우는 대신 비워두고
+    `isMealEligibleFoodLclsSystm3`가 항상 안전하게 식사 불가로 판정하도록 했다(폴백은 구 cat3 →
+    이름 키워드 순으로 계속 동작).
+  - **운영에서 다음에 할 일**: `npm run verify:region -- --ldong-regn-cd <코드>` /
+    `--lcls-systm1 <대분류>`로 실키 접근이 되는 환경에서 실제 코드를 조회한 뒤, 위 두 곳(REGION_SEED,
+    FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3)에 반영해야 한다.
 - ✅ **POI upsert 파이프라인 연결 완료(2026-07-21)**: `syncService.ts`가 이제 실제로 지역당 최대
   100건까지 조회해 `Poi` 테이블에 upsert한다. **큐레이션된 FIXTURE POI는 절대 덮어쓰지 않는다** —
   이름이 겹치면 라이브 데이터(운영시간/휴무일 정보 없음)가 데모용 큐레이션 정보를 지울 수 있어, 기존
@@ -123,7 +148,8 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 ### 공통으로 확인된 사항
 
 - 필수 파라미터: `serviceKey`, `MobileOS`, `MobileApp`, `baseYm`(지표 API), `areaCd`+`signguCd`(통계청
-  코드 API) 또는 `areaCode`(KorService2). JSON 응답은 `_type=json`(밑줄 포함) 필요, 기본은 XML.
+  코드 API) 또는 `lDongRegnCd`(KorService2, 2026-07-27부터 — 구 `areaCode`는 중단). JSON 응답은
+  `_type=json`(밑줄 포함) 필요, 기본은 XML.
 - 성공 응답 구조는 스펙이 가정한 `response.header.{resultCode,resultMsg}` /
   `response.body.{items,numOfRows,pageNo,totalCount}`와 정확히 일치, 데이터 0건이면 `items`가 빈
   문자열 `""`로 온다(우리 파서가 이미 처리하던 케이스와 일치).

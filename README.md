@@ -149,12 +149,25 @@ npm run verify:region -- --name 대전_유성구 --area-cd 30 --signgu-cd 30200 
 
 절차는 [docs/operator-checklist.md](docs/operator-checklist.md)의 "새 지역 추가 절차" 참고.
 
-## 음식점 소분류(cat3)와 식사 가능 여부 판별
+## 음식점 소분류(신 lclsSystm3, 구 cat3)와 식사 가능 여부 판별
 
-TourAPI 국문 관광정보 서비스는 음식점(`contentTypeId=39`)에 `cat1`/`cat2`/`cat3`(대/중/소분류) 코드를
-함께 내려준다. 음식점은 `cat1="A05"`/`cat2="A0502"`로 고정이고, `cat3`(소분류)로 실제 세부 유형을
-구분한다. 실 서비스키로 `categoryCode2`(공식 분류 코드 조회) 엔드포인트와 실제 지역 데이터를 직접
-확인한 결과(2026-07-24), `cat2=A0502` 하위 `cat3`는 다음 7개뿐이다.
+**2026-07-27 신 법정동·분류체계 전환**: TourAPI 국문 관광정보 서비스가 구 지역·분류 코드(`areaCode`/
+`sigunguCode`/`cat1~3`)에서 신 법정동·분류체계 코드(`lDongRegnCd`/`lDongSignguCd`/`lclsSystm1~3`)로
+바뀌었다. 신규 라이브 요청/응답은 이제 `lclsSystm1~3`만 쓴다(`src/lib/public-data/adapters/
+tourInfo.ts`) — 구 `cat1~3`는 전환 이전에 저장된 `Poi.rawPayload`를 재조회할 때만 참조하는 구형 데이터
+호환 전용 값(`LEGACY_*` 이름)으로 남겨뒀다.
+
+**⚠️ 신 lclsSystm3 실제 코드값 미확인**: 이 전환 세션에서 `lclsSystmCode2`(신 분류체계 코드 조회)를
+실 서비스키로 호출해 카페/전통찻집에 해당하는 실제 코드를 확인하려 했으나, `apis.data.go.kr`가
+401(Unauthorized)을 반환해 실패했다(키 인증 거부 — 네트워크 차단이 아님). 그 결과
+`FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3`는 현재 빈 테이블이고, 실제 코드가 채워지기 전까지는
+`isMealEligibleFoodLclsSystm3`가 항상 `false`(식사 불가로 안전하게 판정)를 반환한다 — 실제 판별은
+구 `cat3`(구형 데이터에 한함) → 이름 키워드 순으로 폴백된다(`src/lib/domain/foodClassification.ts`).
+실키 접근이 되는 환경에서 `npm run verify:region -- --lcls-systm1 <대분류코드>`로 조회해 채워야 한다.
+
+**아래는 구 cat3 체계 기준 참고 표(구형 저장 데이터 해석용, 신규 요청과 무관)** — 실 서비스키로
+`categoryCode2` 엔드포인트와 실제 지역 데이터를 직접 확인한 결과(2026-07-24), `cat2=A0502` 하위
+`cat3`는 다음 7개뿐이었다.
 
 | cat3 코드 | 명칭 | 식사 가능 여부(`mealEligible`) |
 |---|---|---|
@@ -166,10 +179,11 @@ TourAPI 국문 관광정보 서비스는 음식점(`contentTypeId=39`)에 `cat1`
 | `A05020900` | 카페/전통찻집 | ❌ |
 | `A05021000` | 클럽 | ❌ |
 
-**흐름**: `cat3`는 `src/lib/public-data/adapters/tourInfo.ts`의 `itemSchema`가 파싱해 어댑터가 반환하는
-원본 item에 포함되고, `syncService.ts`가 이 item 전체를 그대로 기존 `Poi.rawPayload`(Json?, 스키마
-변경 없이 이미 존재하던 컬럼)에 저장한다. `src/lib/services/poiDetails.ts`가 조회 시점에
-`rawPayload.cat3`를 꺼내 `isMealEligibleFoodCat3()`(`tourInfo.ts`, 위 표가 유일한 기준)로 판별해
+**흐름**: `lclsSystm3`(신)/`cat3`(구, 구형 데이터만)는 `tourInfo.ts`의 `itemSchema`가 파싱해 어댑터가
+반환하는 원본 item에 포함되고, `syncService.ts`가 이 item 전체를 그대로 기존 `Poi.rawPayload`(Json?,
+스키마 변경 없이 이미 존재하던 컬럼)에 저장한다. `src/lib/services/poiDetails.ts`가 조회 시점에
+`rawPayload.lclsSystm3`(우선) 또는 없으면 `rawPayload.cat3`(구형 데이터 fallback)를 꺼내
+`classifyFoodSubcategory()`(`src/lib/domain/foodClassification.ts`, 판정 규칙 단일 기준)로 판별해
 `PoiDetail.mealEligible: boolean`을 채운다. `src/lib/domain/planBuilder.ts`는 이 값을
 `isMealEligiblePoi()`로 사용해 점심·저녁 후보를 고른다(`splitMealCandidates()`).
 
