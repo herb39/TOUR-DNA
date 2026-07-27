@@ -3,8 +3,18 @@ import type { PoiCategory } from "@/generated/prisma/enums";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
 import { classifyFoodSubcategory, isMealEligibleFoodSubcategory, type FoodSubcategory } from "@/lib/domain/foodClassification";
 
-/** Poi.rawPayload(Json?)에서 TourAPI의 cat3(소분류)를 안전하게 꺼낸다 — 스키마 변경 없이 이미 저장된
- * 원본 응답을 그대로 읽는다. DB 없이 직접 테스트할 수 있도록 export한다(순수 함수). */
+/** Poi.rawPayload(Json?)에서 신 분류체계 lclsSystm3(소분류)를 안전하게 꺼낸다 — 스키마 변경 없이
+ * 이미 저장된 원본 응답을 그대로 읽는다. DB 없이 직접 테스트할 수 있도록 export한다(순수 함수). */
+export function extractLclsSystm3FromRawPayload(rawPayload: unknown): string | null {
+  if (rawPayload && typeof rawPayload === "object" && "lclsSystm3" in rawPayload) {
+    const value = (rawPayload as Record<string, unknown>).lclsSystm3;
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
+/** 2026-07-27 신 체계 전환 이전(cat3만 있고 lclsSystm3가 없는)에 저장된 rawPayload에서만 쓰는 구형
+ * 데이터 호환 fallback — 신규 저장 데이터에는 cat3 자체가 없으므로 항상 null을 반환한다. */
 export function extractCat3FromRawPayload(rawPayload: unknown): string | null {
   if (rawPayload && typeof rawPayload === "object" && "cat3" in rawPayload) {
     const value = (rawPayload as Record<string, unknown>).cat3;
@@ -14,11 +24,16 @@ export function extractCat3FromRawPayload(rawPayload: unknown): string | null {
 }
 
 /** FOOD 세부 분류(식사/카페/불명확) — 큐레이션된 FIXTURE 데모 데이터는 TourAPI 분류 개념 자체가
- * 없으므로 식사 중심(MEAL)으로 본다(기존 데모/테스트 동작 보존). API 동기화 데이터는 cat3(우선) →
- * 이름 키워드(보조) 순으로 판정한다(foodClassification.ts, 단일 기준). */
+ * 없으므로 식사 중심(MEAL)으로 본다(기존 데모/테스트 동작 보존). API 동기화 데이터는 lclsSystm3(신,
+ * 최우선) → cat3(구, 구형 데이터 호환 전용) → 이름 키워드(마지막 fallback) 순으로 판정한다
+ * (foodClassification.ts, 단일 기준). */
 export function deriveFoodSubcategory(row: { sourceType: string; name?: string; rawPayload: unknown }): FoodSubcategory {
   if (row.sourceType === "FIXTURE") return "MEAL";
-  return classifyFoodSubcategory({ cat3: extractCat3FromRawPayload(row.rawPayload), name: row.name ?? "" });
+  return classifyFoodSubcategory({
+    lclsSystm3: extractLclsSystm3FromRawPayload(row.rawPayload),
+    cat3: extractCat3FromRawPayload(row.rawPayload),
+    name: row.name ?? "",
+  });
 }
 
 /** FOOD가 실제로 식사 가능한 장소인지(점심·저녁 후보로 쓸 수 있는지) 판별한다. DB 없이 직접

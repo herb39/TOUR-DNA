@@ -83,6 +83,8 @@ const {
       apiAreaCode: "30",
       apiSigunguCode: "30200",
       tourApiAreaCode: "3",
+      tourApiLdongRegnCd: "30",
+      tourApiLdongSignguCd: "30200",
     },
   };
 });
@@ -234,6 +236,35 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
     if (!call) throw new Error("TOUR_INFO dataSnapshot.upsert 호출을 찾지 못함");
     expect(call[0].create.status).toBe("SUCCESS");
     expect(call[0].create.rawPayload).toEqual({ pages: [realPageBody] });
+  });
+
+  it("POI upsert 시 신 분류체계(lclsSystm1~3) 필드가 rawPayload에 그대로 보존된다", () => {
+    poiFindMany.mockResolvedValue([]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [
+        {
+          title: "테스트지역맛집",
+          addr1: "테스트지역 어딘가",
+          contenttypeid: "39",
+          mapx: 127.3,
+          mapy: 36.3,
+          lclsSystm1: "FD",
+          lclsSystm2: "FD03",
+          lclsSystm3: "FD030100",
+        },
+      ],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [] },
+    });
+
+    return runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" }).then(() => {
+      const call = poiUpsert.mock.calls.find((c) => c[0].create?.name === "테스트지역맛집");
+      if (!call) throw new Error("테스트지역맛집 poi.upsert 호출을 찾지 못함");
+      expect(call[0].create.rawPayload.lclsSystm3).toBe("FD030100");
+      expect(call[0].create.rawPayload.cat3).toBeUndefined();
+    });
   });
 
   it("API가 실제 오류 응답 본문을 반환하면 그 본문 그대로 ERROR 상태로 snapshot을 저장한다", async () => {

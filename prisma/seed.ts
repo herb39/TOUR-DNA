@@ -33,6 +33,8 @@ async function upsertRegions() {
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
         tourApiAreaCode: r.tourApiAreaCode,
+        tourApiLdongRegnCd: r.tourApiLdongRegnCd,
+        tourApiLdongSignguCd: r.tourApiLdongSignguCd,
       },
       create: {
         code: r.code,
@@ -41,6 +43,8 @@ async function upsertRegions() {
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
         tourApiAreaCode: r.tourApiAreaCode,
+        tourApiLdongRegnCd: r.tourApiLdongRegnCd,
+        tourApiLdongSignguCd: r.tourApiLdongSignguCd,
       },
     });
   }
@@ -54,6 +58,8 @@ async function upsertRegions() {
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
         tourApiAreaCode: r.tourApiAreaCode,
+        tourApiLdongRegnCd: r.tourApiLdongRegnCd,
+        tourApiLdongSignguCd: r.tourApiLdongSignguCd,
         parentId: parent.id,
       },
       create: {
@@ -63,6 +69,8 @@ async function upsertRegions() {
         apiAreaCode: r.apiAreaCode,
         apiSigunguCode: r.apiSigunguCode,
         tourApiAreaCode: r.tourApiAreaCode,
+        tourApiLdongRegnCd: r.tourApiLdongRegnCd,
+        tourApiLdongSignguCd: r.tourApiLdongSignguCd,
         parentId: parent.id,
       },
     });

@@ -9,15 +9,18 @@ import type { RegionLevel } from "@/generated/prisma/enums";
 
 export type SyncTrigger = "CRON" | "ADMIN" | "CLI";
 
-// KorService2의 areaCode는 시/도 단위(예: 강원=32, 충북=33)라 시/군/구보다 훨씬 넓은 범위를 반환한다.
-// 필터 없이 그대로 upsert하면 평창/강릉/영덕처럼 서로 먼 시/군/구가 한 Region에 뒤섞여 코스가 비현실적으로
-// 넓어진다(2026-07-21 실제 발견). 주소(addr1)에 이 키워드가 포함된 장소만 반영해 범위를 좁힌다. 기본값은
-// region.name(예: "양양군")이면 충분하다 — 대전만 예외였는데, areaCode=3이 이미 "대전광역시" 단위이지
-// 강원/충북처럼 여러 시/군/구를 아우르는 도 단위가 아니라서(대전은 도시 전체가 15km 안쪽) 원래는 override가
-// 필요 없었다. 한때 통계청 지표(DNA 점수)가 유성구 하나만 대표하는 것과 맞추려고 POI도 "유성구"로 좁혀
-// 뒀었는데(2026-07-21), 그 결과 성심당 본점(중구)처럼 대전 하면 바로 떠오르는 다른 구 명소가 실제로
-// 검색돼도 반영되지 못하는 부작용이 있었다(2026-07-22 발견) — 지표(DNA 점수)는 여전히 유성구 대표값이지만
-// POI 후보 풀은 대전 전체로 되돌린다. 다른 지역에서 비슷한 예외가 필요해지면 여기 추가한다.
+// lDongRegnCd(법정동 시도 코드, 신 체계)도 구 areaCode와 마찬가지로 시/도 단위(예: 강원/충북)라
+// 시/군/구보다 훨씬 넓은 범위를 반환할 수 있다. region.tourApiLdongSignguCd가 채워져 있으면 요청
+// 자체가 시군구 단위로 좁혀지지만(2026-07-27 전환, 신 체계의 lDongSignguCd 파라미터), 아직 값이
+// 없는 지역이 많으므로(위 tourInfo.ts 상단 주석 참고 — 실 코드값 미확인) 기존 주소(addr1) 키워드
+// 필터를 방어적으로 그대로 유지한다(2026-07-21 실제 발견: 필터 없이 upsert하면 평창/강릉/영덕처럼
+// 서로 먼 시/군/구가 한 Region에 뒤섞여 코스가 비현실적으로 넓어졌다). 기본값은 region.name(예:
+// "양양군")이면 충분하다 — 대전만 예외였는데, 대전은 도시 전체가 15km 안쪽이라(여러 시/군/구를
+// 아우르는 도 단위가 아님) 원래는 override가 필요 없었다. 한때 통계청 지표(DNA 점수)가 유성구
+// 하나만 대표하는 것과 맞추려고 POI도 "유성구"로 좁혀 뒀었는데(2026-07-21), 그 결과 성심당
+// 본점(중구)처럼 대전 하면 바로 떠오르는 다른 구 명소가 실제로 검색돼도 반영되지 못하는 부작용이
+// 있었다(2026-07-22 발견) — 지표(DNA 점수)는 여전히 유성구 대표값이지만 POI 후보 풀은 대전 전체로
+// 되돌린다. 다른 지역에서 비슷한 예외가 필요해지면 여기 추가한다.
 const TOUR_INFO_ADDRESS_FILTER_OVERRIDE: Record<string, string> = {};
 
 function tourInfoAddressFilterKeyword(region: { code: string; name: string }): string {
@@ -357,11 +360,12 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
     }
 
     const tourInfoSource = sourceByCode.get("TOUR_INFO");
-    if (tourInfoSource && region.tourApiAreaCode) {
+    if (tourInfoSource && region.tourApiLdongRegnCd) {
       const res = await fetchTourInfo({
         serviceKey,
         baseUrl: tourInfoSource.baseUrl,
-        areaCode: region.tourApiAreaCode,
+        lDongRegnCd: region.tourApiLdongRegnCd,
+        lDongSignguCd: region.tourApiLdongSignguCd ?? undefined,
       });
       let upserted = 0;
       if (res.status === "SUCCESS") {
@@ -431,7 +435,7 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
         sourceCode: `TOUR_INFO:${region.code}`,
         status: "SKIPPED",
         itemCount: 0,
-        errorMessage: "tourApiAreaCode 미설정 — fixture POI 데이터 사용 중",
+        errorMessage: "tourApiLdongRegnCd 미설정 — fixture POI 데이터 사용 중",
       });
     }
     results.push({

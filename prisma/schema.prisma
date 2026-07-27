@@ -123,7 +123,9 @@ model Region {
   level           RegionLevel
   apiAreaCode     String? // 통계청 행정표준코드 시도 2자리(AreaTarDemDsService/AreaTarDivService용). 2026-07-21 실키로 확인됨.
   apiSigunguCode  String? // 통계청 행정표준코드 시군구 5자리(같은 API들의 signguCd 파라미터용). 2026-07-21 실키로 확인됨.
-  tourApiAreaCode String? // KorService2(국문관광정보) 전용 구식 TourAPI areaCode(1~39, 시도 단위). 2026-07-21 실키로 확인됨.
+  tourApiAreaCode String? // KorService2 구식 TourAPI areaCode(1~39, 시도 단위). 2026-07-27 신 체계(lDongRegnCd)로 전환 — 신규 요청에는 더 이상 쓰지 않음, 구형 데이터 참고용으로만 보존.
+  tourApiLdongRegnCd    String? // KorService2 신 법정동 시도 코드(ldongCode2로 조회). 2026-07-27 도입 — 실키 접근 불가로 아직 값 미확인(전 지역 null).
+  tourApiLdongSignguCd  String? // KorService2 신 법정동 시군구 코드. 2026-07-27 도입 — 값이 채워지면 addr1 키워드 필터 없이도 시군구 단위로 정확히 좁힐 수 있다(아직 값 미확인).
   parentId        String?
   parent          Region?     @relation("RegionHierarchy", fields: [parentId], references: [id])
   children        Region[]    @relation("RegionHierarchy")
