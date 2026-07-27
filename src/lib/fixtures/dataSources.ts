@@ -35,8 +35,16 @@ export const DATA_SOURCE_SEED: DataSourceSeed[] = [
   {
     code: "VISITOR_CNT",
     name: "지역별 방문자수",
+    // ⚠️ 확인된 결함(2026-07-27): 이 baseUrl은 실제 REST 게이트웨이가 아니라 공공데이터포털의 사람이
+    // 보는 소개 페이지(HTML)다 — 호출 시 항상 HTML 응답을 받아 매 동기화마다 실패한다(운영 동기화
+    // 오류 로그로 실측 확인, docs/public-api-status.md 참고). 실제 게이트웨이 주소(예:
+    // https://apis.data.go.kr/B551011/<ServiceName> 형태로 추정되나 정확한 서비스명·오퍼레이션명은
+    // Swagger 문서 확인 없이는 추측하지 않는다 — 잘못된 주소를 또 추측해 넣지 않기 위함)를 확인한
+    // 뒤 이 값을 교체해야 한다.
     baseUrl: "https://www.data.go.kr/data/15101972/openapi.do",
-    description: "지역별 방문자수(빅데이터 기반). 상세 스키마 미확인(소개 페이지 URL만 확인).",
+    description:
+      "지역별 방문자수(빅데이터 기반). baseUrl이 REST 게이트웨이가 아님이 확인됨(위 주석 참고) — " +
+      "매 동기화 실패, 기존 SUCCESS 스냅샷(2026-07-21) 보존 중.",
   },
   {
     code: "TOUR_INFO",
