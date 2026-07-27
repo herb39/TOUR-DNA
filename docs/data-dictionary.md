@@ -45,9 +45,10 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 
 > 2026-07-27: `tourApiAreaCode`(구 KorService2 코드)는 신규 요청에 더 이상 쓰이지 않는다(구형 데이터
 > 참고용으로만 컬럼 보존). `Region`에 신 법정동 코드 컬럼 `tourApiLdongRegnCd`/`tourApiLdongSignguCd`가
-> 추가됐다(migration `20260727010000_add_tour_api_ldong_codes`) — 실키 접근 불가로 이번 세션에서는
-> 값을 확인하지 못해 아래 표의 모든 행에서 두 컬럼 모두 `null`이다(`docs/public-api-status.md` 4-A절
-> 참고). 표에는 지면상 생략했다.
+> 추가됐다(migration `20260727010000_add_tour_api_ldong_codes`). 2026-07-28 실 서비스키로 값을
+> 확인해 13개 지역 전부에 반영했다 — `tourApiLdongRegnCd`는 `apiAreaCode`와 동일한 값, `tourApiLdong
+> SignguCd`는 `apiSigunguCode`의 뒤 3자리와 동일한 값이다(`docs/public-api-status.md` 4-A절 참고).
+> 표에는 지면상 생략했다(값이 `apiAreaCode`/`apiSigunguCode`에서 기계적으로 도출 가능).
 
 | code | name | level | parentCode | apiAreaCode | apiSigunguCode | tourApiAreaCode |
 |---|---|---|---|---|---|---|

@@ -112,27 +112,31 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
   32=숙박, 38=쇼핑, 39=음식점 → `PoiCategory` 매핑(`mapContentTypeToPoiCategory`, 25=여행코스는
   개별 장소가 아니라서 제외). 신구 법정동·분류체계 전환과 무관 — 변경 없음.
 
-**4-A) KorService2 구→신 법정동·분류체계 전환 (2026-07-27)**
+**4-A) KorService2 구→신 법정동·분류체계 전환 (2026-07-27 전환, 2026-07-28 실 코드값 확인 완료)**
 - **구 중단**: `areaCode`/`sigunguCode`(요청 파라미터)와 `cat1`/`cat2`/`cat3`(응답 필드)는 신규
   요청/응답 어디에도 더 이상 쓰지 않는다(`src/lib/public-data/adapters/tourInfo.ts`). 구 값은
   `LEGACY_*` 이름으로 남겨 **구형 저장 데이터(rawPayload) 재조회 전용**으로만 참조한다.
 - **신규 사용**: 요청 파라미터 `lDongRegnCd`(법정동 시도)·`lDongSignguCd`(법정동 시군구), 응답 필드
   `lclsSystm1~3`(신 분류체계 대/중/소분류). `Region.tourApiLdongRegnCd`/`tourApiLdongSignguCd`
   (nullable, migration `20260727010000_add_tour_api_ldong_codes`)가 지역별 코드를 저장한다.
-- **⚠️ 미확인 사항(정직하게 기록)**: 이번 전환 세션에서 `ldongCode2`(법정동 코드 목록)/
-  `lclsSystmCode2`(분류체계 코드 목록) 오퍼레이션을 실 서비스키로 호출해 실제 코드값을 확인하려
-  했으나, `apis.data.go.kr`가 401(Unauthorized)을 반환해 실패했다(네트워크 프록시 차단이 아니라 키
-  인증 자체가 거부됨 — sandbox 네트워크 제한 해제 후에도 동일). 그 결과:
-  - `REGION_SEED`(`src/lib/fixtures/regions.ts`)의 `tourApiLdongRegnCd`/`tourApiLdongSignguCd`는
-    **전 지역 `null`**이다 — 값이 채워지기 전까지 `syncService.ts`는 TOUR_INFO를 `SKIPPED`로 표시하고
-    fixture POI를 그대로 쓴다(기존 "tourApiAreaCode 미설정" 시 동작과 동일한 패턴).
-  - `FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3`(`tourInfo.ts`)는 **빈 테이블**이다 — 카페/전통찻집에
-    해당하는 실제 lclsSystm3 코드를 확인하지 못해, 실키로 이름만 바꿔 채우는 대신 비워두고
-    `isMealEligibleFoodLclsSystm3`가 항상 안전하게 식사 불가로 판정하도록 했다(폴백은 구 cat3 →
-    이름 키워드 순으로 계속 동작).
-  - **운영에서 다음에 할 일**: `npm run verify:region -- --ldong-regn-cd <코드>` /
-    `--lcls-systm1 <대분류>`로 실키 접근이 되는 환경에서 실제 코드를 조회한 뒤, 위 두 곳(REGION_SEED,
-    FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3)에 반영해야 한다.
+- ✅ **실 서비스키로 코드값 확인 완료(2026-07-28)**: `ldongCode2`/`lclsSystmCode2`/`areaBasedList2`를
+  직접 호출해 확인했다(이전 세션의 401은 승인되지 않은 키였던 것으로 판명 — 새로 발급받은 승인된 키로
+  재시도해 정상 응답을 받았다).
+  - **법정동 코드**: `lDongRegnCd`(시도)는 기존 통계청 `apiAreaCode`와 **완전히 동일한 2자리 코드
+    체계**임을 확인했다(예: 충남=44, 강원=51, 경북=47). `lDongSignguCd`(시군구)는 기존 통계청
+    `apiSigunguCode`(5자리)의 뒤 3자리와 정확히 같다(예: 제천시 `43150` → `150`). `REGION_SEED`
+    (`src/lib/fixtures/regions.ts`) 13개 지역 전부에 실제 값을 반영했다 — `areaBasedList2`에
+    `lDongRegnCd=43&lDongSignguCd=150`을 요청해 실제로 충북 제천시 항목만 반환되는 것으로 재검증.
+  - **신 분류체계**: `lclsSystmCode2`로 FD(음식) 대분류 하위 중분류 5개(FD01 한식/FD02 외국식/FD03
+    간이음식/FD04 주점/FD05 카페·찻집)와 소분류 21개를 전부 확인했다 — 구 `cat3`(7개)보다 훨씬
+    세분화됐고, 구 체계에 없다고 알려졌던 제과(베이커리/디저트) 전용 코드(`FD030100`)가 별도로
+    존재한다(간이음식 하위, 카페 하위가 아님 — 식사 불가 그룹으로 분류). 전체 코드는
+    `src/lib/public-data/adapters/tourInfo.ts`의 `FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3` 참고.
+  - **실 응답 확인**: `areaBasedList2` 실 호출에서 구 필드(`areacode`/`sigungucode`/`cat1~3`)는 전부
+    빈 문자열로 오고, 신 필드(`lDongRegnCd`/`lDongSignguCd`/`lclsSystm1~3`)에 실제 값이 채워져
+    있음을 확인했다 — 신 체계 전환이 실제 운영 API 응답과 일치한다.
+  - **참고**: `npm run verify:region -- --ldong-regn-cd <코드>` / `--lcls-systm1 <대분류>`로 위와
+    동일한 조회를 재현할 수 있다(향후 새 지역 추가 시 재사용).
 - ✅ **POI upsert 파이프라인 연결 완료(2026-07-21)**: `syncService.ts`가 이제 실제로 지역당 최대
   100건까지 조회해 `Poi` 테이블에 upsert한다. **큐레이션된 FIXTURE POI는 절대 덮어쓰지 않는다** —
   이름이 겹치면 라이브 데이터(운영시간/휴무일 정보 없음)가 데모용 큐레이션 정보를 지울 수 있어, 기존
