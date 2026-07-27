@@ -12,14 +12,12 @@ import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult 
  * - contentTypeId(공식 문서 기준): 12=관광지, 14=문화시설, 15=축제공연행사, 25=여행코스, 28=레포츠,
  *   32=숙박, 38=쇼핑, 39=음식점(신구 체계와 무관, 변경 없음).
  *
- * **미확인 사항(2026-07-27, 이번 전환 세션에서 확인 시도했으나 실패)**: 신 법정동 코드(`lDongRegnCd`/
- * `lDongSignguCd`, `ldongCode2` 오퍼레이션으로 조회)와 신 분류체계 코드(`lclsSystm1~3`, `lclsSystmCode2`
- * 오퍼레이션으로 조회)의 **실제 코드값**은 이번 세션에서 실 서비스키로 라이브 호출을 시도했으나
- * `apis.data.go.kr`가 401(Unauthorized)을 반환해 확인하지 못했다(네트워크 프록시 차단이 아니라 키
- * 인증 자체가 거부됨 — sandbox 네트워크 제한을 해제한 뒤에도 동일하게 401). 아래 `FOOD_SUBCATEGORY_
- * NAME_BY_LCLS_SYSTM3`가 비어 있는 이유이며, 필드명·파라미터명(신 체계의 계약 자체)은 사용자가 명시한
- * 사양을 그대로 반영했지만 **분류값 테이블은 검증된 실 코드가 아니라 의도적으로 비워뒀다** — 실키
- * 접근이 가능한 환경에서 `ldongCode2`/`lclsSystmCode2`를 호출해 채워야 한다(추측으로 채우지 않음).
+ * 신 법정동 코드(`lDongRegnCd`/`lDongSignguCd`)와 신 분류체계 코드(`lclsSystm1~3`)는 2026-07-28 실
+ * 서비스키로 `ldongCode2`/`lclsSystmCode2`를 직접 호출해 확인했다(이전 세션의 401은 승인되지 않은
+ * 키였던 것으로 확인됨 — 새 키로 재시도해 정상 응답을 받았다). `areaBasedList2` 실 응답에서 구
+ * 필드(`areacode`/`sigungucode`/`cat1~3`)는 전부 빈 문자열로 오고, 신 필드(`lDongRegnCd`/
+ * `lDongSignguCd`/`lclsSystm1~3`)에 실제 값이 채워져 있음을 확인했다(2026-07-28, `lDongRegnCd=43&
+ * lDongSignguCd=150` 요청이 실제로 충북 제천시 항목만 반환).
  */
 
 const itemSchema = z.object({
@@ -83,26 +81,56 @@ export function mapContentTypeToPoiCategory(
 }
 
 /**
- * 음식점(contentTypeId=39) 하위 lclsSystm3 코드 → 명칭. **비어 있음(2026-07-27)** — 구 cat3 체계의
- * `FOOD_SUBCATEGORY_NAME_BY_CAT3`(7개 코드, 실키로 확인됨)를 신 코드로 "이름만 바꿔" 채우지 않았다.
- * 신 lclsSystm3 실제 코드값은 이 파일 상단 주석에 적은 이유로 이번 세션에서 확인하지 못했다 —
- * `lclsSystmCode2` 오퍼레이션을 실키로 호출해(예: `scripts/verify-region-codes.ts`에 유사 헬퍼 추가)
- * 카페/전통찻집에 해당하는 실제 코드를 확인한 뒤 이 테이블을 채워야 한다. 비어 있는 동안은
- * `isMealEligibleFoodLclsSystm3`가 모든 lclsSystm3 값을 "알 수 없는 코드"로 보아 안전하게 식사 불가로
- * 판정한다(기존 "cat3 알 수 없으면 false" 정책과 동일한 안전한 기본값 — 잘못 배치하지 않는 쪽을
- * 우선한다).
+ * 음식점(lclsSystm1="FD") 하위 lclsSystm3 코드 → 명칭. 2026-07-28 실 서비스키로 `lclsSystmCode2`를
+ * 직접 호출해 확인했다(대분류 FD="음식" 하위 중분류 5개: FD01 한식/FD02 외국식/FD03 간이음식/FD04
+ * 주점/FD05 카페·찻집, 그 아래 소분류 총 21개 — 이 21개가 전부다). 구 cat3(7개, 한식·서양식·일식·
+ * 중식·이색음식점·카페전통찻집·클럽)보다 훨씬 세분화됐다 — 특히 구 체계에서는 없다고 문서화했던
+ * 제과(베이커리/디저트) 전용 코드(FD030100)가 신 체계에는 별도로 존재한다.
  */
-export const FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3: Record<string, string> = {};
+export const FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3: Record<string, string> = {
+  FD010100: "관광식당",
+  FD010200: "모범음식점",
+  FD020100: "중식",
+  FD020200: "일식",
+  FD020300: "서양식",
+  FD020400: "기타외국식",
+  FD020500: "퓨전음식",
+  FD030100: "제과",
+  FD030200: "피자,햄버거,샌드위치 및 유사음식",
+  FD030300: "치킨",
+  FD030400: "김밥 분식",
+  FD030500: "이동음식",
+  FD030600: "기타간이음식",
+  FD040100: "바/펍",
+  FD040200: "생맥주전문점",
+  FD040300: "클럽",
+  FD040400: "전통주/민속주점",
+  FD040500: "기타주점",
+  FD050100: "카페",
+  FD050200: "찻집",
+  FD050300: "기타음료점",
+};
 
-/** 카페/전통찻집 등 "장소 유형상 정식 식사가 어렵다"고 확인된 lclsSystm3만 여기 둔다. 현재 비어
- * 있음(위 FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3 참고 — 실 코드값 미확인). foodClassification.ts가
- * 카페/일반 식사 세부 분류에 그대로 재사용한다(단일 기준 유지). */
-export const NON_MEAL_FOOD_LCLS_SYSTM3_CODES = new Set<string>();
+/** "장소 유형상 정식 식사(점심/저녁)가 어렵다"고 확인된 lclsSystm3 — 카페/찻집류(FD05 전체),
+ * 주점류(FD04 전체, 정식 식사 자리가 아님), 제과(FD030100, 베이커리/디저트류)를 포함한다. 간이음식
+ * 중 나머지(피자/햄버거/샌드위치/치킨/김밥분식/이동음식/기타간이음식)는 정식 식사로 충분히 쓰이는
+ * 곳으로 보아 포함하지 않는다. foodClassification.ts가 카페/일반 식사 세부 분류에 그대로 재사용한다
+ * (단일 기준 유지). */
+export const NON_MEAL_FOOD_LCLS_SYSTM3_CODES = new Set([
+  "FD030100", // 제과
+  "FD040100", // 바/펍
+  "FD040200", // 생맥주전문점
+  "FD040300", // 클럽
+  "FD040400", // 전통주/민속주점
+  "FD040500", // 기타주점
+  "FD050100", // 카페
+  "FD050200", // 찻집
+  "FD050300", // 기타음료점
+]);
 
 /** lclsSystm3 기준으로 이 음식점이 점심·저녁 후보로 쓸 수 있는 "식사 가능" 장소인지 판별한다.
- * lclsSystm3가 없거나(구버전 데이터 등) 알려진 코드가 아니면 안전하게 false(식사 불가로 간주 — 잘못
- * 배치하는 것보다 식사 슬롯을 생략하는 쪽을 우선한다). 위 테이블이 채워지기 전까지는 항상 false를
- * 반환한다 — 이는 버그가 아니라 미확인 신 코드값에 대한 의도된 안전한 기본값이다. */
+ * lclsSystm3가 없거나(구버전 데이터 등) 알려진 21개 코드에 없는 값이면 안전하게 false(식사 불가로
+ * 간주 — 잘못 배치하는 것보다 식사 슬롯을 생략하는 쪽을 우선한다). */
 export function isMealEligibleFoodLclsSystm3(lclsSystm3: string | null | undefined): boolean {
   if (!lclsSystm3) return false;
   if (!(lclsSystm3 in FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3)) return false;

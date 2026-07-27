@@ -44,15 +44,39 @@ describe("isMealEligibleFoodLegacyCat3 — 구형 저장 데이터(cat3) 호환 
   });
 });
 
-// 2026-07-27: 신 분류체계(lclsSystm3) 실제 코드값은 이 세션에서 실키 접근이 막혀(401) 확인하지 못했다
-// (tourInfo.ts 상단 주석 참고). 테이블이 의도적으로 비어 있는 동안의 안전한 기본값(항상 식사 불가로
-// 판정)만 회귀 테스트로 고정한다 — 실제 코드가 채워지면 이 테스트는 갱신돼야 한다.
-describe("isMealEligibleFoodLclsSystm3 — 신 분류체계(실 코드값 미확인 상태의 안전한 기본값)", () => {
-  it("코드값 테이블이 비어 있으므로 어떤 lclsSystm3 값을 줘도 안전하게 식사 불가로 본다", () => {
-    expect(Object.keys(FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3)).toHaveLength(0);
-    expect(isMealEligibleFoodLclsSystm3("FD030100")).toBe(false);
-    expect(isMealEligibleFoodLclsSystm3(null)).toBe(false);
+// 2026-07-28: 신 분류체계(lclsSystm3) 실제 코드값을 실 서비스키로 lclsSystmCode2를 직접 호출해
+// 확인했다(대분류 FD="음식" 하위 중분류 5개, 소분류 21개 — 이 21개가 전부다).
+describe("isMealEligibleFoodLclsSystm3 — 신 분류체계(실 코드값 확인됨, 2026-07-28)", () => {
+  it("정식 식사가 가능한 것으로 확인된 lclsSystm3(한식/외국식/간이음식 중 제과 제외)는 식사 가능으로 판별한다", () => {
+    expect(isMealEligibleFoodLclsSystm3("FD010100")).toBe(true); // 관광식당
+    expect(isMealEligibleFoodLclsSystm3("FD010200")).toBe(true); // 모범음식점
+    expect(isMealEligibleFoodLclsSystm3("FD020100")).toBe(true); // 중식
+    expect(isMealEligibleFoodLclsSystm3("FD020200")).toBe(true); // 일식
+    expect(isMealEligibleFoodLclsSystm3("FD020300")).toBe(true); // 서양식
+    expect(isMealEligibleFoodLclsSystm3("FD030300")).toBe(true); // 치킨
+    expect(isMealEligibleFoodLclsSystm3("FD030400")).toBe(true); // 김밥 분식
+  });
+
+  it("카페/찻집(FD05), 주점(FD04), 제과(FD030100)는 정식 식사 자리가 아니므로 식사 불가로 본다", () => {
+    expect(isMealEligibleFoodLclsSystm3("FD050100")).toBe(false); // 카페
+    expect(isMealEligibleFoodLclsSystm3("FD050200")).toBe(false); // 찻집
+    expect(isMealEligibleFoodLclsSystm3("FD040100")).toBe(false); // 바/펍
+    expect(isMealEligibleFoodLclsSystm3("FD040300")).toBe(false); // 클럽
+    expect(isMealEligibleFoodLclsSystm3("FD030100")).toBe(false); // 제과(베이커리/디저트)
+  });
+
+  it("lclsSystm3가 없거나 알려진 21개 코드에 없는 값이면 안전하게 식사 불가로 본다", () => {
     expect(isMealEligibleFoodLclsSystm3(undefined)).toBe(false);
+    expect(isMealEligibleFoodLclsSystm3(null)).toBe(false);
+    expect(isMealEligibleFoodLclsSystm3("")).toBe(false);
+    expect(isMealEligibleFoodLclsSystm3("FD999999")).toBe(false); // 알 수 없는 코드
+  });
+
+  it("lclsSystmCode2로 실제 확인한 FD(음식) 하위 코드는 정확히 21개이며, 구 체계에 없던 제과(베이커리) 전용 코드가 포함된다", () => {
+    const codes = Object.keys(FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3);
+    expect(codes).toHaveLength(21);
+    expect(FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3["FD030100"]).toBe("제과");
+    expect(FOOD_SUBCATEGORY_NAME_BY_LCLS_SYSTM3["FD050100"]).toBe("카페");
   });
 });
 
