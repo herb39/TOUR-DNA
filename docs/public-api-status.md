@@ -147,6 +147,24 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 `invalid JSON response`(게이트웨이 주소가 아님). `Area{Xxx}Service` 패턴을 추정 시도했으나 확인하지
 못했다. Swagger UI 확인 필요.
 
+**5-A) VISITOR_CNT 동기화 실패 원인 재확인(2026-07-27, TourAPI 마이그레이션 이후 첫 운영 동기화에서 재현)**
+- 위 5)에서 이미 지목한 원인(baseUrl이 게이트웨이가 아닌 소개 페이지)이 2026-07-27 실제 운영 동기화
+  오류 로그로 다시 확인됐다 — 마지막 성공 스냅샷은 여전히 2026-07-21(그 이후 매 시도가 동일하게
+  실패, `syncService.ts`의 기존 SUCCESS 보존 정책으로 갱신되지 않고 그대로 유지됨).
+- **코드 개선(원인 자체는 해소하지 못함)**: `src/lib/public-data/client.ts`에 `classifyNonJsonBody()`
+  추가 — JSON 파싱 실패 응답을 EMPTY/HTML/XML/UNKNOWN으로 분류해 로그·`DataSnapshot.resultMsg`에
+  남긴다(본문 원문은 남기지 않음). HTML로 분류되면(=baseUrl이 게이트웨이가 아니라는 강한 신호) 같은
+  요청을 재시도해도 결과가 같을 것이므로 재시도 없이 즉시 실패 처리해 불필요한 반복 호출을 줄인다
+  (EMPTY/XML은 일시적일 수 있어 기존처럼 재시도).
+- **여전히 미해결**: 실제 REST 게이트웨이 주소·오퍼레이션명은 이번에도 확인하지 못했다 — Swagger
+  문서(가이드 PDF/TourAPI_Guide zip, data.go.kr 상세 페이지 참고) 확인 없이 `Area{Xxx}Service` 패턴을
+  추측해 코드에 넣지 않는다(잘못된 주소를 또 하드코딩하는 위험을 피하기 위함). `src/lib/fixtures/
+  dataSources.ts`의 VISITOR_CNT 항목에 이 결론을 주석으로 남겼다.
+- **TOU_DIV_IX는 실제로는 정상**: 같은 동기화 실행에서 `TOU_DIV_IX:exp attempt 0 aborted` 로그가
+  1건 있었으나, 이는 13개 하위 코드 호출 중 1건의 일시적 타임아웃이며 기존 재시도 로직(`maxRetries=2`)
+  으로 자동 복구됐다 — 같은 실행에서 7개 지역 전부 `itemCount=13`(만점)으로 SUCCESS 확인됨. 코드
+  결함이 아니므로 별도 수정을 하지 않았다.
+
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 
 ### 공통으로 확인된 사항
