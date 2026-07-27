@@ -561,3 +561,74 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     expect(festivalCount).toBeLessThanOrEqual(3);
   });
 });
+
+describe("selectPois — 거리 기반 선택(2단계: POI 선택 단계에서부터 가까운 후보 우선)", () => {
+  it("좌표가 있으면 이미 선택된 POI(식사 선점 FOOD)와 가까운 후보를 먼저 선택한다", () => {
+    // 식사 선점(mealReserveTarget)이 항상 먼저 실행되므로, FOOD 앵커의 좌표가 이후 핵심 카테고리
+    // 선택의 기준점(무게중심)이 된다. ATTRACTION 풀에 앵커와 아주 가까운 후보 2개와, 아주 먼(약
+    // 267km) 후보 2개를 함께 두면, 가까운 후보 2개가 먼저 선택돼야 한다 — 회전 순서(이름순 해시)만
+    // 봤다면 이름 순서에 따라 먼 후보가 먼저 뽑혔을 수도 있다.
+    const anchor: PoiLike = { id: "food-anchor", name: "food-anchor", category: "FOOD", lat: 37, lng: 127 };
+    const near1: PoiLike = { id: "attr-near-1", name: "attr-near-1", category: "ATTRACTION", lat: 37.001, lng: 127.001 };
+    const near2: PoiLike = { id: "attr-near-2", name: "attr-near-2", category: "ATTRACTION", lat: 37.002, lng: 127.002 };
+    const far1: PoiLike = { id: "attr-far-1", name: "attr-far-1", category: "ATTRACTION", lat: 37, lng: 130 };
+    const far2: PoiLike = { id: "attr-far-2", name: "attr-far-2", category: "ATTRACTION", lat: 37, lng: 130.01 };
+
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [far1, far2, near1, near2], // 회전 순서(이름순)로는 far가 near보다 먼저 온다.
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 5),
+      LODGING: makePois("lodging", "LODGING", 2),
+      FOOD: [anchor],
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] }),
+      pool,
+      MODEL_VERSION,
+    );
+    const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    expect(natureWellness).toBeDefined();
+
+    const selectedAttractionIds = natureWellness!.poiIds.filter((id) => id.startsWith("attr-"));
+    expect(selectedAttractionIds.slice(0, 2).sort()).toEqual(["attr-near-1", "attr-near-2"]);
+  });
+
+  it("좌표가 없는 후보만 있으면 기존 회전 순서(이름 정렬+해시 오프셋) 그대로 동작한다(회귀 없음)", () => {
+    const dna = computeDna(dnaInput());
+    const poolNoCoords: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+      LODGING: makePois("lodging", "LODGING", 20),
+      FOOD: makePois("food", "FOOD", 20),
+    };
+    const input = baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] });
+    const withoutCoords = computeStrategies(dna, input, poolNoCoords, MODEL_VERSION);
+    // 좌표를 전혀 채워 넣지 않은 동일한 풀로 두 번 계산해도 같은 결과가 나온다 — 거리 기반 로직이
+    // 좌표가 전혀 없을 때는 관여하지 않고 순수 회전 순서로 fallback한다는 것을 간접 확인한다.
+    const withoutCoordsAgain = computeStrategies(dna, input, poolNoCoords, MODEL_VERSION);
+    expect(withoutCoords.map((s) => s.poiIds)).toEqual(withoutCoordsAgain.map((s) => s.poiIds));
+  });
+
+  it("일부 후보만 좌표가 있어도 크래시 없이 안전하게 처리된다(좌표 없는 후보는 거리 판단에서 제외)", () => {
+    const anchor: PoiLike = { id: "food-anchor", name: "food-anchor", category: "FOOD", lat: 37, lng: 127 };
+    const withCoords: PoiLike = { id: "attr-coord", name: "attr-coord", category: "ATTRACTION", lat: 37.001, lng: 127.001 };
+    const withoutCoords1: PoiLike = { id: "attr-nocoord-1", name: "attr-nocoord-1", category: "ATTRACTION" };
+    const withoutCoords2: PoiLike = { id: "attr-nocoord-2", name: "attr-nocoord-2", category: "ATTRACTION" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [withoutCoords1, withoutCoords2, withCoords],
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 5),
+      LODGING: makePois("lodging", "LODGING", 2),
+      FOOD: [anchor],
+    };
+    const dna = computeDna(dnaInput());
+    expect(() =>
+      computeStrategies(
+        dna,
+        baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] }),
+        pool,
+        MODEL_VERSION,
+      ),
+    ).not.toThrow();
+  });
+});

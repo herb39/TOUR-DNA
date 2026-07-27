@@ -361,6 +361,11 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
             {days.map((day) => (
               <div key={day.dayIndex}>
                 <p className="text-xs font-semibold text-slate-500">{day.dayIndex}일차</p>
+                {day.notices?.map((notice, i) => (
+                  <p key={i} className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                    ⚠ {notice}
+                  </p>
+                ))}
                 <ul className="mt-2 space-y-2">
                   {day.items.map((item, idx) => {
                     const feasibility = checkFeasibility(day.items, idx);

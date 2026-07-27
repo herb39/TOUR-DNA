@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { haversineDistanceKm, orderByNearestNeighbor } from "@/lib/domain/geo";
+import {
+  haversineDistanceKm,
+  orderByNearestNeighbor,
+  classifyTravelMinutes,
+  estimateTravelMinutes,
+  CAUTION_TRAVEL_MINUTES,
+  EXCESSIVE_TRAVEL_MINUTES,
+} from "@/lib/domain/geo";
 
 describe("haversineDistanceKm", () => {
   it("같은 좌표는 거리 0", () => {
@@ -44,5 +51,35 @@ describe("orderByNearestNeighbor", () => {
     const first = orderByNearestNeighbor(points).map((p) => p.id);
     const second = orderByNearestNeighbor(points).map((p) => p.id);
     expect(first).toEqual(second);
+  });
+});
+
+describe("classifyTravelMinutes — 장거리 구간 등급(2단계 정책 기준)", () => {
+  it("좌표 없어 계산 불가(null)면 NORMAL로 본다(배제하지 않음)", () => {
+    expect(classifyTravelMinutes(null)).toBe("NORMAL");
+  });
+
+  it("CAUTION_TRAVEL_MINUTES 미만은 NORMAL이다", () => {
+    expect(classifyTravelMinutes(CAUTION_TRAVEL_MINUTES - 1)).toBe("NORMAL");
+  });
+
+  it("CAUTION_TRAVEL_MINUTES 이상 EXCESSIVE_TRAVEL_MINUTES 미만은 CAUTION이다", () => {
+    expect(classifyTravelMinutes(CAUTION_TRAVEL_MINUTES)).toBe("CAUTION");
+    expect(classifyTravelMinutes(EXCESSIVE_TRAVEL_MINUTES - 1)).toBe("CAUTION");
+  });
+
+  it("EXCESSIVE_TRAVEL_MINUTES 이상은 EXCESSIVE다", () => {
+    expect(classifyTravelMinutes(EXCESSIVE_TRAVEL_MINUTES)).toBe("EXCESSIVE");
+    expect(classifyTravelMinutes(EXCESSIVE_TRAVEL_MINUTES + 100)).toBe("EXCESSIVE");
+  });
+});
+
+describe("estimateTravelMinutes", () => {
+  it("교통수단이 빠를수록 같은 거리의 이동시간이 짧다", () => {
+    const a = { lat: 36.35, lng: 127.38 };
+    const b = { lat: 36.4, lng: 127.45 };
+    const walk = estimateTravelMinutes(a, b, "WALK");
+    const car = estimateTravelMinutes(a, b, "PRIVATE_VEHICLE");
+    expect(car).toBeLessThan(walk);
   });
 });

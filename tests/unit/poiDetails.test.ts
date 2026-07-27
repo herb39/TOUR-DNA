@@ -9,6 +9,7 @@ const poiFindMany = vi.fn();
 vi.mock("@/lib/db", () => ({ prisma: { poi: { findMany: (...args: unknown[]) => poiFindMany(...args) } } }));
 
 import {
+  deriveFoodSubcategory,
   deriveMealEligible,
   extractCat3FromRawPayload,
   fetchAdditionalGeneralPois,
@@ -45,6 +46,27 @@ describe("deriveMealEligible — Poi.rawPayload 기준 식사 가능 여부 판�
     expect(deriveMealEligible({ sourceType: "API", rawPayload: null })).toBe(false);
     expect(deriveMealEligible({ sourceType: "API", rawPayload: {} })).toBe(false);
     expect(deriveMealEligible({ sourceType: "API", rawPayload: { cat3: "UNKNOWN" } })).toBe(false);
+  });
+
+  it("cat3가 없어도 이름 키워드로 카페를 보조 판정한다(4단계 FOOD 세부 분류)", () => {
+    expect(deriveMealEligible({ sourceType: "API", name: "동네카페", rawPayload: null })).toBe(false);
+    expect(deriveMealEligible({ sourceType: "API", name: "전통 한식당", rawPayload: null })).toBe(true);
+  });
+});
+
+describe("deriveFoodSubcategory — FOOD 세부 분류(4단계)", () => {
+  it("FIXTURE는 항상 MEAL로 본다", () => {
+    expect(deriveFoodSubcategory({ sourceType: "FIXTURE", name: "아무개 식당", rawPayload: null })).toBe("MEAL");
+  });
+
+  it("cat3가 있으면 이름과 무관하게 cat3를 우선한다", () => {
+    expect(deriveFoodSubcategory({ sourceType: "API", name: "OO카페", rawPayload: { cat3: "A05020100" } })).toBe("MEAL");
+    expect(deriveFoodSubcategory({ sourceType: "API", name: "한식당", rawPayload: { cat3: "A05020900" } })).toBe("CAFE");
+  });
+
+  it("cat3가 없으면 이름 키워드로 보조 판정하고, 그마저 모호하면 UNKNOWN이다", () => {
+    expect(deriveFoodSubcategory({ sourceType: "API", name: "행복 베이커리", rawPayload: null })).toBe("CAFE");
+    expect(deriveFoodSubcategory({ sourceType: "API", name: "행복상회", rawPayload: null })).toBe("UNKNOWN");
   });
 });
 

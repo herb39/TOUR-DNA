@@ -1,6 +1,14 @@
 import type { DurationCode } from "./strategy";
 import { getTemplateById } from "./strategyTemplates";
-import { orderByNearestNeighbor, haversineDistanceKm } from "./geo";
+import {
+  orderByNearestNeighbor,
+  haversineDistanceKm,
+  estimateTravelMinutesForDistance,
+  AVERAGE_SPEED_KMH,
+  classifyTravelMinutes,
+  EXCESSIVE_TRAVEL_MINUTES,
+} from "./geo";
+import type { FoodSubcategory } from "./foodClassification";
 import {
   classifyThemes,
   computeNationalityChecklistNotes,
@@ -32,6 +40,9 @@ export interface PoiDetail {
    * 식사 슬롯에 쓰기 어려운 곳인지(3단계 보완, TourAPI cat3 기준). 값을 아예 지정하지 않은 호출부
    * (기존 테스트 등)는 명시적으로 false가 아니므로 식사 가능으로 취급한다(하위 호환). */
   mealEligible?: boolean;
+  /** FOOD일 때만 의미가 있다(3단계 mealEligible의 세부판. foodClassification.ts 기준). 값이 없으면
+   * 판정 안 함(레거시/비FOOD 호출부 하위 호환). */
+  foodSubcategory?: FoodSubcategory;
 }
 
 /** FOOD 항목이 실제로 왜 이 시각에 배치됐는지(5단계, 2026-07-26 강릉 사례 보완) — 장소명이나 시작
@@ -61,6 +72,10 @@ export interface CourseDay {
   /** 해당 날짜의 숙박 1건(있으면). 일반 items와 분리되어 날짜별 목표 개수에 포함되지 않는다.
    * 이 필드가 추가되기 전(2026-07-23 이전) 저장된 실행안에는 없을 수 있으므로 optional/nullable로 둔다. */
   lodging?: CourseItem | null;
+  /** 후보 부족 안내(8단계) — 비정상적인 장거리 구간이라 다른 날짜 후보와 교환도 안 돼 코스에서
+   * 제외된 POI가 있으면 그 사유를 담는다. 억지로 채우지 않은 결과를 사용자에게 투명하게 보여주기
+   * 위함이다. 없으면 undefined(레거시 실행안 하위 호환). */
+  notices?: string[];
 }
 
 /**
@@ -128,13 +143,6 @@ const MEAL_WINDOWS = {
 
 type MealName = keyof typeof MEAL_WINDOWS;
 
-const AVERAGE_SPEED_KMH: Record<TransportCode, number> = {
-  WALK: 4,
-  PUBLIC_TRANSPORT: 18,
-  PRIVATE_VEHICLE: 28,
-  MIXED: 15,
-};
-
 const TRANSPORT_LABEL: Record<TransportCode, string> = {
   WALK: "도보",
   PUBLIC_TRANSPORT: "대중교통",
@@ -197,10 +205,10 @@ export function estimateTravel(
     return { minutes: null, label: "이동 시간 확인 필요(좌표 정보 없음)" };
   }
   const distanceKm = haversineDistanceKm(from, to);
+  const minutes = estimateTravelMinutesForDistance(distanceKm, AVERAGE_SPEED_KMH[transport]);
   if (distanceKm < 0.3) {
-    return { minutes: 5, label: `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)` };
+    return { minutes, label: `${TRANSPORT_LABEL[transport]} 이동 5분 이내(같은 구역)` };
   }
-  const minutes = Math.max(5, Math.round((distanceKm / AVERAGE_SPEED_KMH[transport]) * 60));
   return { minutes, label: `이동 약 ${minutes}분(약 ${distanceKm.toFixed(1)}km, ${TRANSPORT_LABEL[transport]} 기준)` };
 }
 
@@ -346,13 +354,6 @@ function isFoodPoi(poi: { category: string }): boolean {
  * 내려온다). 이 값이 아예 없는 호출부(기존 테스트 등)는 하위 호환을 위해 식사 가능으로 취급한다. */
 function isMealEligiblePoi(poi: PoiDetail): boolean {
   return isFoodPoi(poi) && poi.mealEligible !== false;
-}
-
-/** FOOD이지만 식사 후보로 쓰지 않는 장소(카페/전통찻집 등, mealEligible===false) — 삭제하지 않고
- * 일반 방문 후보로 유지하되(기존 정책), 실제 식사 직전·직후로 붙는 부자연스러운 배치는 피한다
- * (5단계, 2026-07-26 강릉 사례 보완). */
-function isNonMealFoodPoi(poi: PoiDetail): boolean {
-  return isFoodPoi(poi) && !isMealEligiblePoi(poi);
 }
 
 /** 화면에 보여줄 FOOD 항목의 목적 라벨. 장소명이나 시작 시각으로 추정하지 않고, 실제 배치 시점에
@@ -547,16 +548,23 @@ function scheduleDayWithMeals(
     }
 
     if (!placedSomething) {
-      // 연속 FOOD 방지(5단계, 2026-07-26 강릉 사례 보완): 식사가 아직 남아있거나(mealPending) 방금
-      // 실제 식사를 마쳤다면(justHadMeal), 카페 등 비식사용 FOOD가 그 식사 바로 앞/뒤에 붙지 않도록
-      // 대체 가능한(FOOD가 아닌) 후보가 큐에 남아있는 동안은 그 후보를 먼저 시도한다. 대체 후보가
-      // 전혀 없으면(카페뿐이면) 평소처럼 그대로 배치한다 — 방문 자체를 생략하지는 않는다.
+      // 연속 FOOD 방지(5단계, 2026-07-26 강릉 사례 보완 + 이번 단계 일반화): 원래는 "카페 등 비식사
+      // FOOD가 실제 식사 바로 앞/뒤에 붙지 않게"만 막았는데, 세 번째 이상의 식사 가능 FOOD(예: 두 번째
+      // 식당)가 splitMealCandidates에서 점심/저녁으로 뽑히지 못하고 그대로 rest 큐에 남으면 이 방지
+      // 로직을 타지 않아 식당→식당, 카페→카페처럼 "같은 FOOD 카테고리가 연속 배치"되는 문제가 실제
+      // 운영에서 확인됐다(2026-07-27 강릉/경주 사례). 그래서 판단 기준을 "지금 방금 식사를 마쳤는지"에서
+      // "직전 장소가 FOOD 카테고리인지"로, 배치를 미루는 대상도 "비식사 FOOD만"에서 "FOOD 카테고리
+      // 전체"로 넓힌다 — 식사가 남아있거나(mealPending) 직전 장소가 어떤 FOOD든(식당·카페 구분 없이)
+      // 바로 다음에 FOOD를 또 붙이지 않도록, 대체 가능한(FOOD가 아닌) 후보가 큐에 남아있는 동안은 그
+      // 후보를 먼저 시도한다. 대체 후보가 전혀 없으면(FOOD뿐이면) 평소처럼 그대로 배치한다 — 방문
+      // 자체를 생략하지는 않는다(코스가 FOOD로만 채워지는 것보다는 낫지만, 후보가 그것뿐이면 억지로
+      // 빼지 않는다는 기존 원칙 유지).
       const mealPending = Boolean(lunchPending) || Boolean(dinnerPending);
-      const justHadMeal = prevPoi !== null && isMealEligiblePoi(prevPoi);
-      const avoidNonMealFoodNow = mealPending || justHadMeal;
-      const hasNonFoodAlternative = avoidNonMealFoodNow && remainingSights.some((p) => !isNonMealFoodPoi(p));
+      const justHadFood = prevPoi !== null && isFoodPoi(prevPoi);
+      const avoidFoodAdjacencyNow = mealPending || justHadFood;
+      const hasNonFoodAlternative = avoidFoodAdjacencyNow && remainingSights.some((p) => !isFoodPoi(p));
 
-      let deferredNonMealFood: PoiDetail | null = null;
+      let deferredFood: PoiDetail | null = null;
 
       // 관광지 큐를 순서대로 훑어 "지금 배치해도 하루 범위를 넘지 않는" 첫 후보를 찾는다. 그 전에
       // 넘는 후보를 만나면 큐에서 제거(제외)하고 다음 후보를 계속 확인한다 — 앞 후보 하나 때문에
@@ -570,9 +578,9 @@ function scheduleDayWithMeals(
           remainingSights.shift(); // 이 후보는 제외한다(재큐잉하지 않음) — 계속 다음 후보를 확인한다.
           continue;
         }
-        if (hasNonFoodAlternative && !deferredNonMealFood && isNonMealFoodPoi(candidate)) {
-          // 대체 가능한 비-FOOD 후보가 남아있으니, 이 카페는 잠시 미루고 그 후보를 먼저 찾는다.
-          deferredNonMealFood = remainingSights.shift() ?? null;
+        if (hasNonFoodAlternative && !deferredFood && isFoodPoi(candidate)) {
+          // 대체 가능한 비-FOOD 후보가 남아있으니, 이 FOOD는 잠시 미루고 그 후보를 먼저 찾는다.
+          deferredFood = remainingSights.shift() ?? null;
           continue;
         }
         remainingSights.shift();
@@ -581,14 +589,14 @@ function scheduleDayWithMeals(
         break;
       }
 
-      if (deferredNonMealFood) {
+      if (deferredFood) {
         if (placedSomething) {
-          remainingSights.unshift(deferredNonMealFood); // 다음 기회에 다시 시도한다(삭제하지 않음).
+          remainingSights.unshift(deferredFood); // 다음 기회에 다시 시도한다(삭제하지 않음).
         } else {
-          // 대체 후보가 없었다 — 미뤄뒀던 카페를 그대로 배치한다(생략하지 않음, 기존 정책 유지).
-          const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, deferredNonMealFood, transport));
+          // 대체 후보가 없었다 — 미뤄뒀던 FOOD를 그대로 배치한다(생략하지 않음, 기존 정책 유지).
+          const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, deferredFood, transport));
           if (fitsWithinDisplayableDay(start)) {
-            place(deferredNonMealFood, start, "GENERAL");
+            place(deferredFood, start, "GENERAL");
             placedSomething = true;
           }
         }
@@ -645,6 +653,122 @@ function mealSlotStatus(scheduled: ScheduledItem[] | null): { hasLunch: boolean;
     if (m >= dinnerStart && m <= dinnerEnd) hasDinner = true;
   }
   return { hasLunch, hasDinner };
+}
+
+/** dayPois[index]가 같은 날짜의 다른 항목들 중 EXCESSIVE(90분 이상)가 아닌("가까운") 항목이 몇
+ * 개인지 센다 — 이상치 판정의 기준이다(가까운 동료가 적을수록 더 고립된 항목). */
+function closeCompanionCount(dayPois: PoiDetail[], index: number, transport: TransportCode): number {
+  let count = 0;
+  for (let k = 0; k < dayPois.length; k++) {
+    if (k === index) continue;
+    const minutes = estimateTravel(dayPois[index], dayPois[k], transport).minutes;
+    if (minutes !== null && classifyTravelMinutes(minutes) !== "EXCESSIVE") count++;
+  }
+  return count;
+}
+
+/** 그 날짜의 인접 구간(최근접 이웃 정렬 순서 기준) 중 EXCESSIVE(90분 이상)인 것을 찾아, 그 중 이동
+ * 시간이 가장 큰 구간의 두 항목 중 "더 고립된 쪽"의 인덱스를 반환한다. 단순히 인접 쌍의 뒤쪽 항목을
+ * 무조건 지목하면(이상치가 정렬 시작점이 돼 그 다음 정상 항목이 걸리는 경우) 엉뚱한 항목이 지목될 수
+ * 있다 — 그래서 두 항목 각각이 "같은 날짜의 다른 항목과 얼마나 가까운 동료를 더 가지고 있는지"
+ * (closeCompanionCount)를 비교해, 동료가 더 적은(=더 고립된) 쪽을 이상치로 본다. 두 항목의 동료 수가
+ * 같으면(예: 서로 다른 두 하위 클러스터가 한 날짜에 섞여 그 경계에서 만난 경우) 기존 관례대로 뒤쪽
+ * 항목을 지목한다 — 결정론적이고, 어느 한쪽을 골라도 그 경계의 EXCESSIVE 인접은 해소된다. */
+function findWorstExcessiveAdjacency(dayPois: PoiDetail[], transport: TransportCode): { index: number; minutes: number } | null {
+  let worst: { index: number; minutes: number } | null = null;
+  for (let i = 1; i < dayPois.length; i++) {
+    const travel = estimateTravel(dayPois[i - 1], dayPois[i], transport);
+    if (classifyTravelMinutes(travel.minutes) !== "EXCESSIVE" || travel.minutes === null) continue;
+
+    const prevCompanions = closeCompanionCount(dayPois, i - 1, transport);
+    const curCompanions = closeCompanionCount(dayPois, i, transport);
+    const targetIndex = prevCompanions < curCompanions ? i - 1 : i;
+
+    if (!worst || travel.minutes > worst.minutes) worst = { index: targetIndex, minutes: travel.minutes };
+  }
+  return worst;
+}
+
+/** outlierPoi를 다른 날짜로 옮긴다면, 그 날짜의 어떤 기존 항목과도 EXCESSIVE 없이 이어질 수 있는지
+ * 확인해 가장 잘 맞는(가장 가까운) 날짜를 찾는다(2단계: "다음 날 배정"). 굳이 그 날짜의 다른 항목과
+ * 자리를 맞바꾸지 않는다 — outlierPoi는 원래 자기 날짜에서 자리가 남기 때문에 제외되는 것이 아니라
+ * 위치가 안 맞아서 제외되는 것이므로, 대상 날짜에 그냥 추가하는 것으로 충분하다(더 단순하고, 대상
+ * 날짜의 기존 항목을 불필요하게 다른 곳으로 밀어내지 않는다). 좌표가 없어 판단 불가능하면 스킵한다
+ * (안전하게 제외, 억지로 옮기지 않음). 동률이면 스캔 순서(날짜 순)로 정한다 — 결정론적. */
+function findBestDayForOutlier(
+  dayPoisList: PoiDetail[][],
+  excludeDay: number,
+  outlierPoi: PoiDetail,
+  transport: TransportCode,
+): number | null {
+  if (!hasCoords(outlierPoi)) return null;
+  let best: { dayIndex: number; minutes: number } | null = null;
+  for (let d = 0; d < dayPoisList.length; d++) {
+    if (d === excludeDay || dayPoisList[d].length === 0) continue;
+    let nearestInDay: number | null = null;
+    for (const candidate of dayPoisList[d]) {
+      const minutes = estimateTravel(outlierPoi, candidate, transport).minutes;
+      if (minutes !== null && (nearestInDay === null || minutes < nearestInDay)) nearestInDay = minutes;
+    }
+    if (nearestInDay !== null && classifyTravelMinutes(nearestInDay) !== "EXCESSIVE") {
+      if (!best || nearestInDay < best.minutes) best = { dayIndex: d, minutes: nearestInDay };
+    }
+  }
+  return best?.dayIndex ?? null;
+}
+
+const TRAVEL_REPAIR_MAX_PASSES = 2;
+
+/**
+ * 장거리 구간 처리(2단계, 2026-07-27 경주 87분·127분 이동 재현 보완). 지금까지는 이동시간이 아무리
+ * 길어도 nearest-neighbor 순서를 그대로 받아들여 시각표만 뒤로 미뤘다(선택된 POI 자체는 그대로 유지) —
+ * 그 결과 "동선상 실제로는 다른 지역에 있는 장소"가 하루 코스에 그대로 남아 실행 불가능한 이동을
+ * 만들어냈다. 여기서는 그 날짜 안의 인접 구간(최근접 이웃 순서 기준)이 EXCESSIVE_TRAVEL_MINUTES(90분)
+ * 이상이면(findWorstExcessiveAdjacency가 그 중 더 고립된 쪽을 지목):
+ *   1) 다른 날짜 중 이 후보를 받아도 그 날짜의 기존 항목과 EXCESSIVE 없이 이어지는 날짜가 있으면
+ *      그 날짜로 옮긴다(요구사항의 "가까운 대체 후보 탐색"과 "다음 날 배정"을 동시에 만족). 옮긴 뒤
+ *      두 날짜 모두 다시 최근접 이웃 순서로 정렬해 동선을 자연스럽게 되돌린다.
+ *   2) 옮길 수 있는 날짜가 전혀 없으면(고립된 장거리 후보) 그 POI를 코스에서 제외한다 — 부족해도
+ *      억지로 다시 채우지 않는다(기존 "안전한 생략" 원칙과 동일).
+ * 최대 TRAVEL_REPAIR_MAX_PASSES번만 반복해(무한 루프 방지, 각 패스 O(일수×POI수²) 이내로 유한하게
+ * 종료) 남은 이상치는 마지막에 한 번에 제외 처리한다. 반환값은 날짜별 제외 사유 안내문(8단계 후보
+ * 부족 안내에 그대로 쓴다).
+ */
+function repairExcessiveTravelSegments(dayPoisList: PoiDetail[][], transport: TransportCode): string[][] {
+  const dayCount = dayPoisList.length;
+
+  for (let pass = 0; pass < TRAVEL_REPAIR_MAX_PASSES; pass++) {
+    let changedInPass = false;
+    for (let d = 0; d < dayCount; d++) {
+      const outlier = findWorstExcessiveAdjacency(dayPoisList[d], transport);
+      if (!outlier) continue;
+
+      const outlierPoi = dayPoisList[d][outlier.index];
+      const destDay = findBestDayForOutlier(dayPoisList, d, outlierPoi, transport);
+      if (destDay === null) continue;
+
+      dayPoisList[d].splice(outlier.index, 1);
+      dayPoisList[destDay].push(outlierPoi);
+      dayPoisList[d] = orderByNearestNeighbor(dayPoisList[d]);
+      dayPoisList[destDay] = orderByNearestNeighbor(dayPoisList[destDay]);
+      changedInPass = true;
+    }
+    if (!changedInPass) break;
+  }
+
+  const noticesByDay: string[][] = dayPoisList.map(() => []);
+  for (let d = 0; d < dayCount; d++) {
+    let outlier = findWorstExcessiveAdjacency(dayPoisList[d], transport);
+    while (outlier) {
+      const removed = dayPoisList[d][outlier.index];
+      dayPoisList[d].splice(outlier.index, 1);
+      noticesByDay[d].push(
+        `${removed.name}은(는) 인근 다른 장소와의 이동 거리가 지나치게 멀어(약 ${outlier.minutes}분, 기준 ${EXCESSIVE_TRAVEL_MINUTES}분) 대체 후보를 찾지 못해 코스에서 제외되었습니다.`,
+      );
+      outlier = findWorstExcessiveAdjacency(dayPoisList[d], transport);
+    }
+  }
+  return noticesByDay;
 }
 
 /**
@@ -768,6 +892,11 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
     }
   }
 
+  // 장거리 구간 처리(2단계) — 하루 안의 인접 구간이 비정상적으로 멀면(EXCESSIVE_TRAVEL_MINUTES 이상)
+  // 다른 날짜의 더 가까운 후보와 교환하고, 교환할 후보가 없으면 코스에서 제외한다. 뒤이은 식사 배치·
+  // 최근접 순서 재계산이 이미 정리된 dayPoisList를 그대로 이어받도록 스케줄링보다 먼저 실행한다.
+  const travelNoticesByDay = repairExcessiveTravelSegments(dayPoisList, transport);
+
   // FOOD가 있는 날짜만 점심·저녁 시간대를 고려한 배치(3단계)를 적용한다. FOOD가 없으면 기존 방식
   // (날짜별 고정 슬롯 + 최근접 이웃 순서)을 그대로 쓴다 — 회귀 없이 이번 개선을 독립적으로 적용하기 위함.
   const scheduledList = dayPoisList.map((dayPois, d) => scheduleDayPois(dayPois, daySlotsForDayList[d], transport));
@@ -830,7 +959,8 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
       }
     }
 
-    days.push({ dayIndex: d + 1, items, lodging });
+    const notices = travelNoticesByDay[d];
+    days.push({ dayIndex: d + 1, items, lodging, ...(notices.length > 0 ? { notices } : {}) });
   }
   return days;
 }

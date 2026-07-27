@@ -91,8 +91,9 @@ export const FOOD_SUBCATEGORY_NAME_BY_CAT3: Record<string, string> = {
 };
 
 /** 카페/전통찻집·클럽처럼 "장소 유형상 정식 식사가 어렵다"고 명확히 확인된 cat3만 여기 둔다.
- * 나머지(한식/서양식/일식/중식/이색음식점)는 일반적인 식사가 가능한 음식점으로 본다. */
-const NON_MEAL_FOOD_CAT3_CODES = new Set(["A05020900", "A05021000"]);
+ * 나머지(한식/서양식/일식/중식/이색음식점)는 일반적인 식사가 가능한 음식점으로 본다.
+ * foodClassification.ts가 카페/일반 식사 세부 분류에 그대로 재사용한다(단일 기준 유지). */
+export const NON_MEAL_FOOD_CAT3_CODES = new Set(["A05020900", "A05021000"]);
 
 /** cat3 기준으로 이 음식점이 점심·저녁 후보로 쓸 수 있는 "식사 가능" 장소인지 판별한다. cat3가
  * 없거나(구버전 데이터 등) 알려진 코드가 아니면 안전하게 false(식사 불가로 간주 — 잘못 배치하는 것보다

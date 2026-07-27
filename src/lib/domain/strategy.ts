@@ -1,5 +1,7 @@
 import { clamp, roundForDisplay } from "./normalize";
+import { haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
+import type { FoodSubcategory } from "./foodClassification";
 import { AXIS_LABEL_KO, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
 import {
   classifyThemes,
@@ -43,6 +45,16 @@ export interface PoiLike {
    * 보완). planBuilder.ts의 PoiDetail.mealEligible과 같은 규약이다: 값이 없는 호출부(기존 테스트 등)는
    * 하위 호환을 위해 식사 가능으로 취급한다. */
   mealEligible?: boolean;
+  /** FOOD 세부 분류(foodClassification.ts) — 값이 없는 호출부는 기존처럼 mealEligible만으로 판단한다. */
+  foodSubcategory?: FoodSubcategory;
+  /** 거리 기반 선택(이번 단계)에 쓰는 좌표 — 값이 없는 후보(좌표 미확보 POI, 기존 테스트 등)는 거리
+   * 판단에서 제외되고 기존 방식(회전 순서)으로 안전하게 처리된다(하위 호환, 회귀 없음). */
+  lat?: number;
+  lng?: number;
+}
+
+function hasPoiCoords(p: PoiLike): p is PoiLike & GeoPoint {
+  return Number.isFinite(p.lat) && Number.isFinite(p.lng);
 }
 
 export interface StrategyScoreBreakdown {
@@ -230,6 +242,23 @@ function selectPois(
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
   duration: DurationCode,
 ): { poiIds: string[]; touchpoints: ConsumptionTouchpoints } {
+  // 이미 선택된 POI 중 좌표가 있는 것들의 무게중심 — 두 번째 선택부터 이 지점과 가까운 후보를 우선한다
+  // (1단계: 날짜별로 나누는 것은 planBuilder.ts 책임이라 이 단계에서는 "전체적으로 뭉치게" 하는
+  // 선호도만 담당한다). 좌표가 전혀 없으면(coordCount===0) 기존 회전 순서 방식 그대로 동작한다 —
+  // 신규 선택 로직이 좌표 없는 데이터(기존 테스트, 좌표 미확보 POI)에서 회귀를 일으키지 않는다.
+  let coordLatSum = 0;
+  let coordLngSum = 0;
+  let coordCount = 0;
+  const registerCoords = (p: PoiLike): void => {
+    if (hasPoiCoords(p)) {
+      coordLatSum += p.lat;
+      coordLngSum += p.lng;
+      coordCount++;
+    }
+  };
+  const currentCentroid = (): GeoPoint | null =>
+    coordCount === 0 ? null : { lat: coordLatSum / coordCount, lng: coordLngSum / coordCount };
+
   const nonLodgingTarget = NON_LODGING_POI_TARGET_BY_DURATION[duration];
   const lodgingTarget = LODGING_POI_TARGET_BY_DURATION[duration];
 
@@ -269,14 +298,15 @@ function selectPois(
       if (candidate.mealEligible === false) continue;
       selectedIds.add(candidate.id);
       selectionOrder.push(candidate);
+      registerCoords(candidate);
       const list = selectedByCategory.FOOD ?? [];
       list.push(candidate);
       selectedByCategory.FOOD = list;
     }
   }
 
-  /** 해당 카테고리에서 아직 선택되지 않은 다음 후보 하나. 중복은 selectedIds로 걸러낸다. */
-  const pickNext = (cat: PoiCategoryCode): PoiLike | null => {
+  /** 회전 순서 기준 다음 미선택 후보(기존 방식) — 좌표가 없어 거리 판단이 불가능할 때의 fallback이다. */
+  const pickNextByRotation = (cat: PoiCategoryCode): PoiLike | null => {
     const rotated = poolFor(cat);
     let idx = cursorByCategory.get(cat) ?? 0;
     let picked: PoiLike | null = null;
@@ -290,6 +320,29 @@ function selectPois(
     }
     cursorByCategory.set(cat, idx);
     return picked;
+  };
+
+  /** 해당 카테고리에서 다음으로 선택할 후보 하나. 이미 선택된 POI의 무게중심과 후보 좌표가 모두 있으면
+   * 그 중심에 가장 가까운 후보를 우선한다(1단계: 가까운 POI 우선 선택 + 공간적 응집). 좌표가 없는
+   * 후보뿐이면(기존 데이터/테스트) 기존 회전 순서 그대로 동작해 회귀가 없다. 동일 거리(반올림 오차
+   * 이내)면 회전 순서로 동점을 깬다 — 완전히 결정론적이다. */
+  const pickNext = (cat: PoiCategoryCode): PoiLike | null => {
+    const centroid = currentCentroid();
+    if (!centroid) return pickNextByRotation(cat);
+
+    const rotated = poolFor(cat);
+    const unselectedWithCoords = rotated
+      .map((candidate, rotationIndex) => ({ candidate, rotationIndex }))
+      .filter(({ candidate }) => !selectedIds.has(candidate.id) && hasPoiCoords(candidate));
+    if (unselectedWithCoords.length === 0) return pickNextByRotation(cat);
+
+    unselectedWithCoords.sort((a, b) => {
+      const da = haversineDistanceKm(centroid, a.candidate as PoiLike & GeoPoint);
+      const db = haversineDistanceKm(centroid, b.candidate as PoiLike & GeoPoint);
+      if (Math.abs(da - db) > 0.01) return da - db;
+      return a.rotationIndex - b.rotationIndex;
+    });
+    return unselectedWithCoords[0].candidate;
   };
 
   // 티어 안에서는 카테고리를 순환하며 한 개씩 뽑아 균형 있게 채우고, 목표에 못 미치면 다음 티어로 내려간다.
@@ -314,6 +367,7 @@ function selectPois(
         if (!picked) continue;
         selectedIds.add(picked.id);
         selectionOrder.push(picked);
+        registerCoords(picked);
         const list = selectedByCategory[cat] ?? [];
         list.push(picked);
         selectedByCategory[cat] = list;

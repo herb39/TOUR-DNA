@@ -89,6 +89,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                   {day.lodging.category}, {day.lodging.travel})
                 </p>
               ) : null}
+              {day.notices?.map((notice, i) => (
+                <p key={i} className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">
+                  ⚠ {notice}
+                </p>
+              ))}
             </div>
           ))}
         </div>

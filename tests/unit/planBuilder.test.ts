@@ -35,8 +35,9 @@ function foodPoi(id: string, lat: number, lng: number, mealEligible: boolean): P
 
 describe("buildDraftCourse", () => {
   it("입력이 지그재그 순서여도 하루 안에서는 거리 순서로 재배열한다", () => {
-    // 경도 0, 1, 2, 3에 일직선 배치, 입력은 0, 2, 1, 3(지그재그)
-    const pois = [poi("0", 0, 0), poi("2", 0, 2), poi("1", 0, 1), poi("3", 0, 3)];
+    // 경도 0, 0.01, 0.02, 0.03(각 약 1.1km, 정상 이동 범위)에 일직선 배치, 입력은 0, 0.02, 0.01,
+    // 0.03(지그재그) — 장거리 구간 제외 정책(2단계)과 섞이지 않도록 전 구간을 정상 이동 범위로 둔다.
+    const pois = [poi("0", 0, 0), poi("2", 0, 0.02), poi("1", 0, 0.01), poi("3", 0, 0.03)];
     const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
 
     expect(days).toHaveLength(1);
@@ -52,7 +53,8 @@ describe("buildDraftCourse", () => {
   });
 
   it("교통수단에 따라 같은 거리라도 다른 소요시간을 보여준다", () => {
-    const pois = [poi("a", 36.35, 127.38), poi("b", 36.4, 127.45)];
+    // 약 2.9km(도보 기준 정상 이동 범위) — 장거리 제외 정책과 섞이지 않도록 짧게 둔다.
+    const pois = [poi("a", 36.35, 127.38), poi("b", 36.37, 127.4)];
     const walkDays = buildDraftCourse(pois, "DAY_TRIP", "WALK");
     const carDays = buildDraftCourse(pois, "DAY_TRIP", "PRIVATE_VEHICLE");
 
@@ -505,13 +507,13 @@ describe("buildDraftCourse — FOOD 점심·저녁 시간대 우선 배치(3단�
     expect(minutes).toBeGreaterThanOrEqual(parseTimeSlotToMinutes("12:00") as number);
   });
 
-  it("이동시간이 매우 커서 선호 시간대에 도착할 수 없어도 시간이 역행하지 않는다", () => {
+  it("이동시간이 매우 커서 다른 후보와도 EXCESSIVE면 교환할 날짜가 없는 DAY_TRIP에서는 그대로 배제되고, 나머지는 시간이 역행하지 않는다", () => {
     const pois = [
       poi("attr-1", 0, 0, "ATTRACTION"),
       poi("attr-2", 0, 0.01, "ATTRACTION"),
-      // 0.18도(약 20km) — 도보 기준 이동시간이 약 5시간으로 커져 선호 시간대 도착이 사실상 불가능해진다.
-      // (24시간을 넘는 극단적 거리는 minutesToTimeSlot의 자정-랩 정책상 문자열 비교로 순서를 판별할 수
-      // 없어지므로, 기존 시간 표현 정책 범위 안에서 "이동시간이 크다"는 의도만 재현한다.)
+      // 0.18도(약 20km) — 도보 기준 이동시간이 약 5시간(EXCESSIVE_TRAVEL_MINUTES 이상)으로, 같은 날짜의
+      // 다른 어떤 장소와도 정상적으로 이어질 수 없다. DAY_TRIP은 교환할 다른 날짜가 없으므로(2단계) 이
+      // 장소는 코스에서 제외된다 — 억지로 포함시켜 시각을 지어내지 않는다.
       poi("food-far", 0, 0.18, "FOOD"),
     ];
     let days: ReturnType<typeof buildDraftCourse> | undefined;
@@ -520,22 +522,26 @@ describe("buildDraftCourse — FOOD 점심·저녁 시간대 우선 배치(3단�
     }).not.toThrow();
 
     const items = days![0].items;
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(2);
+    expect(items.some((i) => i.poiId === "food-far")).toBe(false);
     expectChronological(items);
-    expect(items.some((i) => i.category === "FOOD")).toBe(true);
+    expect(days![0].notices?.some((n) => n.includes("POI-food-far"))).toBe(true);
   });
 
   it("관광지를 하나 더 배치하면 점심 시간대를 명백히 놓치는 경우 FOOD가 먼저 배치된다", () => {
-    // attr-1과 food-1 사이 거리가 아주 멀어서, attr-1을 먼저 넣으면 food-1 도착이 점심 시간대 종료(13:30)를
-    // 한참 넘긴다 — 이 경우 food-1이 attr-1보다 먼저 배치되어야 한다.
-    const pois = [poi("attr-1", 0, 0.2, "ATTRACTION"), poi("food-1", 0, 0, "FOOD")];
+    // attr-1(day 시작점) → attr-2(약 0.55km, attr-1 바로 다음으로 정상 배치될 후보) → food-1(attr-1
+    // 기준 약 5.5km, attr-2 기준 약 5km — 둘 다 CAUTION 대역(60~90분)이라 장거리 제외(2단계) 대상은
+    // 아니다). attr-1만 먼저 넣으면 점심 시간대(13:30) 안에 food-1에 닿지만, attr-1과 attr-2를 순서대로
+    // 다 넣은 뒤에 food-1로 가면 13:30을 넘긴다 — 그래서 food-1이 attr-2보다 먼저 배치돼야 한다.
+    const pois = [poi("attr-1", 0, 0, "ATTRACTION"), poi("attr-2", 0, 0.005, "ATTRACTION"), poi("food-1", 0, 0.05, "FOOD")];
     const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
     const items = days[0].items;
 
-    expect(items).toHaveLength(2);
-    expect(items[0].category).toBe("FOOD");
-    expect(items[0].poiId).toBe("food-1");
-    const lunchMinutes = parseTimeSlotToMinutes(items[0].timeSlot) as number;
+    expect(items).toHaveLength(3);
+    expect(items[0].poiId).toBe("attr-1");
+    expect(items[1].poiId).toBe("food-1");
+    expect(items[2].poiId).toBe("attr-2");
+    const lunchMinutes = parseTimeSlotToMinutes(items[1].timeSlot) as number;
     expect(lunchMinutes).toBeGreaterThanOrEqual(LUNCH_START);
     expect(lunchMinutes).toBeLessThanOrEqual(LUNCH_END);
     expectChronological(items);
@@ -742,7 +748,10 @@ describe("buildDraftCourse — FOOD 1개의 자연스러운 슬롯 선택(3단�
       poi("d2-s2", 10, 0.02, "ATTRACTION"),
       poi("d2-s3", 10, 0.03, "ATTRACTION"),
       poi("d2-s4", 10, 0.04, "ATTRACTION"),
-      poi("d2-food", 10, 0.1, "FOOD"),
+      // d2-s1..s4 중 어느 쪽과 이웃이 되어도(도보 기준) CAUTION 대역(90분 미만)을 유지하도록 클러스터에
+      // 충분히 가깝게 두되(장거리 제외 정책(2단계) 대상인 EXCESSIVE는 아님), 관광지 4곳을 순서대로 다
+      // 지난 뒤에 가면 점심 시간대를 놓치는 거리로 유지한다.
+      poi("d2-food", 10, 0.06, "FOOD"),
       poi("d3-a", 20, 0, "ATTRACTION"),
       poi("d3-b", 20, 0.01, "ATTRACTION"),
       poi("d3-c", 20, 0.02, "ATTRACTION"),
@@ -835,11 +844,22 @@ describe("buildDraftCourse — 하루 범위 초과 후보는 건너뛰고 뒤 �
 });
 
 describe("buildDraftCourse — 자정 wrap 방어(3단계 보완)", () => {
-  it("극단적인 이동시간에서는 23:59로 뭉개 겹치게 만들지 않고, 그 날짜에서 더 이상 배치하지 않는다", () => {
+  it("EXCESSIVE 없이 CAUTION 대역 이동이 여러 번 누적돼 하루를 넘겨도, 23:59로 뭉개 겹치게 만들지 않고 그 날짜에서 더 이상 배치하지 않는다", () => {
+    // food-1(시작점)에서 각 구간 약 75분(CAUTION 대역, EXCESSIVE_TRAVEL_MINUTES 미만이라 장거리 제외
+    // 정책(2단계) 대상은 아님)씩 떨어진 관광지를 사슬처럼 이어 붙인다 — 개별 구간은 모두 정상 범위지만
+    // 누적되면 하루 표시 범위(0~1439분)를 넘는다. 이때도 23:59로 뭉개 겹치는 항목을 만들지 않고, 더
+    // 이상 들어갈 수 없는 항목부터는 배치를 멈춘다(기존 자정-랩 방어 로직 — 이번 장거리 정책과는 별개로
+    // 여전히 필요하다: 장거리 제외는 "구간 하나가 비정상"일 때, 이 방어는 "정상 구간이 누적돼 하루가
+    // 다 찼을 때" 대응한다).
     const pois = [
-      poi("attr-1", 0, 0, "ATTRACTION"),
-      poi("attr-2", 0, 0.01, "ATTRACTION"),
-      poi("food-far", 0, 5, "FOOD"), // 약 555km — 극단적으로 먼 거리
+      poi("food-1", 0, 0, "FOOD"),
+      poi("attr-1", 0, 0.045, "ATTRACTION"),
+      poi("attr-2", 0, 0.09, "ATTRACTION"),
+      poi("attr-3", 0, 0.135, "ATTRACTION"),
+      poi("attr-4", 0, 0.18, "ATTRACTION"),
+      poi("attr-5", 0, 0.225, "ATTRACTION"),
+      poi("attr-6", 0, 0.27, "ATTRACTION"),
+      poi("attr-7", 0, 0.315, "ATTRACTION"),
     ];
     let days: ReturnType<typeof buildDraftCourse> | undefined;
     expect(() => {
@@ -847,9 +867,6 @@ describe("buildDraftCourse — 자정 wrap 방어(3단계 보완)", () => {
     }).not.toThrow();
 
     const items = days![0].items;
-    // food-far는 이동시간을 반영한 판단으로 attr-1보다 먼저(점심 시간대 안에) 배치되지만, 그 다음
-    // attr-1로 가는 이동시간이 극단적으로 커서 하루 표시 범위를 넘는다 — 그 시점부터는 더 배치하지
-    // 않는다(23:59로 뭉개서 겹치게 만들지 않음). 그 결과 이 날짜에는 food-far 1건만 남는다.
     expect(items.length).toBeLessThan(pois.length);
     expect(items.some((i) => i.category === "FOOD")).toBe(true);
     expectNonOverlappingWithinDisplayableDay(items);
@@ -1311,6 +1328,85 @@ describe("buildDraftCourse — 강릉 사례를 본뜬 회귀 테스트(연속 F
 
     expect(items).toHaveLength(2);
     expect(items.some((i) => i.poiId === "cafe-only")).toBe(true);
+  });
+});
+
+describe("buildDraftCourse — FOOD 연속배치 방지 일반화(2026-07-27, 경주/강릉 카페-카페 연속배치 재현 보완)", () => {
+  it("카페(mealEligible=false) 두 곳이 연속 배치되지 않는다 — 실제 식사와 무관하게 대체 가능한 비-FOOD 후보가 있으면 그 사이에 끼워 넣는다", () => {
+    // 기존 연속배치 방지(5단계)는 "실제 식사(lunch/dinner) 바로 앞/뒤" 기준으로만 판단해, 식사와
+    // 무관한 카페 두 곳이 연달아 배치되는 경우(예: 경주 "오미토리 커피상점→가람집옹심이")는 막지
+    // 못했다. FOOD가 전부 mealEligible=false(카페)라 lunch/dinner 자체가 없는 상황에서도, 대체 가능한
+    // 관광지가 있으면 카페끼리 연속 배치되지 않아야 한다.
+    const pois = [
+      poi("attr-1", 0, 0, "ATTRACTION"),
+      foodPoi("cafe-1", 0, 0.01, false),
+      foodPoi("cafe-2", 0, 0.02, false),
+      poi("attr-2", 0, 0.03, "ATTRACTION"),
+    ];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items.map((i) => i.poiId)).toEqual(["attr-1", "cafe-1", "attr-2", "cafe-2"]);
+    for (let i = 1; i < items.length; i++) {
+      expect(items[i - 1].category === "FOOD" && items[i].category === "FOOD").toBe(false);
+    }
+  });
+
+  it("대체 가능한 비-FOOD 후보가 전혀 없으면(카페뿐이면) 카페끼리도 연속 배치를 허용한다 — 방문 자체를 생략하지 않는다", () => {
+    const pois = [foodPoi("cafe-1", 0, 0, false), foodPoi("cafe-2", 0, 0.01, false)];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.poiId).sort()).toEqual(["cafe-1", "cafe-2"]);
+  });
+});
+
+describe("buildDraftCourse — 장거리 구간 처리(2단계, 경주 87분·127분 이동 재현 보완)", () => {
+  it("날짜별 목표 개수 경계 때문에 다른 군집(EXCESSIVE 거리)에 잘못 섞인 후보는 실제로 가까운 날짜로 옮겨진다", () => {
+    // 위도 0 부근에 5곳(군집 A), 위도 10 부근에 2곳(군집 B) — 최근접 이웃 정렬은 [a1..a5, b1, b2] 순이
+    // 되고, ONE_NIGHT_TWO_DAYS의 날짜별 목표 개수([4, 3])로 그대로 자르면 a5가 1일차 목표를 넘겨
+    // 2일차([a5, b1, b2])로 밀려난다 — a5는 군집 A 소속인데 군집 B와 한 날짜에 묶여 실행 불가능한
+    // 이동(약 1,112km)이 생긴다. 이 경우 a5를 실제로 가까운 날짜(1일차)로 재배정해서 해결해야 한다
+    // (코스에서 제외하는 것은 최후 수단이다).
+    const pois = [
+      poi("a1", 0, 0, "ATTRACTION"),
+      poi("a2", 0, 0.01, "ATTRACTION"),
+      poi("a3", 0, 0.02, "ATTRACTION"),
+      poi("a4", 0, 0.03, "ATTRACTION"),
+      poi("a5", 0, 0.04, "ATTRACTION"),
+      poi("b1", 10, 0, "ATTRACTION"),
+      poi("b2", 10, 0.01, "ATTRACTION"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "WALK");
+
+    // a5는 코스에서 제외되지 않고, 군집 A와 같은 날짜(1일차)로 재배정된다.
+    expect(days[0].items.map((i) => i.poiId).sort()).toEqual(["a1", "a2", "a3", "a4", "a5"]);
+    expect(days[1].items.map((i) => i.poiId).sort()).toEqual(["b1", "b2"]);
+    expect(days[0].notices ?? []).toHaveLength(0);
+    expect(days[1].notices ?? []).toHaveLength(0);
+
+    // 결과 코스 안에는 EXCESSIVE(90분 이상) 인접 구간이 남아있지 않다.
+    for (const day of days) {
+      for (let i = 1; i < day.items.length; i++) {
+        const minutesMatch = day.items[i].travel.match(/약 (\d+)분/);
+        if (minutesMatch) expect(Number(minutesMatch[1])).toBeLessThan(90);
+      }
+    }
+  });
+
+  it("옮길 수 있는 날짜가 전혀 없으면(고립된 장거리 후보) 코스에서 제외하고 사유를 notices에 남긴다", () => {
+    const pois = [
+      poi("attr-1", 0, 0, "ATTRACTION"),
+      poi("attr-2", 0, 0.01, "ATTRACTION"),
+      poi("isolated", 50, 50, "ATTRACTION"), // 다른 어떤 날짜와도 EXCESSIVE
+    ];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+    const items = days[0].items;
+
+    expect(items.some((i) => i.poiId === "isolated")).toBe(false);
+    expect(items.map((i) => i.poiId).sort()).toEqual(["attr-1", "attr-2"]);
+    expect(days[0].notices?.some((n) => n.includes("POI-isolated"))).toBe(true);
   });
 });
 
