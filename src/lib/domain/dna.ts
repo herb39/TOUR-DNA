@@ -146,6 +146,30 @@ function computeSimpleAxis(
   return buildAxis(evidence, [result.entry]);
 }
 
+/** 2026-07-27(P0-2): count가 늘수록 점수가 무한정 선형으로 오르는 대신, 절반포화점(half)에서 50점에
+ * 도달하고 그 뒤로는 완만하게 100에 가까워지는 로그형 체감 곡선(Michaelis-Menten 형태)을 쓴다.
+ * count=0이면 0, count→∞여도 100에 정확히는 도달하지 않는다 — "POI를 많이 모으기만 하면 즉시
+ * 만점"이 되는 기존 선형+clamp 구조의 포화 문제를 근본적으로 없앤다(임의로 만점 기준 숫자만 올리는
+ * 방식이 아니다). half는 "이 개수면 이 구성요소 만점의 절반"이라는 뜻이라 화면에서 설명 가능하다. */
+function diminishingReturnsScore(count: number, half: number): number {
+  if (count <= 0) return 0;
+  return 100 * (count / (count + half));
+}
+
+/** 중심 관광지 8곳이면 이 구성요소 만점(100)의 절반(50)에 도달한다는 뜻 — 실 서비스키 조사 표본
+ * (대전/제천 등, docs/public-api-status.md)에서 지역당 중심 관광지가 대략 5~15곳 수준이었던 것을
+ * 기준으로 삼았다. */
+const ATTRACTION_HALF_SATURATION = 8;
+/** 연관 관광지 관계는 개수 자체가 적어(POI_RELATION 큐레이션), 더 적은 개수에서 절반에 도달하게 한다. */
+const RELATION_HALF_SATURATION = 6;
+
+/** Network = 중심 관광지 체감곡선(50%) + 연관 관광지 체감곡선(20%) + 업종 커버리지(30%, 기존과 동일하게
+ * 음식/숙박/체험 3종 중 몇 종이 있는지). 세 요소를 구분해서 반영하라는 요구(P0-2)에 따라 가중치를
+ * 명시적으로 분리했다 — 이전에는 사실상 attractionCount 선형항이 지배적이었다. */
+const NETWORK_ATTRACTION_WEIGHT = 0.5;
+const NETWORK_RELATION_WEIGHT = 0.2;
+const NETWORK_CATEGORY_COVERAGE_WEIGHT = 0.3;
+
 function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
   const net = input.networkInputs;
   if (!net) return { score: null, status: "MISSING", evidence: [] };
@@ -153,8 +177,13 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
   const categoryCoverage = [net.foodCount > 0, net.lodgingCount > 0, net.experienceCount > 0].filter(
     Boolean,
   ).length;
+  const attractionScore = diminishingReturnsScore(net.attractionCount, ATTRACTION_HALF_SATURATION);
+  const relationScore = diminishingReturnsScore(net.relatedPoiCount, RELATION_HALF_SATURATION);
+  const categoryCoverageScore = (categoryCoverage / 3) * 100;
   const rawScore = clamp(
-    net.attractionCount * 4 + net.relatedPoiCount * 3 + categoryCoverage * (100 / 3 / 2),
+    attractionScore * NETWORK_ATTRACTION_WEIGHT +
+      relationScore * NETWORK_RELATION_WEIGHT +
+      categoryCoverageScore * NETWORK_CATEGORY_COVERAGE_WEIGHT,
     0,
     100,
   );
@@ -175,7 +204,9 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
     collectedAt: net.collectedAt,
     provenance: net.poi.provenance,
     appliedRule:
-      `Network 구조적 산식의 POI 구성 근거(중심관광지수×4, 업종 커버리지 보너스에 사용). ` +
+      `Network 산식의 중심 관광지 구성 근거 — 개수가 늘수록 체감(로그형)으로 반영되어 ` +
+      `${ATTRACTION_HALF_SATURATION}곳이면 이 구성요소 만점의 절반(가중치 ${NETWORK_ATTRACTION_WEIGHT * 100}%), ` +
+      `업종 커버리지(가중치 ${NETWORK_CATEGORY_COVERAGE_WEIGHT * 100}%)에도 사용됨. ` +
       `API 수집 ${net.poi.apiCount}건, 큐레이션(FIXTURE) ${net.poi.fixtureCount}건.`,
   };
 
@@ -196,7 +227,9 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
       sourceCode: "POI_RELATION",
       collectedAt: net.collectedAt,
       provenance: net.relation.provenance,
-      appliedRule: "Network 구조적 산식의 연관관광지 관계 근거(연관관광지수×3에 사용). 사람이 구성한 큐레이션 데이터.",
+      appliedRule:
+        `Network 산식의 연관 관광지 관계 근거 — 개수가 늘수록 체감(로그형)으로 반영(가중치 ` +
+        `${NETWORK_RELATION_WEIGHT * 100}%). 사람이 구성한 큐레이션 데이터.`,
     });
   }
 

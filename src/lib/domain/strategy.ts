@@ -374,10 +374,13 @@ function buildReasons(
 
 /**
  * 전략 3안을 계산한다. 점수/순위는 절대 하드코딩하지 않고 아래 공식으로만 결정된다.
- * strategyScore = demandFit*0.35 + supplyFit*0.25 + seasonFit*0.20 + targetFit*0.05
- *               + feasibilityFit*0.05 + roleFit*0.10  (Phase 4: 역할 가중치 반영, 합계는 항상 1.0)
- * demandFit/supplyFit/seasonFit(지역 객관적 DNA·시즌) 가중치는 Phase 1~3과 동일하게 유지해
- * 기존 순위 안정성을 지키고, targetFit/feasibilityFit 비중을 줄인 만큼을 roleFit에 배정했다.
+ * strategyScore = demandFit*0.30 + supplyFit*0.20 + seasonFit*0.20 + targetFit*0.15
+ *               + feasibilityFit*0.05 + roleFit*0.10  (합계는 항상 1.0)
+ * 2026-07-27(P0-1): 사용자가 명시적으로 고른 테마(targetFit)가 순위에 실질적인 영향을 주도록
+ * targetFit 가중치를 0.05→0.15로 올렸다(운영 검증에서 웰니스 테마를 명시적으로 고른 시나리오도
+ * 테마와 무관한 전략에 밀리는 문제가 확인됨). 그만큼을 demandFit(0.35→0.30)·supplyFit(0.25→0.20)에서
+ * 덜어냈다 — 다만 두 값을 합쳐도 0.50으로 여전히 가장 큰 비중을 차지해, 지역 객관적 데이터(수요/공급)가
+ * 현저히 부족하면 테마가 맞아도 순위가 밀릴 수 있는 구조는 유지된다.
  * demandFit/supplyFit(지역 객관적 DNA) 값 자체는 역할·국적·테마·월에 따라 바뀌지 않는다 — 대신
  * targetFit(테마)/feasibilityFit(국적)/roleFit(역할)/seasonFit(월)이 조건별 적합도를 담당한다.
  */
@@ -399,10 +402,10 @@ export function computeStrategies(
 
     const totalScore = roundForDisplay(
       clamp(
-        demandFit * 0.35 +
-          supplyFit * 0.25 +
+        demandFit * 0.3 +
+          supplyFit * 0.2 +
           seasonFit * 0.2 +
-          targetFit * 0.05 +
+          targetFit * 0.15 +
           feasibilityFit * 0.05 +
           roleFit * 0.1,
         0,

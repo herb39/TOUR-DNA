@@ -460,9 +460,12 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
       FESTIVAL: makePois("festival", "FESTIVAL", 20),
     };
     const dna = computeDna(dnaInput());
+    // preferredThemes로 자연 테마를 명시해 NATURE_WELLNESS가 상위 3위 안에 들도록 한다(P0-1: 테마가
+    // 순위에 실질적 영향을 주도록 가중치를 올렸으므로, 이 POI 선택 로직 테스트도 "사용자가 이 템플릿을
+    // 명시적으로 원하는" 조건으로 맞춰 검증한다 — 순위 결과 자체는 이 테스트의 관심사가 아니다).
     const strategies = computeStrategies(
       dna,
-      baseProjectInput({ duration: "DAY_TRIP" }),
+      baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] }),
       coreOnlyPool,
       MODEL_VERSION,
     );
@@ -501,7 +504,7 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     const dna = computeDna(dnaInput());
     const strategies = computeStrategies(
       dna,
-      baseProjectInput({ duration: "DAY_TRIP" }),
+      baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] }),
       cafeOnlyPool,
       MODEL_VERSION,
     );
@@ -522,11 +525,12 @@ describe("selectPois — 기간별 밀도 개선(1단계)", () => {
     const dna = computeDna(dnaInput());
     const strategies = computeStrategies(
       dna,
-      baseProjectInput({ duration: "DAY_TRIP" }),
+      baseProjectInput({ duration: "DAY_TRIP", preferredThemes: ["자연"] }),
       coreOnlyPool,
       MODEL_VERSION,
     );
     const natureWellness = strategies.find((s) => s.templateId === "NATURE_WELLNESS");
+    expect(natureWellness).toBeDefined();
     const categories = natureWellness!.poiIds.map((id) => categoryOf(id, coreOnlyPool));
     expect(categories.filter((c) => c === "FOOD")).toHaveLength(2);
   });

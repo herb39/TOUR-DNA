@@ -112,6 +112,47 @@ describe("computeDna", () => {
     expect(result.network.status).toBe("MISSING");
   });
 
+  describe("Network 축 — P0-2: 체감(로그형) 곡선으로 포화 방지", () => {
+    function withAttractionCount(count: number) {
+      return baseInput({
+        networkInputs: {
+          attractionCount: count,
+          relatedPoiCount: 0,
+          foodCount: 1,
+          lodgingCount: 1,
+          experienceCount: 1,
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          poi: { apiCount: count, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
+          relation: null,
+        },
+      });
+    }
+
+    it("중심 관광지 개수가 많아져도(25개) 즉시 100점에 포화되지 않는다", () => {
+      const result = computeDna(withAttractionCount(25));
+      expect(result.network.score).not.toBeNull();
+      expect(result.network.score as number).toBeLessThan(100);
+    });
+
+    it("중심 관광지 개수가 아주 많아도(200개) 100점에 도달하지 않는다(점근선)", () => {
+      const result = computeDna(withAttractionCount(200));
+      expect(result.network.score as number).toBeLessThan(100);
+      expect(result.network.score as number).toBeGreaterThan(70);
+    });
+
+    it("중심 관광지 개수가 다르면 점수도 다르다(개수·다양성·핵심관광지 구성 구분)", () => {
+      const few = computeDna(withAttractionCount(3)).network.score as number;
+      const many = computeDna(withAttractionCount(30)).network.score as number;
+      expect(many).toBeGreaterThan(few);
+    });
+
+    it("개수가 0이면 해당 구성요소 기여도는 0이다(업종 커버리지만 반영)", () => {
+      const result = computeDna(withAttractionCount(0));
+      // categoryCoverage=3/3(food/lodging/experience 모두 1개 이상)이므로 30점만 나와야 한다.
+      expect(result.network.score).toBe(30);
+    });
+  });
+
   describe("Network 축 — POI 근거/관계 근거 분리(Phase 1-E)", () => {
     it("POI/관계 근거가 서로 다른 metricCode의 별도 Evidence로 생성된다", () => {
       const input = baseInput({

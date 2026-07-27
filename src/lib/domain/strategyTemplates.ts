@@ -93,7 +93,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     concept: "자연경관과 휴양 콘텐츠 중심으로 힐링을 목적으로 하는 코스",
     demandAxisWeights: { demand: 0.4, diversity: 0.6 },
     supplyAxisWeights: { network: 0.4, diversity: 0.6 },
-    idealMonths: [4, 5, 6, 9, 10],
+    // 2026-07-27(P0-1): 봄·가을 자연경관뿐 아니라 온천·스파 등 겨울 실내 휴양도 이 템플릿의 실제
+    // 콘셉트에 포함된다(concept: "자연경관과 휴양 콘텐츠") — 기존에는 겨울(12~2월)이 전부 빠져 있어
+    // 웰니스 테마를 명시적으로 고른 겨울 여행에서도 계절 적합도가 부당하게 낮게 나왔다. 여름 성수기
+    // 혼잡·더위를 피하는 의미로 7~8월은 제외한 채 겨울 3개월만 추가한다(일반 규칙 — 특정 지역 전용 아님).
+    idealMonths: [4, 5, 6, 9, 10, 11, 12, 1, 2],
     targetAgeGroups: ["AGE_30S", "AGE_40S", "AGE_50S"],
     targetCompanionTypes: ["COMPANION_COUPLE", "COMPANION_SOLO", "COMPANION_FAMILY"],
     supportedGoals: ["GOAL_REPEAT_VISIT", "GOAL_BRAND_IMAGE"],

@@ -362,4 +362,36 @@ describe("대표 시나리오 — 실제 결과 차별화(하드코딩 없이 �
       }
     }
   });
+
+  it("P0-1: 제천(외국인·프리미엄·웰니스·12월) 시나리오는 자연·웰니스형이 1위다", () => {
+    // 운영 검증에서 발견된 문제: 웰니스 테마를 명시적으로 고른 시나리오에서도 계절이 안 맞는 다른
+    // 템플릿(가족 체험형)이 1위였다. targetFit 가중치 인상 + NATURE_WELLNESS 겨울 이상적 월 반영으로
+    // 실제 데이터·조건을 종합했을 때 자연·웰니스형이 1위가 되는지 확인한다(순위를 강제로 조작하지 않음).
+    const { strategies } = runScenario(jecheon);
+    expect(strategies[0].templateId).toBe("NATURE_WELLNESS");
+  });
+
+  it("강릉(여름) 시나리오는 야간·체류 확대형이 1위를 유지한다(불필요한 회귀 없음)", () => {
+    const { strategies } = runScenario(gangneung);
+    expect(strategies[0].templateId).toBe("NIGHT_STAY_EXTENSION");
+  });
+
+  it("테마만 바꾸면 전략 순위가 일관된 규칙(테마 연관 템플릿의 targetFit 상승)으로 변한다", () => {
+    const dna = computeDna(dnaInputFor(jecheon.sigunguCode));
+    const withWellness = computeStrategies(
+      dna,
+      toScoringInput(jecheon),
+      poisByCategoryFor(jecheon.sigunguCode),
+      MODEL_VERSION,
+    );
+    const withoutTheme = computeStrategies(
+      dna,
+      toScoringInput({ ...jecheon, preferredThemes: [] }),
+      poisByCategoryFor(jecheon.sigunguCode),
+      MODEL_VERSION,
+    );
+    const wellnessWith = withWellness.find((s) => s.templateId === "NATURE_WELLNESS")!;
+    const wellnessWithout = withoutTheme.find((s) => s.templateId === "NATURE_WELLNESS")!;
+    expect(wellnessWith.scoreBreakdown.targetFit).toBeGreaterThan(wellnessWithout.scoreBreakdown.targetFit);
+  });
 });
