@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
-function sortDeep(value: unknown): unknown {
+/** 객체 키를 정렬해 canonical한 형태로 만든다 — 같은 내용이면 키 순서와 무관하게 항상 같은 JSON
+ * 문자열이 나오게 한다. dataVersion.ts도 이 함수를 재사용한다(단일 기준 유지). */
+export function sortDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortDeep);
   if (value && typeof value === "object") {
     return Object.keys(value as Record<string, unknown>)
