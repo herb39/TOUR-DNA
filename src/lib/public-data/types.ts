@@ -56,6 +56,8 @@ export interface NormalizedItemsResult<T> {
   items: T[];
   resultCode: string;
   resultMsg: string;
+  /** 공공데이터포털 응답의 response.body.totalCount(있으면). 페이지네이션이 필요한 어댑터가 사용한다. */
+  totalCount?: number;
 }
 
 /** items가 ""(빈 문자열)/객체 1건/배열 중 무엇이든 항상 배열로 정규화한다. */
@@ -65,19 +67,20 @@ export function parsePublicDataEnvelope<T extends z.ZodTypeAny>(
 ): NormalizedItemsResult<z.infer<T>> {
   const envelope = publicDataEnvelopeSchema(itemSchema).parse(raw);
   const { resultCode, resultMsg } = envelope.response.header;
+  const totalCount = envelope.response.body.totalCount ?? 0;
 
   if (resultCode !== SUCCESS_RESULT_CODE) {
-    return { status: "ERROR", items: [], resultCode, resultMsg };
+    return { status: "ERROR", items: [], resultCode, resultMsg, totalCount };
   }
 
   const rawItems = envelope.response.body.items;
   if (typeof rawItems === "string") {
-    return { status: "EMPTY", items: [], resultCode, resultMsg };
+    return { status: "EMPTY", items: [], resultCode, resultMsg, totalCount };
   }
   const itemField = (rawItems as { item: "" | z.infer<T> | z.infer<T>[] }).item;
   if (itemField === "") {
-    return { status: "EMPTY", items: [], resultCode, resultMsg };
+    return { status: "EMPTY", items: [], resultCode, resultMsg, totalCount };
   }
   const items = Array.isArray(itemField) ? itemField : [itemField];
-  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode, resultMsg };
+  return { status: items.length === 0 ? "EMPTY" : "SUCCESS", items, resultCode, resultMsg, totalCount };
 }

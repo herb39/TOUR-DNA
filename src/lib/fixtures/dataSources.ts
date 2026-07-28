@@ -35,16 +35,16 @@ export const DATA_SOURCE_SEED: DataSourceSeed[] = [
   {
     code: "VISITOR_CNT",
     name: "지역별 방문자수",
-    // ⚠️ 확인된 결함(2026-07-27): 이 baseUrl은 실제 REST 게이트웨이가 아니라 공공데이터포털의 사람이
-    // 보는 소개 페이지(HTML)다 — 호출 시 항상 HTML 응답을 받아 매 동기화마다 실패한다(운영 동기화
-    // 오류 로그로 실측 확인, docs/public-api-status.md 참고). 실제 게이트웨이 주소(예:
-    // https://apis.data.go.kr/B551011/<ServiceName> 형태로 추정되나 정확한 서비스명·오퍼레이션명은
-    // Swagger 문서 확인 없이는 추측하지 않는다 — 잘못된 주소를 또 추측해 넣지 않기 위함)를 확인한
-    // 뒤 이 값을 교체해야 한다.
-    baseUrl: "https://www.data.go.kr/data/15101972/openapi.do",
+    // 2026-07-28 실제 API 명세(DataLabService)로 확인된 진짜 게이트웨이 주소로 교체 — 이전 baseUrl
+    // (data.go.kr 소개 페이지 HTML)이 원인이었던 매 동기화 실패는 해결됨(docs/public-api-status.md
+    // §5-A/§5-B 참고). /locgoRegnVisitrDDList(시군구)·/metcoRegnVisitrDDList(광역) 두 오퍼레이션을
+    // 쓴다(visitorCnt.ts).
+    baseUrl: "https://apis.data.go.kr/B551011/DataLabService",
     description:
-      "지역별 방문자수(빅데이터 기반). baseUrl이 REST 게이트웨이가 아님이 확인됨(위 주석 참고) — " +
-      "매 동기화 실패, 기존 SUCCESS 스냅샷(2026-07-21) 보존 중.",
+      "지역별 방문자수(빅데이터 기반). 시군구 분석(/locgoRegnVisitrDDList)과 광역 분석" +
+      "(/metcoRegnVisitrDDList)을 각각 전국 단위로 조회해 signguCode/areaCode로 지역에 매핑한다. " +
+      "외지인+외국인 합계를 VISITOR_CNT로, 현지인 합계는 VISITOR_CNT_LOCAL 보조지표로 기록한다" +
+      "(2026-07-28 신규 API 구조 전환).",
   },
   {
     code: "TOUR_INFO",

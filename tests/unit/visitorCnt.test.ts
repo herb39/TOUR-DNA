@@ -1,55 +1,185 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchVisitorCnt } from "@/lib/public-data/adapters/visitorCnt";
+import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, monthToYmdRange } from "@/lib/public-data/adapters/visitorCnt";
 
-// 2026-07-27 원인 분석: DataSource.baseUrl(VISITOR_CNT)이 공공데이터포털 소개 페이지(HTML)를 가리켜
-// 매 동기화가 실패한다(운영 오류 로그로 실측 확인). 여기서는 실제로 캡처한 응답 원문 대신, 그 실패를
-// 재현하는 대표적인 HTML 형태(민감정보 없음)로 어댑터의 ERROR 처리 경로를 검증한다.
-describe("fetchVisitorCnt — baseUrl이 REST 게이트웨이가 아닐 때(HTML 응답)", () => {
+// 2026-07-28 DataLabService 신규 API 구조로 전면 재작성(docs/public-api-status.md §5-B). 이 API는
+// 지역 필터가 없어 전국 응답을 시군구/광역 각각 조회한 뒤 signguCode/areaCode로 매핑한다.
+
+function envelope(resultCode: string, resultMsg: string, items: unknown, totalCount: number) {
+  return {
+    response: {
+      header: { resultCode, resultMsg },
+      body: { items: items === "" ? "" : { item: items }, numOfRows: 1000, pageNo: 1, totalCount },
+    },
+  };
+}
+
+function mockFetchOnce(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(body),
+  } as Response;
+}
+
+describe("fetchLocgoRegnVisitr / fetchMetcoRegnVisitr", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("HTML 응답을 받으면 재시도 없이 ERROR로 끝나고, 원인을 알 수 있는 resultMsg를 남긴다", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => "<!DOCTYPE html><html><head><title>공공데이터포털</title></head><body></body></html>",
-    } as Response);
+  it("현지인/외지인/외국인(touDivCd 1/2/3) 행을 분리해서 집계한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope(
+          "0000",
+          "NORMAL SERVICE.",
+          [
+            { signguCode: "51150", touDivCd: "1", touNum: "1000", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "2", touNum: "300", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "3", touNum: "50", baseYmd: "20260601" },
+          ],
+          3,
+        ),
+      ),
+    );
 
-    const result = await fetchVisitorCnt({
-      serviceKey: "test-key",
-      baseUrl: "https://example.test/intro-page",
-      areaCd: "51",
-      baseYm: "202606",
-    });
-
-    expect(result.status).toBe("ERROR");
-    expect(result.items).toEqual([]);
-    expect(result.resultMsg).toContain("HTML");
-  });
-
-  it("정상 JSON 응답이면 그대로 성공 처리한다(회귀 없음)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          response: {
-            header: { resultCode: "0000", resultMsg: "NORMAL SERVICE." },
-            body: { items: { item: { areaCd: "51", baseYm: "202606", visitorCnt: "123456" } }, numOfRows: 1, pageNo: 1, totalCount: 1 },
-          },
-        }),
-    } as Response);
-
-    const result = await fetchVisitorCnt({
-      serviceKey: "test-key",
-      baseUrl: "https://example.test/real-gateway",
-      areaCd: "51",
-      baseYm: "202606",
-    });
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
 
     expect(result.status).toBe("SUCCESS");
-    expect(result.items[0]?.visitorCnt).toBe(123456);
+    const agg = result.byCode?.get("51150");
+    expect(agg?.localNum).toBe(1000);
+    expect(agg?.otherDomesticNum).toBe(300);
+    expect(agg?.foreignNum).toBe(50);
+  });
+
+  it("VISITOR_CNT는 외지인+외국인 합계이며 현지인은 포함하지 않는다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope(
+          "0000",
+          "NORMAL SERVICE.",
+          [
+            { signguCode: "51150", touDivCd: "1", touNum: "1000", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "2", touNum: "300", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "3", touNum: "50", baseYmd: "20260601" },
+          ],
+          3,
+        ),
+      ),
+    );
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    const agg = result.byCode?.get("51150");
+    expect(agg?.visitorCnt).toBe(350);
+  });
+
+  it("touNum의 소수점을 반올림하지 않고 그대로 보존한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope(
+          "0000",
+          "NORMAL SERVICE.",
+          [
+            { signguCode: "51150", touDivCd: "2", touNum: "123.7", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "3", touNum: "0.3", baseYmd: "20260601" },
+          ],
+          2,
+        ),
+      ),
+    );
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    const agg = result.byCode?.get("51150");
+    expect(agg?.otherDomesticNum).toBeCloseTo(123.7);
+    expect(agg?.visitorCnt).toBeCloseTo(124.0);
+  });
+
+  it("같은 지역·같은 touDivCd의 여러 baseYmd(일자) 값을 월간 합계로 더한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope(
+          "0000",
+          "NORMAL SERVICE.",
+          [
+            { signguCode: "51150", touDivCd: "2", touNum: "100", baseYmd: "20260601" },
+            { signguCode: "51150", touDivCd: "2", touNum: "150", baseYmd: "20260602" },
+            { signguCode: "51150", touDivCd: "2", touNum: "200", baseYmd: "20260603" },
+          ],
+          3,
+        ),
+      ),
+    );
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    const agg = result.byCode?.get("51150");
+    expect(agg?.otherDomesticNum).toBe(450);
+  });
+
+  it("totalCount가 numOfRows보다 크면 다음 페이지를 추가로 조회해 항목을 합친다", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("pageNo=1")) {
+        return mockFetchOnce(envelope("0000", "NORMAL SERVICE.", [{ signguCode: "51150", touDivCd: "2", touNum: "100", baseYmd: "20260601" }], 1500));
+      }
+      return mockFetchOnce(envelope("0000", "NORMAL SERVICE.", [{ signguCode: "51150", touDivCd: "2", touNum: "50", baseYmd: "20260602" }], 1500));
+    });
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const agg = result.byCode?.get("51150");
+    expect(agg?.otherDomesticNum).toBe(150);
+  });
+
+  it("signguCode/areaCode로 각각 다른 지역을 구분해 매핑한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope(
+          "0000",
+          "NORMAL SERVICE.",
+          [
+            { signguCode: "51150", touDivCd: "2", touNum: "100", baseYmd: "20260601" },
+            { signguCode: "47130", touDivCd: "2", touNum: "200", baseYmd: "20260601" },
+          ],
+          2,
+        ),
+      ),
+    );
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    expect(result.byCode?.get("51150")?.otherDomesticNum).toBe(100);
+    expect(result.byCode?.get("47130")?.otherDomesticNum).toBe(200);
+  });
+
+  it("metco(광역) 응답은 areaCode로 매핑하고, signgu 값을 합산해 대체하지 않는다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockFetchOnce(
+        envelope("0000", "NORMAL SERVICE.", [{ areaCode: "51", touDivCd: "3", touNum: "999", baseYmd: "20260601" }], 1),
+      ),
+    );
+
+    const result = await fetchMetcoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    expect(result.byCode?.get("51")?.foreignNum).toBe(999);
+  });
+
+  it("성공 응답이지만 0건이면 EMPTY로, 기존 SUCCESS를 덮어쓸 값이 없다고 표시한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockFetchOnce(envelope("0000", "NORMAL SERVICE.", "", 0)));
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    expect(result.status).toBe("EMPTY");
+    expect(result.byCode?.size).toBe(0);
+  });
+
+  it("루트 resultCode가 실패면 ERROR로 처리하고 byCode를 만들지 않는다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockFetchOnce(envelope("99", "SERVICE ERROR", [], 0)));
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+    expect(result.status).toBe("ERROR");
+    expect(result.byCode).toBeNull();
+  });
+
+  it("baseYm(YYYYMM)을 월의 1일~말일 YYYYMMDD 범위로 변환한다", () => {
+    expect(monthToYmdRange("202602")).toEqual({ startYmd: "20260201", endYmd: "20260228" });
+    expect(monthToYmdRange("202606")).toEqual({ startYmd: "20260601", endYmd: "20260630" });
   });
 });

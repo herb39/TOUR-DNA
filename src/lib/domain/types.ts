@@ -123,6 +123,8 @@ export const METRIC_CODES = {
   DEMAND_RESOURCE: "touResDemIxVal",
   DEMAND_VISITOR_GROWTH: "visitorGrowthRateVal",
   VISITOR_CNT: "visitorCnt",
+  /** 외지인+외국인이 아니라 현지인(touDivCd=1) 합계 보조값. DNA 점수식에는 쓰지 않고 근거 패널 보조지표로만 노출. */
+  VISITOR_CNT_LOCAL: "visitorCntLocal",
   STAY: "tarSjrnDsIxVal",
   SPEND: "tarExpDsIxVal",
   DIVERSITY: "touDivIxVal",

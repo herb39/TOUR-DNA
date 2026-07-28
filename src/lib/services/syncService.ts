@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
 import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
-import { fetchVisitorCnt } from "@/lib/public-data/adapters/visitorCnt";
+import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
@@ -147,6 +147,71 @@ async function upsertSnapshot(params: {
 }
 
 /**
+ * VISITOR_CNT 전국 조회 결과(locgoResult/metcoResult)에서 region 하나에 해당하는 코드(signguCode 또는
+ * areaCode)를 찾아 NormalizedMetric/DataSnapshot을 갱신한다. SIGUNGU/SIDO 양쪽 모두 이 함수로 처리한다.
+ * ERROR면 기존 SUCCESS 스냅샷을 보존(upsertSnapshot의 preserve 정책)하고, 이 지역의 코드가 이번 응답에
+ * 없으면(진짜 0건) EMPTY로 기록한다 — 지어낸 값을 upsert하지 않는다.
+ */
+async function upsertVisitorCntForRegion(params: {
+  region: { id: string; code: string; level: RegionLevel };
+  code: string | null;
+  result: VisitorCntFetchResult | null;
+  visitorSourceId: string;
+  baseYm: string;
+}): Promise<SyncSourceResult> {
+  const { region, code, result, visitorSourceId, baseYm } = params;
+  const sourceCode = `VISITOR_CNT:${region.code}`;
+
+  if (!code || !result) {
+    return {
+      sourceCode,
+      status: "SKIPPED",
+      itemCount: 0,
+      errorMessage: !code ? "apiAreaCode/apiSigunguCode 미설정 — 방문자수 매핑 제외" : "VISITOR_CNT 소스 미설정",
+    };
+  }
+
+  if (result.status === "ERROR") {
+    // rawPages가 비어 있으면 네트워크 실패 등으로 실제 응답 본문 자체를 받지 못한 것이다(다른 어댑터의
+    // raw===null과 동일한 의미) — 지어낸 본문을 snapshot에 남기지 않고 조용히 건너뛴다.
+    if (result.rawPages.length > 0) {
+      const outcome = await upsertSnapshot({
+        dataSourceId: visitorSourceId,
+        regionId: region.id,
+        baseYm,
+        status: "ERROR",
+        resultCode: result.resultCode,
+        resultMsg: result.resultMsg,
+        itemCount: 0,
+        rawPayload: { resultCode: result.resultCode, resultMsg: result.resultMsg },
+      });
+      if (outcome === "PRESERVED") {
+        await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.VISITOR_CNT, METRIC_CODES.VISITOR_CNT_LOCAL]);
+      }
+    }
+    return { sourceCode, status: "FAILED", itemCount: 0, errorMessage: result.resultMsg };
+  }
+
+  const agg = result.byCode.get(code);
+  if (agg) {
+    await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.VISITOR_CNT, agg.visitorCnt, "명", visitorSourceId, "LIVE_API");
+    await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.VISITOR_CNT_LOCAL, agg.localNum, "명", visitorSourceId, "LIVE_API");
+  }
+  await upsertSnapshot({
+    dataSourceId: visitorSourceId,
+    regionId: region.id,
+    baseYm,
+    status: agg ? "SUCCESS" : "EMPTY",
+    resultCode: result.resultCode,
+    resultMsg: result.resultMsg,
+    itemCount: agg?.rawItems.length ?? 0,
+    // 전국 원본이 아니라 이 지역 코드에 해당하는 실제 응답 행만 추려 저장한다(원문 그대로, 가공 없음).
+    rawPayload: { code, items: agg?.rawItems ?? [] },
+  });
+  return { sourceCode, status: "SUCCESS", itemCount: agg?.rawItems.length ?? 0 };
+}
+
+/**
  * 6개 공공데이터 API를 동기화한다. DATA_MODE=snapshot이거나 서비스키가 없으면 라이브 호출을
  * 생략하고 기존 성공 데이터를 그대로 유지한다(스냅샷 모드로 전체 데모 지속 가능). 일부 API가
  * 실패해도 다른 API의 기존 성공 데이터를 삭제하지 않는다 — 실패한 지표만 갱신을 건너뛴다.
@@ -189,6 +254,20 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
   const dataSources = await prisma.dataSource.findMany();
   const sourceByCode = new Map(dataSources.map((d) => [d.code, d]));
   const regions = await prisma.region.findMany({ where: { level: "SIGUNGU" } });
+
+  // VISITOR_CNT(DataLabService)는 지역 필터가 없는 API라, 지역마다 반복 호출하지 않고 이번 baseYm의
+  // 전국 응답을 시군구/광역 각각 1회만 조회한 뒤(fetchAllPages 내부 페이지네이션은 있음) 지역 코드로
+  // 매핑한다(2026-07-28 신규 API 구조 전환). 광역은 시군구 값을 합산하지 않고 metcoRegnVisitrDDList를
+  // 별도로 직접 호출한다.
+  const visitorSource = sourceByCode.get("VISITOR_CNT");
+  let locgoResult: VisitorCntFetchResult | null = null;
+  let metcoResult: VisitorCntFetchResult | null = null;
+  if (visitorSource) {
+    [locgoResult, metcoResult] = await Promise.all([
+      fetchLocgoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm: params.baseYm }),
+      fetchMetcoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm: params.baseYm }),
+    ]);
+  }
 
   for (const region of regions) {
     if (!region.apiAreaCode || !region.apiSigunguCode) {
@@ -325,38 +404,16 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       });
     }
 
-    const visitorSource = sourceByCode.get("VISITOR_CNT");
     if (visitorSource) {
-      const res = await fetchVisitorCnt({ serviceKey, baseUrl: visitorSource.baseUrl, areaCd: region.apiAreaCode, baseYm: params.baseYm });
-      if (res.status === "SUCCESS") {
-        for (const item of res.items) {
-          if (item.visitorCnt !== undefined) {
-            // 방문자수 API는 필드 의미가 아직 검증되지 않았다(docs/public-api-status.md "여전히 미확인")
-            // — HTTP/API 응답이 성공이어도 LIVE_API가 아니라 ESTIMATED로 기록한다(마스터 문서 3-3절).
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.VISITOR_CNT, item.visitorCnt, "명", visitorSource.id, "ESTIMATED");
-          }
-        }
-      }
-      if (res.raw !== null) {
-        // ESTIMATED로만 기록되므로 markMetricsAsCached(LIVE_API 전용 필터)는 이 소스에 대해 항상 no-op이다
-        // — 애초에 "이전 성공값"을 LIVE_API라고 주장한 적이 없기 때문에 CACHED_API로 격하시킬 대상도 없다.
-        await upsertSnapshot({
-          dataSourceId: visitorSource.id,
-          regionId: region.id,
+      results.push(
+        await upsertVisitorCntForRegion({
+          region,
+          code: region.apiSigunguCode,
+          result: locgoResult,
+          visitorSourceId: visitorSource.id,
           baseYm: params.baseYm,
-          status: res.status,
-          resultCode: res.resultCode,
-          resultMsg: res.resultMsg,
-          itemCount: res.items.length,
-          rawPayload: res.raw as object,
-        });
-      }
-      results.push({
-        sourceCode: `VISITOR_CNT:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
-        itemCount: res.items.length,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
-      });
+        }),
+      );
     }
 
     const tourInfoSource = sourceByCode.get("TOUR_INFO");
@@ -444,6 +501,23 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       itemCount: 0,
       errorMessage: "정식 서비스명/baseUrl 미확인 — fixture 데이터 사용 중",
     });
+  }
+
+  // 광역시도 VISITOR_CNT는 시군구 반복 루프 대상이 아니므로(위 regions는 SIGUNGU만) 별도로 처리한다 —
+  // metcoRegnVisitrDDList 응답을 시군구처럼 합산하지 않고 그대로 areaCode로 매핑한다(rule 13).
+  if (visitorSource) {
+    const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
+    for (const sidoRegion of sidoRegions) {
+      results.push(
+        await upsertVisitorCntForRegion({
+          region: sidoRegion,
+          code: sidoRegion.apiAreaCode,
+          result: metcoResult,
+          visitorSourceId: visitorSource.id,
+          baseYm: params.baseYm,
+        }),
+      );
+    }
   }
 
   const hasSuccess = results.some((r) => r.status === "SUCCESS");

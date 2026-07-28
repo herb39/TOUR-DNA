@@ -14,6 +14,7 @@ const {
   syncLogCreate,
   DATA_SOURCES,
   REGION,
+  regionFindMany,
 } = vi.hoisted(() => {
   // 실제 DataSnapshot 테이블의 upsert/조회 동작을 흉내 내는 최소 인메모리 fake.
   // Phase 1-B 보완(2026-07-23)의 "기존 SUCCESS/EMPTY 보존" 정책은 upsertSnapshot()이 쓰기 전에
@@ -68,6 +69,7 @@ const {
     poiUpsert: vi.fn().mockResolvedValue(undefined),
     poiFindMany: vi.fn().mockResolvedValue([]),
     syncLogCreate: vi.fn().mockResolvedValue(undefined),
+    regionFindMany: vi.fn(),
     DATA_SOURCES: [
       { id: "src-tar-svc-dem", code: "TAR_SVC_DEM", baseUrl: "https://example.test/tar-svc-dem" },
       { id: "src-tou-div-ix", code: "TOU_DIV_IX", baseUrl: "https://example.test/tou-div-ix" },
@@ -89,11 +91,19 @@ const {
   };
 });
 
+// VISITOR_CNT(DataLabService)는 지역 필터가 없는 전국 API라 syncService.ts가 SIGUNGU 루프와 별도로
+// SIDO 목록도 조회한다(region.findMany({ where: { level: "SIDO" } })) — REGION(SIGUNGU)이 SIDO 조회
+// 에서도 잘못 반환되지 않도록 where.level을 실제로 구분한다.
+regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) => {
+  if (args?.where?.level === "SIDO") return [];
+  return [REGION];
+});
+
 // 실제 외부 API를 호출하지 않는다 — 5개 어댑터를 전부 mock으로 대체한다.
 vi.mock("@/lib/public-data/adapters/tarSvcDem", () => ({ fetchTarSvcDem: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/touDivIx", () => ({ fetchTouDivIx: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/touResDem", () => ({ fetchTouResDem: vi.fn() }));
-vi.mock("@/lib/public-data/adapters/visitorCnt", () => ({ fetchVisitorCnt: vi.fn() }));
+vi.mock("@/lib/public-data/adapters/visitorCnt", () => ({ fetchLocgoRegnVisitr: vi.fn(), fetchMetcoRegnVisitr: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/tourInfo", () => ({
   fetchTourInfo: vi.fn(),
   mapContentTypeToPoiCategory: vi.fn(() => "ATTRACTION"),
@@ -102,7 +112,7 @@ vi.mock("@/lib/public-data/adapters/tourInfo", () => ({
 vi.mock("@/lib/db", () => ({
   prisma: {
     dataSource: { findMany: vi.fn().mockResolvedValue(DATA_SOURCES) },
-    region: { findMany: vi.fn().mockResolvedValue([REGION]) },
+    region: { findMany: regionFindMany },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
     normalizedMetric: { upsert: normalizedMetricUpsert, updateMany: normalizedMetricUpdateMany },
     dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique },
@@ -114,7 +124,7 @@ import { runTourismDataSync } from "@/lib/services/syncService";
 import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
 import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
-import { fetchVisitorCnt } from "@/lib/public-data/adapters/visitorCnt";
+import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo } from "@/lib/public-data/adapters/tourInfo";
 
 // 어댑터 mock 기본값 — "네트워크 실패로 실제 본문이 전혀 없다"에 해당하는 raw를 반환해, 이 테스트에서
@@ -142,12 +152,19 @@ function resetAdapterMocksToNoRealBody() {
     resultMsg: "mock: no body",
     raw: null,
   });
-  vi.mocked(fetchVisitorCnt).mockResolvedValue({
+  vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
     status: "ERROR",
-    items: [],
+    byCode: null,
     resultCode: "NETWORK_ERROR",
     resultMsg: "mock: no body",
-    raw: null,
+    rawPages: [],
+  });
+  vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue({
+    status: "ERROR",
+    byCode: null,
+    resultCode: "NETWORK_ERROR",
+    resultMsg: "mock: no body",
+    rawPages: [],
   });
   vi.mocked(fetchTourInfo).mockResolvedValue({
     status: "ERROR",
@@ -299,12 +316,14 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
   });
 
   it("동일 입력으로 재실행해도 같은 unique key로 upsert하며 무한히 새 row를 만들지 않는다", async () => {
-    vi.mocked(fetchVisitorCnt).mockResolvedValue({
+    vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
       status: "SUCCESS",
-      items: [{ baseYm: "202606", visitorCnt: 12345 }],
+      byCode: new Map([
+        ["30200", { code: "30200", name: "유성구", localNum: 1000, otherDomesticNum: 12000, foreignNum: 345, visitorCnt: 12345, rawItems: [] }],
+      ]),
       resultCode: "0000",
       resultMsg: "OK",
-      raw: { response: { header: { resultCode: "0000", resultMsg: "OK" } } },
+      rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
     });
 
     await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
@@ -473,18 +492,55 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       expect(normalizedMetricStore.get("region-1|202606|tarSvcDemIxVal")?.provenance).toBeNull();
     });
 
-    it("VISITOR_CNT는 API 성공이어도 필드 의미가 미확인이라 LIVE_API가 아니라 ESTIMATED로 기록된다", async () => {
-      vi.mocked(fetchVisitorCnt).mockResolvedValue({
+    it("VISITOR_CNT는 신규 API 성공 응답이면 LIVE_API로 기록되고, 현지인 합계는 VISITOR_CNT_LOCAL로 별도 기록된다", async () => {
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
         status: "SUCCESS",
-        items: [{ baseYm: "202606", visitorCnt: 999 }],
+        byCode: new Map([
+          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: [] }],
+        ]),
         resultCode: "0000",
         resultMsg: "OK",
-        raw: { response: { header: { resultCode: "0000", resultMsg: "OK" }, body: { items: { item: [] } } } },
+        rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
       });
 
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
 
-      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("ESTIMATED");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.rawValue).toBe(999);
+      expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.provenance).toBe("LIVE_API");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.rawValue).toBe(500);
+    });
+
+    it("VISITOR_CNT 기존 SUCCESS 스냅샷은 이후 ERROR가 와도 보존되고 metric은 CACHED_API로 낮아진다", async () => {
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: [] }],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
+
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "ERROR",
+        byCode: null,
+        resultCode: "99",
+        resultMsg: "SERVICE ERROR",
+        rawPages: [{ resultCode: "99", resultMsg: "SERVICE ERROR" }],
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      const key = "src-visitor-cnt|region-1|202606";
+      expect(dataSnapshotStore.get(key)?.status).toBe("SUCCESS");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("CACHED_API");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.provenance).toBe("CACHED_API");
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      );
+      expect(callsForKey).toHaveLength(1); // 두 번째 실행에서는 쓰기 자체를 건너뛴다(보존).
     });
   });
 });
