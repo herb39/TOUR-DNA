@@ -90,8 +90,10 @@ describe("findLatestCompleteVisitorBaseYm", () => {
 
     expect(result.state).toBe("LIVE_COMPLETE");
     expect(result.state === "LIVE_COMPLETE" && result.baseYm).toBe("202605");
-    expect(result.checked.map((c) => c.baseYm)).toEqual(["202606"]);
+    // checked는 "완전성을 실제로 판정한 모든 달"이다 — 최종 선택된 202605도 판정을 거쳤으므로 포함된다.
+    expect(result.checked.map((c) => c.baseYm)).toEqual(["202606", "202605"]);
     expect(result.checked[0].reason).toBe("LOCGO_INCOMPLETE_DATES");
+    expect(result.checked[1].complete).toBe(true);
   });
 
   it("광역지자체가 불완전한 달도 동일하게 건너뛴다", async () => {
@@ -103,6 +105,7 @@ describe("findLatestCompleteVisitorBaseYm", () => {
 
     expect(result.state).toBe("LIVE_COMPLETE");
     expect(result.state === "LIVE_COMPLETE" && result.baseYm).toBe("202605");
+    expect(result.checked.map((c) => c.baseYm)).toEqual(["202606", "202605"]);
     expect(result.checked[0].reason).toBe("METCO_INCOMPLETE_DATES");
   });
 
@@ -152,5 +155,35 @@ describe("findLatestCompleteVisitorBaseYm", () => {
     expect(result.state === "CACHED" && result.baseYm).toBe("202606");
     expect(fetchLocgo).not.toHaveBeenCalled();
     expect(fetchMetco).not.toHaveBeenCalled();
+  });
+
+  it("완전한 월 결과를 재사용할 수 있게 locgoResult/metcoResult를 그대로 반환한다(재호출 방지)", async () => {
+    const locgoData = successFor("202606", "30200");
+    const metcoData = successFor("202606", "30");
+    const fetchLocgo = vi.fn(async () => locgoData);
+    const fetchMetco = vi.fn(async () => metcoData);
+    const checkCache = vi.fn(async () => false);
+
+    const result = await findLatestCompleteVisitorBaseYm({ ...baseDeps, fetchLocgo, fetchMetco, checkCache });
+
+    expect(result.state).toBe("LIVE_COMPLETE");
+    if (result.state === "LIVE_COMPLETE") {
+      // 탐색 중 이미 받은 바로 그 객체를 그대로 돌려준다 — 호출부가 상세 보고를 위해 같은 baseYm을
+      // 다시 조회할 필요가 없다.
+      expect(result.locgoResult).toBe(locgoData);
+      expect(result.metcoResult).toBe(metcoData);
+    }
+    expect(fetchLocgo).toHaveBeenCalledTimes(1);
+    expect(fetchMetco).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DB 결합 없음(2026-07-29)", () => {
+  it("이 모듈은 @/lib/db(prisma)를 import하지 않는다 — DATABASE_URL 없이도 로드/테스트 가능해야 한다", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const source = fs.readFileSync(path.join(process.cwd(), "src/lib/services/visitorBaseYmFinder.ts"), "utf-8");
+    expect(source).not.toMatch(/@\/lib\/db/);
+    expect(source.toLowerCase()).not.toContain("prisma");
   });
 });

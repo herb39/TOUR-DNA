@@ -160,10 +160,10 @@ export function assessVisitorMonthCompleteness(
 }
 
 /**
- * syncService.ts의 저장 게이트용. locgo/metco 각각 독립적으로 "SUCCESS인데 날짜가 일부 누락"인 경우만
- * ERROR로 바꿔치기해, 기존 ERROR-보존 경로(upsertVisitorCntForRegion)가 그대로 "불완전 합계를 저장하지
- * 않고 기존 SUCCESS 스냅샷을 보존"하도록 만든다 — 새 저장/보존 로직을 중복 구현하지 않는다.
- * ERROR/EMPTY는 이미 그 자체로 안전하게 처리되므로(허구 값을 만들지 않음) 그대로 통과시킨다.
+ * 단일 소스(locgo 또는 metco) 하나만 놓고 "SUCCESS인데 날짜가 일부 누락"인지 판정하는 하위 유틸리티.
+ * syncService.ts는 이 함수를 직접 쓰지 않고 아래 `enforceCombinedDateCompleteness`(기초·광역 원자적
+ * 게이트)를 쓴다 — 한쪽만 완전하다고 그쪽만 저장하면 안 되기 때문이다. 이 함수는 순수 날짜 판정
+ * 자체를 테스트하거나 재사용할 때를 위해 남겨둔다.
  */
 export function enforceDateCompleteness(baseYm: string, result: VisitorCntFetchResult): VisitorCntFetchResult {
   if (result.status !== "SUCCESS") return result;
@@ -174,8 +174,45 @@ export function enforceDateCompleteness(baseYm: string, result: VisitorCntFetchR
     byCode: null,
     resultCode: "INCOMPLETE_MONTH",
     resultMsg: `기준월 ${baseYm} 날짜 커버리지 불완전(누락 ${coverage.missingDates.length}일: ${coverage.missingDates.slice(0, 5).join(", ")}${coverage.missingDates.length > 5 ? " 외" : ""}) — 불완전 합계를 저장하지 않음`,
-    // rawPages를 비워 upsertVisitorCntForRegion이 이 ERROR를 "본문 자체를 못 받은 경우"와 동일하게
-    // 취급해 snapshot조차 새로 쓰지 않게 한다(기존 SUCCESS는 손대지 않고 조용히 건너뜀).
     rawPages: [],
   };
+}
+
+export interface CombinedDateCompletenessResult {
+  locgo: VisitorCntFetchResult;
+  metco: VisitorCntFetchResult;
+  assessment: MonthCompletenessAssessment;
+}
+
+/**
+ * syncService.ts(syncVisitorCnt)의 실제 저장 게이트. 기초(locgo)·광역(metco)을 함께 평가해 **둘 다**
+ * SUCCESS이고 날짜가 완전할 때만 원본 결과를 그대로 통과시킨다. 하나라도 ERROR/EMPTY/날짜 누락이면
+ * 기초·광역 양쪽 모두를 ERROR로 바꿔치기해, 한쪽만 저장되고 다른 쪽은 저장되지 않는 상황을 만들지
+ * 않는다("한쪽만 완전하면 완전한 쪽은 저장한다"는 이전 정책을 폐기함, 2026-07-29).
+ *
+ * rawPages를 비우지 않고 실제로 판정에 쓰인 사유를 담아 채운다 — 완전성 검증 실패도 "실제로 응답은
+ * 받았지만 쓸 수 없었다"는 점에서 다른 어댑터의 ERROR 처리와 다르지 않으므로, upsertSnapshot의
+ * preserve 정책과 markMetricsAsCached(CACHED_API 강등)이 다른 소스와 동일하게 동작해야 한다 — 기존
+ * SUCCESS 스냅샷은 보존되고, 그 스냅샷이 만든 LIVE_API metric은 "최신 시도가 실패해 이전 값을
+ * 재사용 중"이라는 사실을 그대로 반영해 CACHED_API로 낮아진다.
+ */
+export function enforceCombinedDateCompleteness(
+  baseYm: string,
+  locgoResult: VisitorCntFetchResult,
+  metcoResult: VisitorCntFetchResult,
+): CombinedDateCompletenessResult {
+  const assessment = assessVisitorMonthCompleteness(baseYm, locgoResult, metcoResult);
+  if (assessment.complete) {
+    return { locgo: locgoResult, metco: metcoResult, assessment };
+  }
+
+  const resultMsg = `기준월 ${baseYm} 완전성 검증 실패(${assessment.reason}) — 기초/광역 모두 저장하지 않고 기존 SUCCESS를 보존한다`;
+  const incomplete: VisitorCntFetchResult = {
+    status: "ERROR",
+    byCode: null,
+    resultCode: "INCOMPLETE_MONTH",
+    resultMsg,
+    rawPages: [{ resultCode: "INCOMPLETE_MONTH", resultMsg }],
+  };
+  return { locgo: incomplete, metco: incomplete, assessment };
 }

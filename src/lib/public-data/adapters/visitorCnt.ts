@@ -178,7 +178,19 @@ async function fetchAllPages<T>(
   }
 
   const items = [...firstParsed.items];
-  const totalPages = Math.min(MAX_PAGES, Math.max(1, Math.ceil((firstParsed.totalCount ?? 0) / NUM_OF_ROWS)));
+  const requiredPages = Math.max(1, Math.ceil((firstParsed.totalCount ?? 0) / NUM_OF_ROWS));
+  if (requiredPages > MAX_PAGES) {
+    // MAX_PAGES까지만 받고 SUCCESS로 반환하면 나머지 페이지의 데이터가 빠진 채 "완전한 응답"인 것처럼
+    // 보일 수 있다 — 부분 합계를 SUCCESS로 잘못 저장하지 않도록 명확한 ERROR로 처리한다.
+    return {
+      status: "ERROR",
+      items: [],
+      resultCode: "TOO_MANY_PAGES",
+      resultMsg: `totalCount=${firstParsed.totalCount ?? 0}건은 페이지 ${requiredPages}개가 필요해 안전 상한(${MAX_PAGES})을 초과함 — 부분 데이터를 저장하지 않기 위해 중단`,
+      rawPages: [firstRes.data],
+    };
+  }
+  const totalPages = requiredPages;
 
   for (let pageNo = 2; pageNo <= totalPages; pageNo++) {
     const res = await fetchPublicDataJson(buildUrl(params.baseUrl, operation, params, pageNo), { sourceCode });

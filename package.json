@@ -23,7 +23,7 @@
     "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts",
     "sync:visitor": "tsx --env-file=.env.local scripts/sync-visitor.ts",
     "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts",
-    "verify:visitor-api": "tsx --env-file=.env.local scripts/verify-visitor-api.ts",
+    "verify:visitor-api": "tsx --env-file-if-exists=.env.local scripts/verify-visitor-api.ts",
     "audit:region-codes": "tsx --env-file=.env.local scripts/audit-region-codes.ts"
   },
   "dependencies": {

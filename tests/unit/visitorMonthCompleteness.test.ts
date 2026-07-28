@@ -6,6 +6,7 @@ import {
   collectBaseYmdSet,
   assessVisitorMonthCompleteness,
   enforceDateCompleteness,
+  enforceCombinedDateCompleteness,
 } from "@/lib/services/visitorMonthCompleteness";
 import type { VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 
@@ -142,5 +143,45 @@ describe("enforceDateCompleteness", () => {
     const error = errorResult();
     expect(enforceDateCompleteness("202602", empty)).toBe(empty);
     expect(enforceDateCompleteness("202602", error)).toBe(error);
+  });
+});
+
+describe("enforceCombinedDateCompleteness(원자적 게이트)", () => {
+  it("기초/광역 모두 완전하면 원본 그대로 통과시킨다", () => {
+    const full = expectedDatesOfMonth("202602");
+    const locgo = successResult("30200", full);
+    const metco = successResult("30", full);
+    const result = enforceCombinedDateCompleteness("202602", locgo, metco);
+    expect(result.locgo).toBe(locgo);
+    expect(result.metco).toBe(metco);
+    expect(result.assessment.complete).toBe(true);
+  });
+
+  it("기초는 완전하고 광역이 불완전하면(EMPTY) 기초도 함께 ERROR로 바뀐다(한쪽만 저장하지 않음)", () => {
+    const full = expectedDatesOfMonth("202602");
+    const locgo = successResult("30200", full);
+    const metco = emptyResult();
+    const result = enforceCombinedDateCompleteness("202602", locgo, metco);
+    expect(result.locgo.status).toBe("ERROR");
+    expect(result.metco.status).toBe("ERROR");
+    expect(result.assessment.reason).toBe("METCO_EMPTY");
+  });
+
+  it("광역은 완전하고 기초가 불완전하면(날짜 누락) 광역도 함께 ERROR로 바뀐다(한쪽만 저장하지 않음)", () => {
+    const full = expectedDatesOfMonth("202602");
+    const locgo = successResult("30200", full.slice(0, 5));
+    const metco = successResult("30", full);
+    const result = enforceCombinedDateCompleteness("202602", locgo, metco);
+    expect(result.locgo.status).toBe("ERROR");
+    expect(result.metco.status).toBe("ERROR");
+    expect(result.assessment.reason).toBe("LOCGO_INCOMPLETE_DATES");
+  });
+
+  it("불완전 판정의 ERROR는 rawPages를 비우지 않는다(다른 소스와 동일한 preserve/강등 정책을 태우기 위해)", () => {
+    const result = enforceCombinedDateCompleteness("202602", emptyResult(), emptyResult());
+    expect(result.locgo.status).toBe("ERROR");
+    if (result.locgo.status === "ERROR") {
+      expect(result.locgo.rawPages.length).toBeGreaterThan(0);
+    }
   });
 });

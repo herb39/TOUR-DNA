@@ -119,7 +119,15 @@ regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) 
 vi.mock("@/lib/public-data/adapters/tarSvcDem", () => ({ fetchTarSvcDem: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/touDivIx", () => ({ fetchTouDivIx: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/touResDem", () => ({ fetchTouResDem: vi.fn() }));
-vi.mock("@/lib/public-data/adapters/visitorCnt", () => ({ fetchLocgoRegnVisitr: vi.fn(), fetchMetcoRegnVisitr: vi.fn() }));
+// importOriginal로 partial mock — fetchLocgoRegnVisitr/fetchMetcoRegnVisitr만 vi.fn()으로 바꾸고,
+// monthToYmdRange 등 나머지 실제 export는 그대로 둔다. 이 모듈을 통째로 stub하면
+// visitorMonthCompleteness.ts가 같은 모듈에서 import하는 monthToYmdRange까지 undefined가 되어
+// syncService.ts 내부에서 날짜 완전성 계산이 깨진다(2026-07-29 실패 원인). 앞으로 이 모듈에 새 export가
+// 추가돼도 이 패턴이면 자동으로 실제 값을 유지하므로 같은 문제가 반복되지 않는다.
+vi.mock("@/lib/public-data/adapters/visitorCnt", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/public-data/adapters/visitorCnt")>();
+  return { ...actual, fetchLocgoRegnVisitr: vi.fn(), fetchMetcoRegnVisitr: vi.fn() };
+});
 vi.mock("@/lib/public-data/adapters/tourInfo", () => ({
   fetchTourInfo: vi.fn(),
   mapContentTypeToPoiCategory: vi.fn(() => "ATTRACTION"),
@@ -547,6 +555,9 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.rawValue).toBe(999);
       expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.provenance).toBe("LIVE_API");
       expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.rawValue).toBe(500);
+      // 완전성 검증 마커 — checkVisitorCntCacheViaDataSnapshot이 이 마커가 있는 스냅샷만 캐시로 인정한다.
+      const snapshot = dataSnapshotStore.get("src-visitor-cnt|region-1|202606");
+      expect((snapshot?.rawPayload as { completeMonthVerified?: unknown })?.completeMonthVerified).toBe(true);
     });
 
     it("VISITOR_CNT 기존 SUCCESS 스냅샷은 이후 ERROR가 와도 보존되고 metric은 CACHED_API로 낮아진다", async () => {
@@ -645,15 +656,76 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       });
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
 
-      // 불완전 합계(rawValue=60)가 정상값(999)을 덮어쓰지 않았어야 한다 — 기존 SUCCESS/LIVE_API 그대로.
+      // 불완전 합계(rawValue=60)가 정상값(999)을 덮어쓰지 않았어야 한다 — 기존 SUCCESS 스냅샷 그대로.
       expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.rawValue).toBe(999);
-      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
       expect(dataSnapshotStore.get(key)?.status).toBe("SUCCESS");
+      // 날짜 커버리지 불완전도 실제 응답을 받고도 못 쓴 것이므로(네트워크 실패와는 다름) 다른 소스의
+      // ERROR-preserve 정책과 동일하게 처리한다 — 기존 LIVE_API metric은 "최신 시도가 실패해 이전 값을
+      // 재사용 중"이라는 사실을 반영해 CACHED_API로 낮아진다(2026-07-29, 이전에는 손대지 않았다).
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("CACHED_API");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCntLocal")?.provenance).toBe("CACHED_API");
       const snapshotCallsAfterSecondRun = dataSnapshotUpsert.mock.calls.filter(
         (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
       ).length;
-      // 불완전 응답은 "본문 자체를 못 받은 경우"와 동일하게 취급해 snapshot 쓰기 자체를 시도하지 않는다.
+      // preserve 분기는 findUnique로 기존 SUCCESS를 확인하고 upsert 자체는 호출하지 않는다(새 row를
+      // 쓰지 않음) — 그래서 upsert 호출 수는 첫 실행 이후로 늘지 않는다.
       expect(snapshotCallsAfterSecondRun).toBe(snapshotCallsAfterFirstRun);
+    });
+
+    it("VISITOR_CNT는 기초(locgo)만 완전하고 광역(metco)이 불완전하면 양쪽 모두 저장하지 않는다(원자적 게이트)", async () => {
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: fullMonthRawItems("202606", "30200") }],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ dummy: true }],
+      });
+      // 광역은 EMPTY(불완전) — 기초는 완전해도 전체가 저장되면 안 된다.
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue({
+        status: "EMPTY",
+        byCode: new Map(),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ dummy: true }],
+      });
+
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      // metric은 절대 만들어지지 않는다(불완전 합계를 지어내지 않음). 기존 SUCCESS가 없던 첫 실행이라
+      // 다른 소스와 동일한 정책대로 ERROR 상태 자체는 기록된다(보존할 대상이 없으므로).
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")).toBeUndefined();
+      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")?.status).toBe("ERROR");
+    });
+
+    it("VISITOR_CNT는 광역(metco)만 완전하고 기초(locgo)가 불완전하면 양쪽 모두 저장하지 않는다(원자적 게이트)", async () => {
+      // 기초는 EMPTY(불완전).
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "EMPTY",
+        byCode: new Map(),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ dummy: true }],
+      });
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          ["30", { code: "30", name: "대전광역시", localNum: 100, otherDomesticNum: 200, foreignNum: 30, visitorCnt: 230, rawItems: fullMonthRawItems("202606", "30") }],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ dummy: true }],
+      });
+
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      // mock region.findMany은 SIDO 조회에 빈 배열을 주므로(이 테스트 스위트의 기본 설정) 광역 데이터가
+      // 실제로 적용될 지역이 없다 — 시군구(region-1, locgo 기준)에도 원자적 게이트로 저장되지 않는지만
+      // 확인한다. metric은 절대 만들어지지 않고, 기존 SUCCESS가 없던 첫 실행이라 ERROR 상태 자체는
+      // 다른 소스와 동일하게 기록된다.
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")).toBeUndefined();
+      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")?.status).toBe("ERROR");
     });
   });
 });

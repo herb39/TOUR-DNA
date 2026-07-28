@@ -209,12 +209,12 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
     `checked[].reason`(`LOCGO_ERROR`/`LOCGO_EMPTY`/`LOCGO_INCOMPLETE_DATES`/`METCO_ERROR`/
     `METCO_EMPTY`/`METCO_INCOMPLETE_DATES`)으로 남는다.
 
-- **동기화 저장 게이트**(`enforceDateCompleteness`, `syncService.ts`의 `syncVisitorCnt`): 실제 동기화 시
-  기초/광역 응답이 SUCCESS인데 날짜가 일부 누락됐으면(예: 페이지 일부 실패) 그 응답을 조용히 ERROR로
-  바꿔치기해 기존 ERROR-보존 경로를 그대로 태운다 — 불완전한 월간 합계가 정상값을 덮어쓰지 않고, 기존
-  SUCCESS 스냅샷과 metric도 그대로 남는다(CACHED_API로도 격하하지 않는다 — "실제 API 오류로 재시도"와
-  달리 "이번 응답 자체가 쓸 수 없는 데이터"였다는 뜻이라, 아무것도 손대지 않는 쪽이 더 안전하다고
-  판단했다).
+- **동기화 저장 게이트**(`syncService.ts`의 `syncVisitorCnt`): 실제 동기화 시 기초/광역 응답이 SUCCESS인데
+  날짜가 일부 누락됐으면(예: 페이지 일부 실패) 그 응답을 조용히 ERROR로 바꿔치기해 기존 ERROR-보존
+  경로를 그대로 태운다 — 불완전한 월간 합계가 정상값을 덮어쓰지 않는다. ⚠️ 최초 구현(위 내용)은
+  기초·광역을 독립적으로 게이트해 "한쪽만 완전하면 그쪽만 저장"하는 결함이 있었다 — 아래 §5-D에서
+  원자적 게이트(`enforceCombinedDateCompleteness`)로 수정했다. 캐시 확인 함수의 위치·완전성 마커도
+  §5-D 참고.
 
 - **Region 행정구역 코드 감사**(`src/lib/services/regionCodeAudit.ts`의 `auditRegionCodes`): 지역명
   문자열 비교로 자동 매핑하지 않고 행정구역 코드(문자열, 앞자리 0 보존)를 기준으로 Region과 실제 API
@@ -235,6 +235,42 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
     시군구/광역 응답을 baseYm당 한 번씩만 조회하고, 날짜 커버리지가 불완전하면 저장을 건너뛴다. 동일
     baseYm으로 재실행해도 unique key(`regionId+baseYm+metricCode`, `dataSourceId+regionId+baseYm`)
     upsert라 중복 레코드가 생기지 않는다.
+
+**5-D) 검증에서 발견된 결함 수정(2026-07-29)**
+
+§5-C 구현을 실제로 검증하는 과정에서 아래 결함이 발견되어 수정했다.
+
+- **DB 결합 제거**: `checkVisitorCntCacheViaDataSnapshot`이 `visitorBaseYmFinder.ts`에 함께 있어, 이
+  파일을 import하기만 해도 `@/lib/db`가 로드되고(DATABASE_URL 없으면 즉시 throw) DATABASE_URL 없이는
+  순수 탐색 로직조차 단위테스트할 수 없었다. DB 전용 모듈 `src/lib/services/visitorCntCacheStore.ts`로
+  분리해, `visitorBaseYmFinder.ts`는 이제 `@/lib/db`를 전혀 참조하지 않는다. `verify:visitor-api`도
+  DB를 쓰지 않으므로 DATABASE_URL 없이 실행된다(정적 검사로 확인, `tests/unit/dbFreeModules.test.ts`).
+- **원자적 저장 게이트**: 기존 구현은 기초(locgo)·광역(metco)을 각각 독립적으로 `enforceDateCompleteness`
+  에 통과시켜, "한쪽만 완전하면 완전한 쪽은 저장한다"는 의도치 않은 동작이 있었다. `syncVisitorCnt`가
+  이제 `enforceCombinedDateCompleteness`로 두 응답을 함께 평가해, 하나라도 불완전하면 기초·광역
+  **양쪽 모두** 저장을 건너뛴다. 또한 완전성 검증 실패를 다른 어댑터의 ERROR와 동일하게 취급하도록
+  바꿔, 기존 SUCCESS 스냅샷 보존과 함께 그 스냅샷이 만든 LIVE_API metric을 CACHED_API로 낮추는
+  정책도 다른 소스와 일관되게 적용된다(이전에는 이 경우 아무것도 건드리지 않았다).
+- **캐시 완전성 마커**: 완전성 검사 도입 이전에 저장된 SUCCESS 스냅샷을 캐시로 잘못 신뢰하는 문제를
+  막기 위해, `syncVisitorCnt`가 저장하는 `DataSnapshot.rawPayload`에 `completeMonthVerified: true`를
+  남긴다(Prisma schema 변경 없음). `checkVisitorCntCacheViaDataSnapshot`은 이제 지역 수 일치뿐 아니라
+  이 마커가 전부 있는지도 확인하고, 마커가 없는 과거 스냅샷은 캐시 미확인으로 처리해 라이브로
+  재검증한다.
+- **verify:visitor-api 재호출/카운트 수정**: 최신 완전 기준월을 찾은 뒤 상세 보고를 위해 같은 baseYm을
+  또 조회하던 중복 호출을 제거했다(`findLatestCompleteVisitorBaseYm`이 LIVE_COMPLETE일 때 그 baseYm의
+  locgo/metco 원본 결과를 함께 반환하고, `src/lib/services/visitorApiVerification.ts`가 그대로
+  재사용한다). "총 API 호출 횟수"도 어댑터 함수 호출 횟수가 아니라 `globalThis.fetch`를 감싼 실제 HTTP
+  요청 수로 정확히 센다(어댑터 1회 호출이 페이지네이션으로 여러 요청을 만들 수 있기 때문).
+- **Region 코드 감사 오류 범위 처리**: 기초/광역 API 중 하나가 ERROR면 그 범위의 코드 집합을 빈 Set으로
+  넘겨 "Region에만 존재"로 대량 오탐을 내던 문제를 고쳤다. 이제 ERROR면 해당 범위에 `null`을 넘기고,
+  `auditRegionCodes`는 그 범위의 API_ONLY/REGION_ONLY 판정을 생략한 뒤 `areaCodeVerificationSkipped`/
+  `signguCodeVerificationSkipped`로 "검증 불가"임을 명시한다(종료 코드도 실패로 표시). 최신월 탐색이
+  API_ERROR로 끝났을 때 같은 실패 달을 감사 스크립트가 또 호출하던 것도 제거했다(API_ERROR면 재시도 없이
+  중단).
+- **MAX_PAGES 초과 처리**: `totalCount` 기준으로 필요한 페이지가 안전 상한(500페이지)을 넘으면, 이전에는
+  500페이지까지만 받고 SUCCESS로 반환해 나머지가 빠진 부분 합계가 정상 응답처럼 저장될 위험이 있었다.
+  이제 상한 초과를 감지하면 첫 페이지 응답만으로 즉시 `TOO_MANY_PAGES` ERROR를 반환하고 나머지 페이지는
+  요청하지 않는다.
 
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 

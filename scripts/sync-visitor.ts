@@ -1,8 +1,8 @@
 /**
- * VISITOR_CNT만 동기화하는 CLI(2026-07-28 도입). 전체 6개 소스를 동기화하는 sync-tourism-data.ts와
- * 달리, 이 스크립트는 syncService.ts의 syncVisitorCnt()만 호출한다 — 전국 시군구/광역 응답을 baseYm당
- * 한 번씩만 조회하고(지역별 반복 호출 없음), 날짜 커버리지가 불완전하면 자동으로 저장을 건너뛴다
- * (enforceDateCompleteness, syncVisitorCnt 내부).
+ * VISITOR_CNT만 동기화하는 CLI(2026-07-28 도입, 2026-07-29 원자적 게이트 반영). 전체 6개 소스를
+ * 동기화하는 sync-tourism-data.ts와 달리, 이 스크립트는 syncService.ts의 syncVisitorCnt()만 호출한다 —
+ * 전국 시군구/광역 응답을 baseYm당 한 번씩만 조회하고(지역별 반복 호출 없음), 기초·광역 중 하나라도
+ * 불완전하면 양쪽 모두 저장을 건너뛴다(enforceCombinedDateCompleteness, syncVisitorCnt 내부).
  *
  * 사용법:
  *   npm run sync:visitor -- --baseYm=202606

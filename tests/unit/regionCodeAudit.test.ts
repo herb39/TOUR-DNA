@@ -106,4 +106,27 @@ describe("auditRegionCodes", () => {
     const gangneung = result.highlights.find((h) => h.regionCode === "SGG_GANGNEUNG");
     expect(gangneung?.status).toBe("NOT_FOUND");
   });
+
+  it("기초(signguCode) API가 오류였으면(null) 그 범위의 API_ONLY/REGION_ONLY 판정을 생략하고 검증 불가로 표시한다", () => {
+    const regions = [region({ code: "SGG_A", name: "A시", level: "SIGUNGU", apiAreaCode: "51", apiSigunguCode: "51150" })];
+    // apiSignguCodes가 null(API 오류) — 51150이 API 응답에 있는지 확인할 수 없으므로 REGION_ONLY로
+    // 잘못 단정하면 안 된다.
+    const result = auditRegionCodes({ regions, apiAreaCodes: new Set(["51"]), apiSignguCodes: null });
+    expect(result.signguCodeVerificationSkipped).toBe(true);
+    expect(result.issues.filter((i) => i.type === "REGION_ONLY" || i.type === "API_ONLY")).toEqual([]);
+  });
+
+  it("광역(areaCode) API가 오류였으면(null) 그 범위의 API_ONLY/REGION_ONLY 판정을 생략하고 검증 불가로 표시한다", () => {
+    const regions = [region({ code: "SIDO_A", name: "A도", level: "SIDO", apiAreaCode: "51" })];
+    const result = auditRegionCodes({ regions, apiAreaCodes: null, apiSignguCodes: new Set() });
+    expect(result.areaCodeVerificationSkipped).toBe(true);
+    expect(result.issues.filter((i) => i.type === "REGION_ONLY" || i.type === "API_ONLY")).toEqual([]);
+  });
+
+  it("두 범위 모두 정상 응답이면 areaCode/signguCode 검증 스킵 플래그가 모두 false다", () => {
+    const regions = [region({ code: "SGG_A", name: "A시", level: "SIGUNGU", apiAreaCode: "51", apiSigunguCode: "51150" })];
+    const result = auditRegionCodes({ regions, apiAreaCodes: new Set(["51"]), apiSignguCodes: new Set(["51150"]) });
+    expect(result.areaCodeVerificationSkipped).toBe(false);
+    expect(result.signguCodeVerificationSkipped).toBe(false);
+  });
 });

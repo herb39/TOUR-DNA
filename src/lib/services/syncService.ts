@@ -4,7 +4,7 @@ import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
-import { enforceDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
+import { enforceCombinedDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
@@ -152,6 +152,11 @@ async function upsertSnapshot(params: {
  * areaCode)를 찾아 NormalizedMetric/DataSnapshot을 갱신한다. SIGUNGU/SIDO 양쪽 모두 이 함수로 처리한다.
  * ERROR면 기존 SUCCESS 스냅샷을 보존(upsertSnapshot의 preserve 정책)하고, 이 지역의 코드가 이번 응답에
  * 없으면(진짜 0건) EMPTY로 기록한다 — 지어낸 값을 upsert하지 않는다.
+ *
+ * 불변조건: 이 함수는 `syncVisitorCnt`에서 `enforceCombinedDateCompleteness`를 거친 결과만 받는다 —
+ * 그래서 SUCCESS/EMPTY 분기에 도달했다는 것 자체가 "이 baseYm은 기초·광역 모두 완전성 검증을
+ * 통과했다"는 증거가 되고, rawPayload에 `completeMonthVerified: true`를 안전하게 남길 수 있다(캐시
+ * 판정 근거, visitorCntCacheStore.ts 참고). 이 함수를 게이트 없이 직접 호출하지 않는다.
  */
 async function upsertVisitorCntForRegion(params: {
   region: { id: string; code: string; level: RegionLevel };
@@ -207,16 +212,20 @@ async function upsertVisitorCntForRegion(params: {
     resultMsg: result.resultMsg,
     itemCount: agg?.rawItems.length ?? 0,
     // 전국 원본이 아니라 이 지역 코드에 해당하는 실제 응답 행만 추려 저장한다(원문 그대로, 가공 없음).
-    rawPayload: { code, items: agg?.rawItems ?? [] },
+    // completeMonthVerified: 위 함수 doc의 불변조건 참고 — 이 값이 기록된 스냅샷만 checkVisitorCntCacheViaDataSnapshot이
+    // 캐시로 인정한다.
+    rawPayload: { code, items: agg?.rawItems ?? [], completeMonthVerified: true },
   });
   return { sourceCode, status: "SUCCESS", itemCount: agg?.rawItems.length ?? 0 };
 }
 
 /**
- * VISITOR_CNT 전용 동기화(2026-07-28 분리) — 전국 시군구/광역 응답을 baseYm당 한 번씩만 조회하고,
- * 날짜 커버리지가 불완전하면(enforceDateCompleteness) 저장하지 않는다. `runTourismDataSync`(전체 6개
- * 소스 동기화)와 `scripts/sync-visitor.ts`(VISITOR_CNT만 동기화하는 CLI) 양쪽이 이 함수를 공유해
- * 지역 매핑·저장 로직을 중복 구현하지 않는다.
+ * VISITOR_CNT 전용 동기화(2026-07-28 분리, 2026-07-29 원자적 게이트로 변경) — 전국 시군구/광역 응답을
+ * baseYm당 한 번씩만 조회하고, 기초·광역이 **모두** SUCCESS이고 날짜가 완전할 때만 저장한다
+ * (enforceCombinedDateCompleteness). 한쪽만 완전해도 완전한 쪽만 저장하지 않는다 — 두 응답을 함께
+ * 평가해 하나라도 불완전하면 양쪽 모두 저장을 건너뛰고 기존 SUCCESS를 보존한다. `runTourismDataSync`
+ * (전체 6개 소스 동기화)와 `scripts/sync-visitor.ts`(VISITOR_CNT만 동기화하는 CLI) 양쪽이 이 함수를
+ * 공유해 지역 매핑·저장 로직을 중복 구현하지 않는다.
  */
 export async function syncVisitorCnt(params: {
   baseYm: string;
@@ -231,10 +240,7 @@ export async function syncVisitorCnt(params: {
     fetchLocgoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
     fetchMetcoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
   ]);
-  // 시군구/광역 각각 독립적으로 날짜 커버리지를 검사한다 — 한쪽만 불완전해도 다른 쪽의 정상 데이터까지
-  // 버리지 않는다(예: 시군구는 완전한데 광역만 아직 EMPTY인 경우).
-  const locgoResult = enforceDateCompleteness(baseYm, rawLocgo);
-  const metcoResult = enforceDateCompleteness(baseYm, rawMetco);
+  const { locgo: locgoResult, metco: metcoResult } = enforceCombinedDateCompleteness(baseYm, rawLocgo, rawMetco);
 
   const results: SyncSourceResult[] = [];
   for (const region of sigunguRegions) {

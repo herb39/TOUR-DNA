@@ -41,6 +41,10 @@ export interface RegionCodeAuditResult {
   issues: RegionCodeIssue[];
   /** 강릉·경주·제천 대표 시나리오 매핑 상태(사용자 요구사항). */
   highlights: HighlightStatus[];
+  /** 광역(areaCode) API 응답 자체를 못 받아 API_ONLY/REGION_ONLY 판정을 생략했는지(2026-07-29). */
+  areaCodeVerificationSkipped: boolean;
+  /** 기초(signguCode) API 응답 자체를 못 받아 API_ONLY/REGION_ONLY 판정을 생략했는지. */
+  signguCodeVerificationSkipped: boolean;
 }
 
 const AREA_CODE_PATTERN = /^\d{2}$/;
@@ -62,10 +66,12 @@ function groupByCode<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]
 
 export function auditRegionCodes(params: {
   regions: RegionLike[];
-  /** 실제 metcoRegnVisitrDDList 응답에서 관측된 areaCode 전체(광역). */
-  apiAreaCodes: Set<string>;
-  /** 실제 locgoRegnVisitrDDList 응답에서 관측된 signguCode 전체(기초). */
-  apiSignguCodes: Set<string>;
+  /** 실제 metcoRegnVisitrDDList 응답에서 관측된 areaCode 전체(광역). API 호출 자체가 실패했으면 빈
+   * Set이 아니라 null을 넘겨야 한다 — 빈 Set을 넘기면 모든 SIDO 코드가 "Region에만 존재"로 잘못
+   * 탐지된다(실패를 '없음'으로 오해하는 것을 막기 위함). */
+  apiAreaCodes: Set<string> | null;
+  /** 실제 locgoRegnVisitrDDList 응답에서 관측된 signguCode 전체(기초). 위와 동일한 이유로 실패 시 null. */
+  apiSignguCodes: Set<string> | null;
 }): RegionCodeAuditResult {
   const { regions, apiAreaCodes, apiSignguCodes } = params;
   const issues: RegionCodeIssue[] = [];
@@ -131,27 +137,35 @@ export function auditRegionCodes(params: {
     }
   }
 
-  // 4) API에만 존재 / Region에만 존재.
+  // 4) API에만 존재 / Region에만 존재. 해당 스코프의 API 응답 자체가 실패(null)면 "없다"고 단정할 근거가
+  // 없으므로 이 스코프의 API_ONLY/REGION_ONLY 판정을 통째로 건너뛴다(검증 불가로 별도 표시).
+  const areaCodeVerificationSkipped = apiAreaCodes === null;
+  const signguCodeVerificationSkipped = apiSignguCodes === null;
+
   const sidoAreaCodesInRegion = new Set(regions.filter((r) => r.level === "SIDO" && r.apiAreaCode).map((r) => r.apiAreaCode as string));
   const signguCodesInRegion = new Set(
     regions.filter((r) => r.level === "SIGUNGU" && r.apiSigunguCode).map((r) => r.apiSigunguCode as string),
   );
 
-  for (const code of apiAreaCodes) {
-    if (!sidoAreaCodesInRegion.has(code)) {
-      flag(null, "API_ONLY", code, `광역 areaCode="${code}"가 API 응답에는 있지만 SIDO Region에 매핑되지 않음`);
+  if (apiAreaCodes !== null) {
+    for (const code of apiAreaCodes) {
+      if (!sidoAreaCodesInRegion.has(code)) {
+        flag(null, "API_ONLY", code, `광역 areaCode="${code}"가 API 응답에는 있지만 SIDO Region에 매핑되지 않음`);
+      }
     }
   }
-  for (const code of apiSignguCodes) {
-    if (!signguCodesInRegion.has(code)) {
-      flag(null, "API_ONLY", code, `기초 signguCode="${code}"가 API 응답에는 있지만 SIGUNGU Region에 매핑되지 않음`);
+  if (apiSignguCodes !== null) {
+    for (const code of apiSignguCodes) {
+      if (!signguCodesInRegion.has(code)) {
+        flag(null, "API_ONLY", code, `기초 signguCode="${code}"가 API 응답에는 있지만 SIGUNGU Region에 매핑되지 않음`);
+      }
     }
   }
   for (const r of regions) {
-    if (r.level === "SIDO" && r.apiAreaCode && !apiAreaCodes.has(r.apiAreaCode)) {
+    if (apiAreaCodes !== null && r.level === "SIDO" && r.apiAreaCode && !apiAreaCodes.has(r.apiAreaCode)) {
       flag(r, "REGION_ONLY", r.apiAreaCode, `Region apiAreaCode="${r.apiAreaCode}"가 이번 API 응답에서 발견되지 않음`);
     }
-    if (r.level === "SIGUNGU" && r.apiSigunguCode && !apiSignguCodes.has(r.apiSigunguCode)) {
+    if (apiSignguCodes !== null && r.level === "SIGUNGU" && r.apiSigunguCode && !apiSignguCodes.has(r.apiSigunguCode)) {
       flag(r, "REGION_ONLY", r.apiSigunguCode, `Region apiSigunguCode="${r.apiSigunguCode}"가 이번 API 응답에서 발견되지 않음`);
     }
   }
@@ -173,5 +187,5 @@ export function auditRegionCodes(params: {
     };
   });
 
-  return { totalRegions: regions.length, okCount, issues, highlights };
+  return { totalRegions: regions.length, okCount, issues, highlights, areaCodeVerificationSkipped, signguCodeVerificationSkipped };
 }

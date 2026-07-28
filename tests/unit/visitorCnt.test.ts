@@ -126,9 +126,27 @@ describe("fetchLocgoRegnVisitr / fetchMetcoRegnVisitr", () => {
 
     const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
 
+    // 이 테스트 자체가 "실제 페이지 요청 횟수" 계산이 정확함을 보여준다 — fetchLocgoRegnVisitr 호출은
+    // 1번이지만 실제 HTTP 요청(fetch)은 페이지 수만큼(2회) 발생한다. 어댑터 호출 횟수를 API 호출
+    // 횟수로 잘못 세면 이 값이 1이 되어야 하므로, 이 assertion이 그 착오를 막는다.
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const agg = result.byCode?.get("51150");
     expect(agg?.otherDomesticNum).toBe(150);
+  });
+
+  it("필요한 페이지가 안전 상한(MAX_PAGES=500)을 초과하면 일부만 받고 SUCCESS로 반환하지 않고 ERROR로 처리한다", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      // numOfRows=1000이므로 totalCount=500,001건이면 필요한 페이지가 501개 — 500개 상한을 넘는다.
+      mockFetchOnce(envelope("0000", "NORMAL SERVICE.", [{ signguCode: "51150", touDivCd: "2", touNum: "1", baseYmd: "20260601" }], 500_001)),
+    );
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+
+    expect(result.status).toBe("ERROR");
+    expect(result.byCode).toBeNull();
+    // 상한 초과를 확인하는 데는 첫 페이지 응답(totalCount)만 있으면 충분하다 — 나머지 500페이지를
+    // 실제로 받아보지 않고 즉시 중단한다.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("signguCode/areaCode로 각각 다른 지역을 구분해 매핑한다", async () => {

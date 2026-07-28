@@ -156,8 +156,13 @@ npm run sync:visitor -- --baseYm=202606       # VISITOR_CNT만 동기화(다른 
 - **VISITOR_CNT 정의**: `touDivCd` 2(외지인)+3(외국인) 합계이며, 월간 수치는 월간 "순"방문자수가 아니라
   일별 값의 월간 합계입니다. 현지인(`touDivCd=1`)은 버리지 않고 `visitorCntLocal`로 별도 저장합니다.
   지역 매핑은 지역명이 아니라 행정구역 코드(signguCode/areaCode)를 기준으로 합니다.
-- `sync:visitor`는 날짜 커버리지가 불완전하면 저장을 건너뛰고 기존 정상 데이터를 그대로 둡니다 — 페이지
-  일부 실패로 생긴 불완전한 월간 합계가 정상 값을 덮어쓰지 않습니다.
+- `sync:visitor`는 기초·광역 응답을 함께 평가해(원자적 게이트) 하나라도 불완전하면 **양쪽 모두** 저장을
+  건너뛰고 기존 정상 데이터를 그대로 둡니다 — 한쪽만 완전하다고 그쪽만 저장하지 않습니다(2026-07-29
+  수정, §5-D 참고).
+- `verify:visitor-api`는 DB에 전혀 접근하지 않습니다(DATABASE_URL 불필요) — `--env-file-if-exists`를
+  쓰므로 `.env.local`이 없어도 실행됩니다. 다만 이 플래그는 Node 20.x의 이른 패치 버전에서는 지원되지
+  않을 수 있습니다 — 오류가 나면 `TOUR_API_SERVICE_KEY`를 셸 환경변수로 직접 export한 뒤
+  `npx tsx scripts/verify-visitor-api.ts`로 직접 실행하세요.
 
 ### 새 지역 추가
 
