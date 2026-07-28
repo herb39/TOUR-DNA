@@ -22,19 +22,6 @@ function fullMonthRawItems(
   }));
 }
 
-/** 기초(locgo)가 baseYm 전체를 커버하는 SUCCESS mock 값을 만든다. */
-function locgoFullMonthSuccess(baseYm: string, code: string) {
-  return {
-    status: "SUCCESS" as const,
-    byCode: new Map([
-      [code, { code, name: null, localNum: 0, otherDomesticNum: 0, foreignNum: 0, visitorCnt: 0, rawItems: fullMonthRawItems(baseYm, "signguCode", code) }],
-    ]),
-    resultCode: "0000",
-    resultMsg: "OK",
-    rawPages: [{ dummy: true }],
-  };
-}
-
 /** 광역(metco)이 baseYm 전체를 커버하는 SUCCESS mock 값을 만든다. 이 테스트 스위트의 region.findMany
  * mock은 SIDO 조회에 빈 배열을 주므로, 아래 코드값은 실제 어느 Region에도 매핑되지 않는다 — 원자적
  * 게이트가 "광역도 완전하다"고 판단하게 만드는 용도로만 쓴다. */
