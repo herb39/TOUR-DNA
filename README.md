@@ -136,6 +136,29 @@ CRON 엔드포인트를 호출합니다. Vercel은 `CRON_SECRET` 환경변수가
 정상 저장합니다(더 이상 저장을 보류하지 않습니다) — 산식은 [docs/scoring-model.md](docs/scoring-model.md)
 참고.
 
+### VISITOR_CNT 진단·감사(2026-07-28)
+
+방문자수(DataLabService)만 별도로 확인·동기화할 때 쓰는 명령입니다. 셋 다 `TOUR_API_SERVICE_KEY`
+환경변수가 필요하고, 인증키 값은 어떤 출력에도 남기지 않습니다(URL을 보여줄 때도 마스킹).
+
+```bash
+npm run verify:visitor-api                    # 실 API 진단(인증키/API 성공 여부/최신 완전 기준월 후보 등)
+npm run audit:region-codes                    # Region 코드와 실 API 코드 대조 감사
+npm run audit:region-codes -- --base-ym 202606
+npm run sync:visitor -- --baseYm=202606       # VISITOR_CNT만 동기화(다른 5개 소스는 건드리지 않음)
+```
+
+- **최신 완전 기준월**: 진행 중인 이번 달은 절대 선택하지 않고, 직전 달부터 과거 방향으로 최대
+  6개월만 확인합니다. 기초지자체(`locgoRegnVisitrDDList`)·광역지자체(`metcoRegnVisitrDDList`) 응답이
+  모두 SUCCESS이고 그 달 1일~말일의 `baseYmd`가 전부 있어야 "완전한 달"로 인정합니다(하나라도 불완전하면
+  건너뜁니다). 완전한 달을 찾지 못해도 임의 값을 대신 쓰지 않습니다. 자세한 내용은
+  [docs/public-api-status.md](docs/public-api-status.md) §5-C 참고.
+- **VISITOR_CNT 정의**: `touDivCd` 2(외지인)+3(외국인) 합계이며, 월간 수치는 월간 "순"방문자수가 아니라
+  일별 값의 월간 합계입니다. 현지인(`touDivCd=1`)은 버리지 않고 `visitorCntLocal`로 별도 저장합니다.
+  지역 매핑은 지역명이 아니라 행정구역 코드(signguCode/areaCode)를 기준으로 합니다.
+- `sync:visitor`는 날짜 커버리지가 불완전하면 저장을 건너뛰고 기존 정상 데이터를 그대로 둡니다 — 페이지
+  일부 실패로 생긴 불완전한 월간 합계가 정상 값을 덮어쓰지 않습니다.
+
 ### 새 지역 추가
 
 지역(Region)은 `src/lib/fixtures/regions.ts`의 `REGION_SEED` 배열에 코드로 등록하고 `npm run db:seed`로

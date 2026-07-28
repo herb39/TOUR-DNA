@@ -187,6 +187,55 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 - `DataSnapshot.rawPayload`는 전국 원본 전체가 아니라 그 지역 코드에 해당하는 실제 응답 행만 추려
   저장한다(가공 없이 그대로, 지역마다 전국 데이터를 중복 저장하지 않기 위함).
 
+**5-C) VISITOR_CNT 최신 완전 기준월 탐색 · 지역 코드 감사 · 저장 게이트(2026-07-28)**
+
+- **최신 완전 기준월 탐색**(`src/lib/services/visitorBaseYmFinder.ts`의 `findLatestCompleteVisitorBaseYm`):
+  - 진행 중인 이번 달은 절대 선택하지 않는다. 직전 달부터 과거 방향으로 최대 6개월만 확인한다
+    (`lookbackCandidates`).
+  - "완전한 월"의 조건: 기초지자체(`locgoRegnVisitrDDList`)·광역지자체(`metcoRegnVisitrDDList`) 응답이
+    모두 SUCCESS이고, 그 baseYm의 1일~말일에 해당하는 `baseYmd`가 하나도 빠짐없이 존재해야 한다
+    (`src/lib/services/visitorMonthCompleteness.ts`). 페이지 일부 실패·날짜 일부 누락·EMPTY·ERROR는
+    전부 불완전으로 취급하고, 기초/광역 둘 중 하나만 불완전해도 그 달 전체를 건너뛴다.
+  - 월간 수치는 월간 "순"방문자수가 아니라 baseYmd(일자)별 값의 합계이므로, 날짜 커버리지가 이 전제가
+    성립하는 최소 조건이다(§5-B 참고).
+  - 캐시 우선: 새 watermark 테이블을 만들지 않고 기존 `DataSnapshot`을 그대로 재사용한다 —
+    `checkVisitorCntCacheViaDataSnapshot()`이 "이 baseYm에 대해 필요한 지역 전부가 이미
+    SUCCESS/EMPTY로 저장돼 있는지"를 확인해 참이면 API 호출 없이 즉시 `CACHED`를 반환한다(일일 호출
+    한도 절약).
+  - 반환 상태는 `LIVE_COMPLETE`(실제 API로 확인한 최신 완전 기준월) / `CACHED`(기존 캐시 사용) /
+    `NONE_AVAILABLE`(6개월 내 사용 가능한 달 없음) / `API_ERROR`(탐색 도중 API 오류로 중단, 같은
+    문제가 반복될 수 있어 더 과거 달을 시도하지 않고 즉시 중단) 4가지로 구분되며, 완전한 월을 찾지
+    못하면 임의의 baseYm이나 seed 값을 LIVE_API로 위장해 반환하지 않는다. 개별 후보가 왜 불완전했는지는
+    `checked[].reason`(`LOCGO_ERROR`/`LOCGO_EMPTY`/`LOCGO_INCOMPLETE_DATES`/`METCO_ERROR`/
+    `METCO_EMPTY`/`METCO_INCOMPLETE_DATES`)으로 남는다.
+
+- **동기화 저장 게이트**(`enforceDateCompleteness`, `syncService.ts`의 `syncVisitorCnt`): 실제 동기화 시
+  기초/광역 응답이 SUCCESS인데 날짜가 일부 누락됐으면(예: 페이지 일부 실패) 그 응답을 조용히 ERROR로
+  바꿔치기해 기존 ERROR-보존 경로를 그대로 태운다 — 불완전한 월간 합계가 정상값을 덮어쓰지 않고, 기존
+  SUCCESS 스냅샷과 metric도 그대로 남는다(CACHED_API로도 격하하지 않는다 — "실제 API 오류로 재시도"와
+  달리 "이번 응답 자체가 쓸 수 없는 데이터"였다는 뜻이라, 아무것도 손대지 않는 쪽이 더 안전하다고
+  판단했다).
+
+- **Region 행정구역 코드 감사**(`src/lib/services/regionCodeAudit.ts`의 `auditRegionCodes`): 지역명
+  문자열 비교로 자동 매핑하지 않고 행정구역 코드(문자열, 앞자리 0 보존)를 기준으로 Region과 실제 API
+  응답 코드를 대조한다. `apiAreaCode`는 SIDO 사이에서만 유일해야 한다고 본다 — 같은 SIDO의 여러
+  SIGUNGU가 부모의 2자리 시도 코드를 공유하는 것은 정상 구조이기 때문이다(그렇지 않으면 대량의
+  오탐이 난다). `apiSigunguCode`는 SIGUNGU 전체에서 유일해야 한다. 강릉시(`SGG_GANGNEUNG`)·
+  경주시(`SGG_GYEONGJU`)·제천시(`SGG_JECHEON`)는 대표 시나리오로 별도 하이라이트한다.
+
+- **검증/감사 CLI**(모두 `TOUR_API_SERVICE_KEY` 환경변수 필요, 값은 어떤 로그에도 남기지 않고 URL에
+  포함될 때도 마스킹한다 — `src/lib/public-data/urlMasking.ts`):
+  - `npm run verify:visitor-api` — 인증키 설정 여부, 기초/광역 API 성공 여부·resultCode·totalCount·
+    페이지 수·수집된 기준일자 범위, touDivCd 1/2/3 존재 여부, touNum 소수 보존 여부, 최신 완전 기준월
+    후보와 제외된 달의 사유, 총 API 호출 횟수를 출력한다.
+  - `npm run audit:region-codes [-- --base-ym 202606]` — 전체 Region 수, 정상 매핑 수, 코드 누락/중복/
+    형식 오류 목록, API에만 있는 코드, Region에만 있는 코드, 강릉·경주·제천 매핑 상태를 출력한다.
+  - `npm run sync:visitor -- --baseYm=YYYYMM [--force-current-month]` — VISITOR_CNT만 동기화한다(다른
+    5개 소스는 건드리지 않음). YYYYMM 형식을 검증하고, 진행 중인 이번 달은 기본적으로 거부한다. 전국
+    시군구/광역 응답을 baseYm당 한 번씩만 조회하고, 날짜 커버리지가 불완전하면 저장을 건너뛴다. 동일
+    baseYm으로 재실행해도 unique key(`regionId+baseYm+metricCode`, `dataSourceId+regionId+baseYm`)
+    upsert라 중복 레코드가 생기지 않는다.
+
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 
 ### 공통으로 확인된 사항
