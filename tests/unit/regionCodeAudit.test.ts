@@ -107,20 +107,38 @@ describe("auditRegionCodes", () => {
     expect(gangneung?.status).toBe("NOT_FOUND");
   });
 
-  it("기초(signguCode) API가 오류였으면(null) 그 범위의 API_ONLY/REGION_ONLY 판정을 생략하고 검증 불가로 표시한다", () => {
-    const regions = [region({ code: "SGG_A", name: "A시", level: "SIGUNGU", apiAreaCode: "51", apiSigunguCode: "51150" })];
-    // apiSignguCodes가 null(API 오류) — 51150이 API 응답에 있는지 확인할 수 없으므로 REGION_ONLY로
-    // 잘못 단정하면 안 된다.
-    const result = auditRegionCodes({ regions, apiAreaCodes: new Set(["51"]), apiSignguCodes: null });
+  it("기초(signguCode) API가 오류였으면(null) signguCode 범위만 판정을 생략하고, areaCode 범위는 정상 검출한다", () => {
+    const regions = [
+      region({ code: "SIDO_A", name: "A도", level: "SIDO", apiAreaCode: "51" }),
+      region({ code: "SGG_A", name: "A시", level: "SIGUNGU", apiAreaCode: "51", apiSigunguCode: "51150" }),
+    ];
+    // signguCode 범위(null, API 오류)는 51150이 API에 있는지 확인 불가 — 판정을 생략해야 한다.
+    // areaCode 범위는 정상 조회됐지만 "51"이 그 응답에 없다 — REGION_ONLY로 정상 검출돼야 한다(오탐
+    // 방지가 광역 범위의 진짜 탐지까지 함께 지워버리면 안 된다).
+    const result = auditRegionCodes({ regions, apiAreaCodes: new Set(["99"]), apiSignguCodes: null });
+
     expect(result.signguCodeVerificationSkipped).toBe(true);
-    expect(result.issues.filter((i) => i.type === "REGION_ONLY" || i.type === "API_ONLY")).toEqual([]);
+    expect(result.areaCodeVerificationSkipped).toBe(false);
+    // signguCode(51150) 관련 API_ONLY/REGION_ONLY는 생략되어 나타나지 않는다.
+    expect(result.issues.some((i) => i.apiCode === "51150")).toBe(false);
+    // areaCode(51) 관련 REGION_ONLY는 정상적으로 검출된다.
+    expect(result.issues).toContainEqual(expect.objectContaining({ type: "REGION_ONLY", level: "SIDO", apiCode: "51" }));
   });
 
-  it("광역(areaCode) API가 오류였으면(null) 그 범위의 API_ONLY/REGION_ONLY 판정을 생략하고 검증 불가로 표시한다", () => {
-    const regions = [region({ code: "SIDO_A", name: "A도", level: "SIDO", apiAreaCode: "51" })];
-    const result = auditRegionCodes({ regions, apiAreaCodes: null, apiSignguCodes: new Set() });
+  it("광역(areaCode) API가 오류였으면(null) areaCode 범위만 판정을 생략하고, signguCode 범위는 정상 검출한다", () => {
+    const regions = [
+      region({ code: "SIDO_A", name: "A도", level: "SIDO", apiAreaCode: "51" }),
+      region({ code: "SGG_A", name: "A시", level: "SIGUNGU", apiAreaCode: "51", apiSigunguCode: "51150" }),
+    ];
+    // signguCode 범위는 정상 조회됐지만 "51150"이 그 응답에 없다 — REGION_ONLY로 정상 검출돼야 한다.
+    const result = auditRegionCodes({ regions, apiAreaCodes: null, apiSignguCodes: new Set(["99999"]) });
+
     expect(result.areaCodeVerificationSkipped).toBe(true);
-    expect(result.issues.filter((i) => i.type === "REGION_ONLY" || i.type === "API_ONLY")).toEqual([]);
+    expect(result.signguCodeVerificationSkipped).toBe(false);
+    // areaCode(51) 관련 API_ONLY/REGION_ONLY는 생략되어 나타나지 않는다.
+    expect(result.issues.some((i) => i.apiCode === "51")).toBe(false);
+    // signguCode(51150) 관련 REGION_ONLY는 정상적으로 검출된다.
+    expect(result.issues).toContainEqual(expect.objectContaining({ type: "REGION_ONLY", level: "SIGUNGU", apiCode: "51150" }));
   });
 
   it("두 범위 모두 정상 응답이면 areaCode/signguCode 검증 스킵 플래그가 모두 false다", () => {

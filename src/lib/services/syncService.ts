@@ -153,10 +153,13 @@ async function upsertSnapshot(params: {
  * ERROR면 기존 SUCCESS 스냅샷을 보존(upsertSnapshot의 preserve 정책)하고, 이 지역의 코드가 이번 응답에
  * 없으면(진짜 0건) EMPTY로 기록한다 — 지어낸 값을 upsert하지 않는다.
  *
- * 불변조건: 이 함수는 `syncVisitorCnt`에서 `enforceCombinedDateCompleteness`를 거친 결과만 받는다 —
- * 그래서 SUCCESS/EMPTY 분기에 도달했다는 것 자체가 "이 baseYm은 기초·광역 모두 완전성 검증을
- * 통과했다"는 증거가 되고, rawPayload에 `completeMonthVerified: true`를 안전하게 남길 수 있다(캐시
- * 판정 근거, visitorCntCacheStore.ts 참고). 이 함수를 게이트 없이 직접 호출하지 않는다.
+ * 불변조건(2026-07-29 2차 수정): `syncVisitorCnt`는 `enforceCombinedDateCompleteness`가
+ * `complete: true`를 반환했을 때만 이 함수를 호출한다 — 그 경우 locgo/metco는 항상 SUCCESS이므로
+ * SUCCESS/EMPTY 분기에 도달했다는 것 자체가 "완전성 검증을 통과했다"는 증거가 되고, rawPayload에
+ * `completeMonthVerified: true`를 안전하게 남길 수 있다(캐시 판정 근거, visitorCntCacheStore.ts 참고).
+ * 완전성 검증에 실패한 경우는 이 함수를 아예 호출하지 않고 `reportVisitorCntIncomplete`가 대신 처리한다
+ * (신규 DataSnapshot을 만들지 않기 위해서) — 아래 ERROR 분기는 이 함수가 직접(게이트 밖에서) 호출되는
+ * 경우를 위한 방어 코드로 남겨둔다.
  */
 async function upsertVisitorCntForRegion(params: {
   region: { id: string; code: string; level: RegionLevel };
@@ -220,12 +223,40 @@ async function upsertVisitorCntForRegion(params: {
 }
 
 /**
+ * 완전성 게이트가 불완전 판정을 내렸을 때 지역 하나에 대한 보고만 만든다 — DataSnapshot은 절대 쓰지
+ * 않는다(신규든 갱신이든). 기존에 이 region+baseYm에 LIVE_API metric이 있었다면(과거에 실제로 완전한
+ * 달로 저장된 적이 있다면) 그 값이 "최신 시도가 실패해 재사용 중"이라는 사실을 반영해 CACHED_API로
+ * 낮춘다 — markMetricsAsCached는 provenance="LIVE_API"인 행만 골라 바꾸므로, 아무 것도 없던 지역에는
+ * 안전하게 no-op이다.
+ */
+async function reportVisitorCntIncomplete(params: {
+  region: { id: string; code: string };
+  code: string | null;
+  baseYm: string;
+  reason: string;
+}): Promise<SyncSourceResult> {
+  const { region, code, baseYm, reason } = params;
+  const sourceCode = `VISITOR_CNT:${region.code}`;
+  if (!code) {
+    return { sourceCode, status: "SKIPPED", itemCount: 0, errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 방문자수 매핑 제외" };
+  }
+  await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.VISITOR_CNT, METRIC_CODES.VISITOR_CNT_LOCAL]);
+  return {
+    sourceCode,
+    status: "FAILED",
+    itemCount: 0,
+    errorMessage: `기준월 ${baseYm} 완전성 검증 실패(${reason}) — 저장하지 않고 기존 SUCCESS/EMPTY 스냅샷을 보존한다`,
+  };
+}
+
+/**
  * VISITOR_CNT 전용 동기화(2026-07-28 분리, 2026-07-29 원자적 게이트로 변경) — 전국 시군구/광역 응답을
  * baseYm당 한 번씩만 조회하고, 기초·광역이 **모두** SUCCESS이고 날짜가 완전할 때만 저장한다
- * (enforceCombinedDateCompleteness). 한쪽만 완전해도 완전한 쪽만 저장하지 않는다 — 두 응답을 함께
- * 평가해 하나라도 불완전하면 양쪽 모두 저장을 건너뛰고 기존 SUCCESS를 보존한다. `runTourismDataSync`
- * (전체 6개 소스 동기화)와 `scripts/sync-visitor.ts`(VISITOR_CNT만 동기화하는 CLI) 양쪽이 이 함수를
- * 공유해 지역 매핑·저장 로직을 중복 구현하지 않는다.
+ * (enforceCombinedDateCompleteness). 하나라도 불완전하면 저장 루프 자체에 진입하지 않는다(early
+ * return) — 합성 ERROR 원문을 만들어 저장 함수에 넘긴 뒤 그 함수 내부에서 우회적으로 막는 방식은
+ * 기존 스냅샷이 없는 지역에서도 신규 ERROR DataSnapshot을 만들어버리는 결함이 있어 폐기했다
+ * (2026-07-29 2차 수정). `runTourismDataSync`(전체 6개 소스 동기화)와 `scripts/sync-visitor.ts`
+ * (VISITOR_CNT만 동기화하는 CLI) 양쪽이 이 함수를 공유해 지역 매핑·저장 로직을 중복 구현하지 않는다.
  */
 export async function syncVisitorCnt(params: {
   baseYm: string;
@@ -240,8 +271,20 @@ export async function syncVisitorCnt(params: {
     fetchLocgoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
     fetchMetcoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
   ]);
-  const { locgo: locgoResult, metco: metcoResult } = enforceCombinedDateCompleteness(baseYm, rawLocgo, rawMetco);
+  const gate = enforceCombinedDateCompleteness(baseYm, rawLocgo, rawMetco);
 
+  if (!gate.complete) {
+    const results: SyncSourceResult[] = [];
+    for (const region of sigunguRegions) {
+      results.push(await reportVisitorCntIncomplete({ region, code: region.apiSigunguCode, baseYm, reason: gate.assessment.reason ?? "UNKNOWN" }));
+    }
+    for (const region of sidoRegions) {
+      results.push(await reportVisitorCntIncomplete({ region, code: region.apiAreaCode, baseYm, reason: gate.assessment.reason ?? "UNKNOWN" }));
+    }
+    return results;
+  }
+
+  const { locgo: locgoResult, metco: metcoResult } = gate;
   const results: SyncSourceResult[] = [];
   for (const region of sigunguRegions) {
     results.push(

@@ -149,6 +149,29 @@ describe("fetchLocgoRegnVisitr / fetchMetcoRegnVisitr", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("첫 페이지 totalCount 기준으로 더 받아야 하는데 후속 페이지가 EMPTY면 부분 응답으로 보고 ERROR 처리하며, 그 시점에서 중단한다", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("pageNo=1")) {
+        return mockFetchOnce(envelope("0000", "NORMAL SERVICE.", [{ signguCode: "51150", touDivCd: "2", touNum: "100", baseYmd: "20260601" }], 2500));
+      }
+      if (url.includes("pageNo=2")) {
+        return mockFetchOnce(envelope("0000", "NORMAL SERVICE.", "", 2500)); // 2페이지가 예상과 달리 EMPTY
+      }
+      throw new Error("3페이지는 요청되면 안 된다 — 2페이지 EMPTY에서 이미 중단했어야 한다.");
+    });
+
+    const result = await fetchLocgoRegnVisitr({ serviceKey: "test-key", baseUrl: "https://example.test", baseYm: "202606" });
+
+    expect(result.status).toBe("ERROR");
+    expect(result.byCode).toBeNull();
+    if (result.status === "ERROR") {
+      expect(result.resultCode).toBe("PARTIAL_PAGE_EMPTY");
+    }
+    // 1페이지(정상)+2페이지(EMPTY)까지만 요청하고 3페이지는 요청하지 않는다.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("signguCode/areaCode로 각각 다른 지역을 구분해 매핑한다", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       mockFetchOnce(

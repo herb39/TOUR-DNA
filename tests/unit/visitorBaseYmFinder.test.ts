@@ -183,7 +183,10 @@ describe("DB 결합 없음(2026-07-29)", () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const source = fs.readFileSync(path.join(process.cwd(), "src/lib/services/visitorBaseYmFinder.ts"), "utf-8");
-    expect(source).not.toMatch(/@\/lib\/db/);
-    expect(source.toLowerCase()).not.toContain("prisma");
+    // 부분 문자열 검색(source.not.toMatch(/@\/lib\/db/))은 "이 파일은 @/lib/db를 import하지 않는다"
+    // 같은 설명 주석 자체를 위반으로 오인해 실패했다(2026-07-29 2차 수정) — 실제 import 선언
+    // (`from "..."` 뒤 경로가 /db로 끝나는 패턴)만 검사한다.
+    expect(source).not.toMatch(/from\s+["'][^"']*\/db["']/);
+    expect(source).not.toMatch(/import\s*\{[^}]*\bprisma\b[^}]*\}\s*from/);
   });
 });

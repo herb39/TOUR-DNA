@@ -203,6 +203,19 @@ async function fetchAllPages<T>(
       if (parsed.status === "ERROR") {
         return { status: "ERROR", items: [], resultCode: parsed.resultCode, resultMsg: parsed.resultMsg, rawPages };
       }
+      if (parsed.status === "EMPTY") {
+        // 첫 페이지 totalCount 기준으로 이 페이지에도 데이터가 있어야 하는데 EMPTY가 왔다 — 일시적
+        // 결손으로 이미 받은 페이지들의 부분 합계만 SUCCESS로 반환하면 불완전한 값을 정상 응답처럼
+        // 저장하게 된다. 이미 받은 페이지까지만 rawPages에 보존하고 즉시 ERROR로 중단한다(이후 페이지는
+        // 요청하지 않음).
+        return {
+          status: "ERROR",
+          items: [],
+          resultCode: "PARTIAL_PAGE_EMPTY",
+          resultMsg: `페이지 ${pageNo}에서 예상된 데이터 대신 EMPTY 응답을 받음(totalCount 기준 부분 응답) — 부분 데이터를 저장하지 않기 위해 중단`,
+          rawPages,
+        };
+      }
       items.push(...parsed.items);
     } catch {
       const meta = extractResultMeta(res.data);

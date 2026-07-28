@@ -19,7 +19,6 @@ import {
   fetchMetcoRegnVisitr,
   monthToYmdRange,
   type VisitorCntFetchResult,
-  type VisitorCntParams,
 } from "../src/lib/public-data/adapters/visitorCnt";
 import { collectBaseYmdSet, assessDateCoverage } from "../src/lib/services/visitorMonthCompleteness";
 import { runVisitorApiVerification } from "../src/lib/services/visitorApiVerification";

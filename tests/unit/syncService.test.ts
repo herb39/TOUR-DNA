@@ -1,20 +1,53 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// 2026-07-28: syncVisitorCnt가 enforceDateCompleteness로 날짜 커버리지를 검사하므로, SUCCESS로 취급
-// 되려면 byCode의 rawItems가 baseYm 전체 일자를 커버해야 한다(비워두면 "날짜 전부 누락"으로 오판되어
-// ERROR 취급된다). 이 헬퍼가 그 최소 조건을 채운 더미 rawItems를 만들어준다 — 값 자체(touDivCd/touNum)는
-// 완전성 판정과 무관하므로 최소 형태만 채운다.
-function fullMonthRawItems(baseYm: string, code: string): Array<{ signguCode: string; touDivCd: string; touNum: number; baseYmd: string }> {
+// 2026-07-28: syncVisitorCnt(enforceCombinedDateCompleteness)가 기초(locgo)·광역(metco) 둘 다 날짜
+// 커버리지를 검사하므로, "완전한 월"로 취급되려면 두 응답 모두 byCode의 rawItems가 baseYm 전체 일자를
+// 커버해야 한다(하나라도 비워두면 그 응답만이 아니라 반대쪽까지 함께 불완전으로 취급되어 저장 자체가
+// 통째로 건너뛰어진다 — 2026-07-29 원자적 게이트). codeField만 다르고 나머지 구조는 같으므로 하나의
+// 공통 헬퍼로 정리했다(signguCode=기초, areaCode=광역).
+function fullMonthRawItems(
+  baseYm: string,
+  codeField: "signguCode" | "areaCode",
+  code: string,
+): Array<Record<string, unknown>> {
   const year = Number(baseYm.slice(0, 4));
   const month = Number(baseYm.slice(4, 6));
   const lastDay = new Date(year, month, 0).getDate();
   return Array.from({ length: lastDay }, (_, i) => ({
-    signguCode: code,
+    [codeField]: code,
     touDivCd: "2",
     touNum: 1,
     baseYmd: `${baseYm}${String(i + 1).padStart(2, "0")}`,
   }));
+}
+
+/** 기초(locgo)가 baseYm 전체를 커버하는 SUCCESS mock 값을 만든다. */
+function locgoFullMonthSuccess(baseYm: string, code: string) {
+  return {
+    status: "SUCCESS" as const,
+    byCode: new Map([
+      [code, { code, name: null, localNum: 0, otherDomesticNum: 0, foreignNum: 0, visitorCnt: 0, rawItems: fullMonthRawItems(baseYm, "signguCode", code) }],
+    ]),
+    resultCode: "0000",
+    resultMsg: "OK",
+    rawPages: [{ dummy: true }],
+  };
+}
+
+/** 광역(metco)이 baseYm 전체를 커버하는 SUCCESS mock 값을 만든다. 이 테스트 스위트의 region.findMany
+ * mock은 SIDO 조회에 빈 배열을 주므로, 아래 코드값은 실제 어느 Region에도 매핑되지 않는다 — 원자적
+ * 게이트가 "광역도 완전하다"고 판단하게 만드는 용도로만 쓴다. */
+function metcoFullMonthSuccess(baseYm: string, code = "30") {
+  return {
+    status: "SUCCESS" as const,
+    byCode: new Map([
+      [code, { code, name: null, localNum: 0, otherDomesticNum: 0, foreignNum: 0, visitorCnt: 0, rawItems: fullMonthRawItems(baseYm, "areaCode", code) }],
+    ]),
+    resultCode: "0000",
+    resultMsg: "OK",
+    rawPages: [{ dummy: true }],
+  };
 }
 
 // vi.mock 팩토리는 파일 상단으로 hoist되므로, 그 안에서 참조하는 값은 vi.hoisted로 함께 hoist해야 한다.
@@ -352,7 +385,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
             otherDomesticNum: 12000,
             foreignNum: 345,
             visitorCnt: 12345,
-            rawItems: fullMonthRawItems("202606", "30200"),
+            rawItems: fullMonthRawItems("202606", "signguCode", "30200"),
           },
         ],
       ]),
@@ -360,6 +393,9 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       resultMsg: "OK",
       rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
     });
+    // 광역도 완전해야 원자적 게이트를 통과해 저장된다 — 없으면(기본 mock은 ERROR) 이 테스트가 검증하려는
+    // "재실행 시 중복 row 방지" 자체를 확인할 수 없다.
+    vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
 
     await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
     await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
@@ -540,7 +576,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
               otherDomesticNum: 700,
               foreignNum: 299,
               visitorCnt: 999,
-              rawItems: fullMonthRawItems("202606", "30200"),
+              rawItems: fullMonthRawItems("202606", "signguCode", "30200"),
             },
           ],
         ]),
@@ -548,6 +584,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
         resultMsg: "OK",
         rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
       });
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
 
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
 
@@ -573,7 +610,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
               otherDomesticNum: 700,
               foreignNum: 299,
               visitorCnt: 999,
-              rawItems: fullMonthRawItems("202606", "30200"),
+              rawItems: fullMonthRawItems("202606", "signguCode", "30200"),
             },
           ],
         ]),
@@ -581,6 +618,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
         resultMsg: "OK",
         rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
       });
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
       expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
 
@@ -616,7 +654,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
               otherDomesticNum: 700,
               foreignNum: 299,
               visitorCnt: 999,
-              rawItems: fullMonthRawItems("202606", "30200"),
+              rawItems: fullMonthRawItems("202606", "signguCode", "30200"),
             },
           ],
         ]),
@@ -624,6 +662,9 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
         resultMsg: "OK",
         rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
       });
+      // 광역은 첫 실행·두 번째 실행 모두 완전한 채로 둔다 — 이 테스트가 확인하려는 건 "기초만 불완전해도
+      // 원자적 게이트가 전체를 막는다"이므로, 두 번째 실행에서 재설정하지 않고 그대로 재사용한다.
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
       const key = "src-visitor-cnt|region-1|202606";
       expect(dataSnapshotStore.get(key)?.status).toBe("SUCCESS");
@@ -646,7 +687,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
               otherDomesticNum: 50,
               foreignNum: 10,
               visitorCnt: 60,
-              rawItems: fullMonthRawItems("202606", "30200").slice(0, 10),
+              rawItems: fullMonthRawItems("202606", "signguCode", "30200").slice(0, 10),
             },
           ],
         ]),
@@ -676,7 +717,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
         status: "SUCCESS",
         byCode: new Map([
-          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: fullMonthRawItems("202606", "30200") }],
+          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: fullMonthRawItems("202606", "signguCode", "30200") }],
         ]),
         resultCode: "0000",
         resultMsg: "OK",
@@ -693,10 +734,15 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
 
       await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
 
-      // metric은 절대 만들어지지 않는다(불완전 합계를 지어내지 않음). 기존 SUCCESS가 없던 첫 실행이라
-      // 다른 소스와 동일한 정책대로 ERROR 상태 자체는 기록된다(보존할 대상이 없으므로).
+      // metric은 절대 만들어지지 않는다(불완전 합계를 지어내지 않음). 기존 스냅샷이 없던 첫 실행이므로
+      // 신규 DataSnapshot도 전혀 만들어지지 않는다 — 완전성 검증 실패는 "본문을 못 받은 경우"와 동일하게
+      // 다루어 합성 원문으로 ERROR 행을 새로 쓰지 않는다(2026-07-29 2차 수정).
       expect(normalizedMetricStore.get("region-1|202606|visitorCnt")).toBeUndefined();
-      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")?.status).toBe("ERROR");
+      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")).toBeUndefined();
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      );
+      expect(callsForKey).toHaveLength(0);
     });
 
     it("VISITOR_CNT는 광역(metco)만 완전하고 기초(locgo)가 불완전하면 양쪽 모두 저장하지 않는다(원자적 게이트)", async () => {
@@ -711,7 +757,7 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue({
         status: "SUCCESS",
         byCode: new Map([
-          ["30", { code: "30", name: "대전광역시", localNum: 100, otherDomesticNum: 200, foreignNum: 30, visitorCnt: 230, rawItems: fullMonthRawItems("202606", "30") }],
+          ["30", { code: "30", name: "대전광역시", localNum: 100, otherDomesticNum: 200, foreignNum: 30, visitorCnt: 230, rawItems: fullMonthRawItems("202606", "areaCode", "30") }],
         ]),
         resultCode: "0000",
         resultMsg: "OK",
@@ -722,10 +768,26 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
 
       // mock region.findMany은 SIDO 조회에 빈 배열을 주므로(이 테스트 스위트의 기본 설정) 광역 데이터가
       // 실제로 적용될 지역이 없다 — 시군구(region-1, locgo 기준)에도 원자적 게이트로 저장되지 않는지만
-      // 확인한다. metric은 절대 만들어지지 않고, 기존 SUCCESS가 없던 첫 실행이라 ERROR 상태 자체는
-      // 다른 소스와 동일하게 기록된다.
+      // 확인한다. metric은 절대 만들어지지 않고, 신규 DataSnapshot도 전혀 만들어지지 않는다.
       expect(normalizedMetricStore.get("region-1|202606|visitorCnt")).toBeUndefined();
-      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")?.status).toBe("ERROR");
+      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")).toBeUndefined();
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      );
+      expect(callsForKey).toHaveLength(0);
+    });
+
+    it("양쪽 모두 네트워크 실패(rawPages=[])면 신규 DataSnapshot을 저장하지 않는다(원자적 게이트)", async () => {
+      // beforeEach의 기본 mock이 이미 fetchLocgoRegnVisitr/fetchMetcoRegnVisitr 둘 다 ERROR(rawPages:[])다
+      // — 별도로 override하지 않는다.
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")).toBeUndefined();
+      expect(dataSnapshotStore.get("src-visitor-cnt|region-1|202606")).toBeUndefined();
+      const callsForKey = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      );
+      expect(callsForKey).toHaveLength(0);
     });
   });
 });

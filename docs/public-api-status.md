@@ -247,10 +247,10 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
   DB를 쓰지 않으므로 DATABASE_URL 없이 실행된다(정적 검사로 확인, `tests/unit/dbFreeModules.test.ts`).
 - **원자적 저장 게이트**: 기존 구현은 기초(locgo)·광역(metco)을 각각 독립적으로 `enforceDateCompleteness`
   에 통과시켜, "한쪽만 완전하면 완전한 쪽은 저장한다"는 의도치 않은 동작이 있었다. `syncVisitorCnt`가
-  이제 `enforceCombinedDateCompleteness`로 두 응답을 함께 평가해, 하나라도 불완전하면 기초·광역
-  **양쪽 모두** 저장을 건너뛴다. 또한 완전성 검증 실패를 다른 어댑터의 ERROR와 동일하게 취급하도록
-  바꿔, 기존 SUCCESS 스냅샷 보존과 함께 그 스냅샷이 만든 LIVE_API metric을 CACHED_API로 낮추는
-  정책도 다른 소스와 일관되게 적용된다(이전에는 이 경우 아무것도 건드리지 않았다).
+  이제 두 응답을 함께 평가해, 하나라도 불완전하면 기초·광역 **양쪽 모두** 저장을 건너뛴다. ⚠️ 이때
+  구현한 방식(완전성 검증 실패를 합성 ERROR 객체로 만들어 기존 ERROR-preserve 경로에 태우는 방식)에
+  기존 스냅샷이 없는 지역에서도 신규 ERROR `DataSnapshot`을 만들어버리는 잔여 결함이 있었다 — 아래
+  §5-E에서 저장 함수 자체를 호출하지 않는 early return 방식으로 다시 고쳤다.
 - **캐시 완전성 마커**: 완전성 검사 도입 이전에 저장된 SUCCESS 스냅샷을 캐시로 잘못 신뢰하는 문제를
   막기 위해, `syncVisitorCnt`가 저장하는 `DataSnapshot.rawPayload`에 `completeMonthVerified: true`를
   남긴다(Prisma schema 변경 없음). `checkVisitorCntCacheViaDataSnapshot`은 이제 지역 수 일치뿐 아니라
@@ -271,6 +271,35 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
   500페이지까지만 받고 SUCCESS로 반환해 나머지가 빠진 부분 합계가 정상 응답처럼 저장될 위험이 있었다.
   이제 상한 초과를 감지하면 첫 페이지 응답만으로 즉시 `TOO_MANY_PAGES` ERROR를 반환하고 나머지 페이지는
   요청하지 않는다.
+
+**5-E) 원자적 게이트 잔여 결함 및 후속 페이지 EMPTY 처리(2026-07-29 2차 수정)**
+
+직접 검증(테스트 528개 실행)에서 §5-D의 "원자적 저장 게이트" 수정 자체에 남아있던 결함과 그 외 문제가
+추가로 발견되어 수정했다.
+
+- **불완전 시 신규 스냅샷 생성 금지**: §5-D의 1차 수정은 완전성 검증에 실패하면 locgo/metco를 합성
+  ERROR 객체(`resultCode: "INCOMPLETE_MONTH"`, 합성 `rawPayload`)로 바꿔치기해 기존
+  `upsertVisitorCntForRegion`의 ERROR-preserve 경로를 그대로 태우게 했는데, 이 경로는 "기존 스냅샷이
+  없으면 이번 ERROR 본문을 그대로 새로 저장한다"는 정책(다른 소스와 동일)이라 기존 스냅샷이 없는
+  지역에서도 신규 ERROR `DataSnapshot` 행이 만들어지는 결함이 있었다(실제로는 아무 응답도 유효하지
+  않은데 그럴듯한 합성 원문을 저장 함수에 넘긴 셈). `enforceCombinedDateCompleteness`는 이제 판정
+  결과만(`complete: boolean`, 완전할 때만 `locgo`/`metco` 포함) 반환하고, `syncVisitorCnt`가 `complete`
+  가 `false`면 저장 함수(`upsertVisitorCntForRegion`) 자체를 호출하지 않는 early return을 한다
+  (`reportVisitorCntIncomplete`가 대신 SyncSourceResult만 FAILED로 보고하고, 기존 LIVE_API metric이
+  있으면 CACHED_API로만 낮춘다 — DataSnapshot은 절대 새로 쓰지 않는다).
+- **후속 페이지 EMPTY 처리**: `fetchAllPages`가 첫 페이지 `totalCount` 기준으로 더 받아야 하는데 2번째
+  이후 페이지가 EMPTY로 오면, 이전에는 그 페이지를 빈 배열로 취급하고 계속 진행해 최종적으로 SUCCESS를
+  반환했다 — 부분 응답이 완전한 응답처럼 저장될 위험이 있었다. 이제 후속 페이지가 EMPTY면 즉시
+  `PARTIAL_PAGE_EMPTY` ERROR로 중단하고(이미 받은 페이지까지만 `rawPages`에 보존), 그 이후 페이지는
+  요청하지 않는다.
+- **테스트 보정**: `syncService.test.ts`의 기존 성공 테스트들이 locgo만 완전한 값으로 mock하고 metco는
+  기본값(ERROR)로 남아 있어 원자적 게이트가 정상적으로 저장을 막고 있었다 — 두 응답 모두 해당 월 전체
+  날짜를 가진 SUCCESS mock을 설정하도록 고쳤다(`fullMonthRawItems`를 codeField로 매개변수화해
+  locgo/metco 공용으로 정리). DB 미결합 테스트는 파일 전체에서 `@/lib/db`/`prisma` 부분 문자열을 찾아
+  그 사실을 설명하는 주석 자체까지 위반으로 오인했다 — 실제 import 선언(`from "..."`)만 검사하도록
+  고치고, DATABASE_URL을 제거한 상태로 `visitorBaseYmFinder.ts`를 동적 import해 성공하는 테스트를
+  추가했다. Region 코드 감사 테스트는 한쪽 범위(API 오류)의 판정 생략을 확인하면서 반대쪽 정상 범위의
+  탐지 결과까지 없어야 한다고 잘못 기대하고 있었다 — 범위별로 분리해서 검증하도록 고쳤다.
 
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 

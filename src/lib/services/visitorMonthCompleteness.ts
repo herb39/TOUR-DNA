@@ -178,23 +178,22 @@ export function enforceDateCompleteness(baseYm: string, result: VisitorCntFetchR
   };
 }
 
-export interface CombinedDateCompletenessResult {
-  locgo: VisitorCntFetchResult;
-  metco: VisitorCntFetchResult;
-  assessment: MonthCompletenessAssessment;
-}
+export type CombinedDateCompletenessResult =
+  | { complete: true; locgo: VisitorCntFetchResult; metco: VisitorCntFetchResult; assessment: MonthCompletenessAssessment }
+  | { complete: false; assessment: MonthCompletenessAssessment };
 
 /**
  * syncService.ts(syncVisitorCnt)의 실제 저장 게이트. 기초(locgo)·광역(metco)을 함께 평가해 **둘 다**
- * SUCCESS이고 날짜가 완전할 때만 원본 결과를 그대로 통과시킨다. 하나라도 ERROR/EMPTY/날짜 누락이면
- * 기초·광역 양쪽 모두를 ERROR로 바꿔치기해, 한쪽만 저장되고 다른 쪽은 저장되지 않는 상황을 만들지
- * 않는다("한쪽만 완전하면 완전한 쪽은 저장한다"는 이전 정책을 폐기함, 2026-07-29).
+ * SUCCESS이고 날짜가 완전할 때만 `complete: true`와 원본 결과를 반환한다. 하나라도 ERROR/EMPTY/날짜
+ * 누락이면 `complete: false`만 반환하고 원본 결과는 아예 넘기지 않는다 — 호출부(syncVisitorCnt)가
+ * "저장 루프 자체에 진입하지 않는" early return을 하도록 강제하기 위해서다.
  *
- * rawPages를 비우지 않고 실제로 판정에 쓰인 사유를 담아 채운다 — 완전성 검증 실패도 "실제로 응답은
- * 받았지만 쓸 수 없었다"는 점에서 다른 어댑터의 ERROR 처리와 다르지 않으므로, upsertSnapshot의
- * preserve 정책과 markMetricsAsCached(CACHED_API 강등)이 다른 소스와 동일하게 동작해야 한다 — 기존
- * SUCCESS 스냅샷은 보존되고, 그 스냅샷이 만든 LIVE_API metric은 "최신 시도가 실패해 이전 값을
- * 재사용 중"이라는 사실을 그대로 반영해 CACHED_API로 낮아진다.
+ * 2026-07-29(1차 수정): 처음에는 불완전 시 locgo/metco를 합성 ERROR 객체로 바꿔치기해 기존
+ * upsertVisitorCntForRegion의 preserve 경로를 그대로 태우려 했으나, 이 방식은 기존 스냅샷이 없는
+ * 지역에서도 "완전성 검증 실패"라는 합성 원문으로 신규 ERROR DataSnapshot을 만들어버리는 결함이 있었다
+ * (실제로 받은 응답이 없는데 저장 함수에 그럴듯한 rawPayload를 만들어 넘긴 셈). 이 함수는 이제 판정
+ * 결과만 반환하고, 저장 여부·기존 metric 강등·SyncSourceResult 보고는 syncVisitorCnt가 직접 처리한다
+ * (아래 참고) — "한쪽만 완전하면 완전한 쪽은 저장한다"는 원래 정책도 이미 폐기된 상태를 유지한다.
  */
 export function enforceCombinedDateCompleteness(
   baseYm: string,
@@ -203,16 +202,7 @@ export function enforceCombinedDateCompleteness(
 ): CombinedDateCompletenessResult {
   const assessment = assessVisitorMonthCompleteness(baseYm, locgoResult, metcoResult);
   if (assessment.complete) {
-    return { locgo: locgoResult, metco: metcoResult, assessment };
+    return { complete: true, locgo: locgoResult, metco: metcoResult, assessment };
   }
-
-  const resultMsg = `기준월 ${baseYm} 완전성 검증 실패(${assessment.reason}) — 기초/광역 모두 저장하지 않고 기존 SUCCESS를 보존한다`;
-  const incomplete: VisitorCntFetchResult = {
-    status: "ERROR",
-    byCode: null,
-    resultCode: "INCOMPLETE_MONTH",
-    resultMsg,
-    rawPages: [{ resultCode: "INCOMPLETE_MONTH", resultMsg }],
-  };
-  return { locgo: incomplete, metco: incomplete, assessment };
+  return { complete: false, assessment };
 }

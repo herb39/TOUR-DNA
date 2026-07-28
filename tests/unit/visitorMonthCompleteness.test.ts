@@ -146,42 +146,50 @@ describe("enforceDateCompleteness", () => {
   });
 });
 
-describe("enforceCombinedDateCompleteness(원자적 게이트)", () => {
-  it("기초/광역 모두 완전하면 원본 그대로 통과시킨다", () => {
+describe("enforceCombinedDateCompleteness(원자적 게이트, 2026-07-29 2차 수정)", () => {
+  // complete:false일 때는 locgo/metco 원본을 아예 반환하지 않는다(합성 ERROR 객체를 만들지 않음) —
+  // 호출부(syncVisitorCnt)가 "저장 루프에 진입하지 않는" early return을 하도록 강제하기 위해서다.
+  // 저장 여부 판단은 오직 `complete` 필드로만 한다.
+
+  it("기초/광역 모두 완전하면 complete:true와 원본 결과를 그대로 반환한다", () => {
     const full = expectedDatesOfMonth("202602");
     const locgo = successResult("30200", full);
     const metco = successResult("30", full);
     const result = enforceCombinedDateCompleteness("202602", locgo, metco);
-    expect(result.locgo).toBe(locgo);
-    expect(result.metco).toBe(metco);
-    expect(result.assessment.complete).toBe(true);
+    expect(result.complete).toBe(true);
+    if (result.complete) {
+      expect(result.locgo).toBe(locgo);
+      expect(result.metco).toBe(metco);
+    }
   });
 
-  it("기초는 완전하고 광역이 불완전하면(EMPTY) 기초도 함께 ERROR로 바뀐다(한쪽만 저장하지 않음)", () => {
+  it("기초는 완전하고 광역이 불완전하면(EMPTY) complete:false만 반환한다(원본 결과 없음)", () => {
     const full = expectedDatesOfMonth("202602");
     const locgo = successResult("30200", full);
     const metco = emptyResult();
     const result = enforceCombinedDateCompleteness("202602", locgo, metco);
-    expect(result.locgo.status).toBe("ERROR");
-    expect(result.metco.status).toBe("ERROR");
+    expect(result.complete).toBe(false);
     expect(result.assessment.reason).toBe("METCO_EMPTY");
+    expect("locgo" in result).toBe(false);
+    expect("metco" in result).toBe(false);
   });
 
-  it("광역은 완전하고 기초가 불완전하면(날짜 누락) 광역도 함께 ERROR로 바뀐다(한쪽만 저장하지 않음)", () => {
+  it("광역은 완전하고 기초가 불완전하면(날짜 누락) complete:false만 반환한다(원본 결과 없음)", () => {
     const full = expectedDatesOfMonth("202602");
     const locgo = successResult("30200", full.slice(0, 5));
     const metco = successResult("30", full);
     const result = enforceCombinedDateCompleteness("202602", locgo, metco);
-    expect(result.locgo.status).toBe("ERROR");
-    expect(result.metco.status).toBe("ERROR");
+    expect(result.complete).toBe(false);
     expect(result.assessment.reason).toBe("LOCGO_INCOMPLETE_DATES");
+    expect("locgo" in result).toBe(false);
+    expect("metco" in result).toBe(false);
   });
 
-  it("불완전 판정의 ERROR는 rawPages를 비우지 않는다(다른 소스와 동일한 preserve/강등 정책을 태우기 위해)", () => {
-    const result = enforceCombinedDateCompleteness("202602", emptyResult(), emptyResult());
-    expect(result.locgo.status).toBe("ERROR");
-    if (result.locgo.status === "ERROR") {
-      expect(result.locgo.rawPages.length).toBeGreaterThan(0);
-    }
+  it("기초/광역 모두 ERROR(네트워크 실패)여도 complete:false만 반환한다 — 합성 원문을 만들지 않는다", () => {
+    const result = enforceCombinedDateCompleteness("202602", errorResult(), errorResult());
+    expect(result.complete).toBe(false);
+    expect(result.assessment.reason).toBe("LOCGO_ERROR");
+    expect("locgo" in result).toBe(false);
+    expect("metco" in result).toBe(false);
   });
 });
