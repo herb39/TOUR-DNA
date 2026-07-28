@@ -129,7 +129,8 @@ CRON 엔드포인트를 호출합니다. Vercel은 `CRON_SECRET` 환경변수가
 | 지역별 관광 수요 강도(체류·소비) | ✅ 실제 데이터 확인(체류 `tarSjrnDsIxCd=2103`, 소비 `tarExpDsIxCd=2201`) |
 | 지역별 관광 자원 수요(관광서비스수요) | ✅ 실제 데이터 확인(`AreaTarResDemService/areaTarSvcDemList`, tarSvcDemIxCd=1101) |
 | 지역별 관광 자원 수요(문화자원수요) | 파라미터명만 확인, 유효 코드값 미확인 |
-| 지역별 방문자수 / 연관관광지 | 여전히 base URL·오퍼레이션명 미확인 |
+| 지역별 방문자수(DataLabService) | ✅ 실 API 구조 확인(2026-07-28), 시군구/광역 전국 조회 후 지역 매핑 |
+| 연관관광지 | 여전히 base URL·오퍼레이션명 미확인 |
 
 다양성 지표는 이제 연령대별 방문객/소비 지수 6종씩 + 국적 다양성 지수를 조합해 종합 점수를 계산하고
 정상 저장합니다(더 이상 저장을 보류하지 않습니다) — 산식은 [docs/scoring-model.md](docs/scoring-model.md)
@@ -249,9 +250,9 @@ npm run build
 
 ## 알려진 제한사항
 
-- 문화자원수요(`AreaTarResDemService/areaCulResDemList`)·방문자수·연관관광지 API는 base URL·오퍼레이션명
-  또는 유효 코드값이 아직 미확인이다. 그 외(다양성·체류·소비·관광서비스수요·국문관광정보)는 실제 데이터로
-  확인됐다(docs/public-api-status.md).
+- 문화자원수요(`AreaTarResDemService/areaCulResDemList`)·연관관광지 API는 base URL·오퍼레이션명 또는
+  유효 코드값이 아직 미확인이다. 그 외(다양성·체류·소비·관광서비스수요·국문관광정보·방문자수)는 실제
+  데이터로 확인됐다(docs/public-api-status.md).
 - `TOUR_DATA_BASE_YM`은 API가 자동으로 최신월을 알려주지 않아 수동으로 유지보수해야 한다 — 방치하면
   실제로는 더 최신 데이터가 있는데도 오래된 기준월을 계속 쓰게 된다(2026-07-21에 9개월 밀려 있던 것을
   발견해 202606으로 갱신함).
@@ -327,8 +328,8 @@ npm run build
    기반 경고 추가가 다음 단계.
 4. **완전히 새로운(미등록) 장소를 실행안에 직접 추가하는 기능 없음** — 지금은 DB에 등록된 POI 검색만
    가능하다. 주소/좌표를 직접 입력해 만드는 플로우는 지오코딩 등이 필요해 범위가 있다.
-5. **문화자원수요·방문자수·연관관광지 API 미확인** — base URL/오퍼레이션명 또는 유효 코드값을 여전히 못
-   찾았다(Swagger UI 필요). `docs/public-api-status.md` 참고.
+5. **문화자원수요·연관관광지 API 미확인** — base URL/오퍼레이션명 또는 유효 코드값을 여전히 못
+   찾았다(Swagger UI 필요). `docs/public-api-status.md` 참고. (방문자수 API는 2026-07-28 확인 완료.)
 6. **관리자 대시보드 없음** — `SyncLog`/`DataSnapshot` 상태를 보려면 DB를 직접 조회해야 한다. 간단한
    `/admin` 페이지만 있어도 운영 편의성이 크게 오른다.
 7. **동시 편집 시 낙관적 락 없음** — 지금은 단일 운영자 가정이라 급하지 않지만, 여러 사람이 같은 실행안을

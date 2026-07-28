@@ -85,7 +85,8 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 | tarSjrnDsIxVal | 체류 강도(원지표: `tarSjrnDsIxCd=2103` "1박 방문자수") | Stay | TAR_SVC_DEM | 2026-07-21 실키 확인 |
 | tarExpDsIxVal | 소비 강도(원지표: `tarExpDsIxCd=2201` "외지인 소비액") | Spend | TAR_SVC_DEM | 2026-07-21 실키 확인 |
 | touDivIxVal | 관광 다양성(방문객 연령 evenness+소비 연령 evenness+국적 다양성의 합성값, scoring-model.md 참고) | Diversity | TOU_DIV_IX | 2026-07-21 실키 확인, 재계산 로직 구현 완료 |
-| visitorCnt | 방문자수(원값) | Demand 증감률 계산용 | VISITOR_CNT | 데이터셋 존재 확인, 필드명 미확인 |
+| visitorCnt | 방문자수(외지인+외국인, `touDivCd` 2+3 합계) | Demand 증감률 계산용 | VISITOR_CNT | 2026-07-28 실 API 구조 확인, LIVE_API로 기록 |
+| visitorCntLocal | 현지인 방문자수(`touDivCd=1` 합계, 보조지표) | 근거 패널 보조지표(DNA 점수식 미사용) | VISITOR_CNT | 2026-07-28 도입 |
 | poiNetworkDensity | POI/연관관광지 밀도(구조적 산식) | Network | POI_RELATION | 외부 API 지표 아님 — 자체 산식 |
 
 ## DataSource (공공데이터 출처)
@@ -95,7 +96,7 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 | TAR_SVC_DEM | 한국관광공사_지역별 관광 수요 강도 | 실 키 확인(2026-07-21) — 체류/소비 2개 오퍼레이션이 전부, 별도 수요 오퍼레이션 없음(Swagger UI로 확정) |
 | TOU_DIV_IX | 한국관광공사_지역별 관광 다양성 | 실 키 확인(2026-07-21) — 3개 오퍼레이션 전부, 연령대별 코드(6종×2) + 국적 다양성 코드까지 확인 |
 | TOU_RES_DEM | 한국관광공사_지역별 관광 자원 수요 | 실 키 확인(2026-07-21) — `AreaTarResDemService`. `/areaTarSvcDemList`(관광서비스수요) 확인, `/areaCulResDemList`(문화자원수요)는 파라미터명만 확인 |
-| VISITOR_CNT | 한국관광공사_빅데이터_지역별 방문자수_GW | 데이터셋 존재만 확인 |
+| VISITOR_CNT | 한국관광공사_빅데이터 지역별 방문자수(DataLabService) | 실 API 구조 확인(2026-07-28) — `/locgoRegnVisitrDDList`(시군구)·`/metcoRegnVisitrDDList`(광역), 지역 필터 없이 전국 조회 후 매핑 |
 | TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인(2026-07-21) — `areaBasedList2`로 POI 라이브 동기화 파이프라인 연결 완료(syncService.ts) |
 | POI_RELATION | 기초지자체 중심 관광지 및 연관 관광지 | 정식 서비스명/URL 미확인 |
 

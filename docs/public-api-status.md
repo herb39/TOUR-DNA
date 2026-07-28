@@ -165,6 +165,28 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
   으로 자동 복구됐다 — 같은 실행에서 7개 지역 전부 `itemCount=13`(만점)으로 SUCCESS 확인됨. 코드
   결함이 아니므로 별도 수정을 하지 않았다.
 
+**5-B) VISITOR_CNT 실제 API 구조 확인 및 전면 재작성(2026-07-28)**
+- 5)/5-A)에서 미확인이던 실제 게이트웨이가 확인됐다: **한국관광공사_빅데이터_지역별 방문자수(DataLabService)**,
+  base `https://apis.data.go.kr/B551011/DataLabService`. 시군구 분석은 `/locgoRegnVisitrDDList`
+  (`signguCode`), 광역시도 분석은 `/metcoRegnVisitrDDList`(`areaCode`) — 별개 오퍼레이션이며, 광역 값을
+  시군구 합산으로 만들지 않는다.
+- 이 API는 **지역 필터 파라미터가 없다** — `startYmd`/`endYmd`(baseYm의 1일~말일)만으로 전국 응답을
+  받아 우리 쪽에서 `signguCode`/`areaCode`로 Region과 매핑한다(`syncService.ts`가 지역마다 반복 호출하지
+  않고 이번 baseYm에 대해 시군구/광역 각 1회만 조회 — `region.apiSigunguCode`/`apiAreaCode`로 매핑,
+  통계청 행정표준코드 체계와 동일한 코드값임을 전제로 한다).
+- `touDivCd`: 1=현지인, 2=외지인, 3=외국인. **VISITOR_CNT는 외지인+외국인 합계**로 재정의했다(이전의
+  "필드 의미 미확인이라 ESTIMATED 고정" 처리를 제거 — 이제 실제 성공 응답은 `LIVE_API`로 기록한다).
+  현지인 합계는 버리지 않고 `METRIC_CODES.VISITOR_CNT_LOCAL`(`visitorCntLocal`)로 별도 저장한다.
+- `touNum`은 소수로 올 수 있어(빅데이터 추정치) 반올림하지 않고 number 그대로 합산한다. 월간 수치는
+  월간 순방문자수가 아니라 `baseYmd`(일자)별 값의 월간 합계다(원본 API 자체의 산출 방식).
+- `body.totalCount`/`numOfRows` 기준으로 전체 페이지를 조회한다(`fetchAllPages`, 페이지 하나라도
+  실패하면 불완전한 월간 합계를 SUCCESS로 오기록하지 않도록 전체를 ERROR 처리). `resultCode`가 정확히
+  `"0000"`인 경우만 성공으로 처리하고, EMPTY(성공이지만 0건)와 ERROR를 구분해 기존 SUCCESS 스냅샷을
+  ERROR로 덮어쓰지 않는다(`upsertVisitorCntForRegion`이 다른 소스와 동일한 preserve 정책을 따른다).
+- 모든 요청에 `_type=json`을 포함해 JSON만 파싱한다(XML 파서는 추가하지 않음).
+- `DataSnapshot.rawPayload`는 전국 원본 전체가 아니라 그 지역 코드에 해당하는 실제 응답 행만 추려
+  저장한다(가공 없이 그대로, 지역마다 전국 데이터를 중복 저장하지 않기 위함).
+
 **6) 기초지자체 중심 관광지 및 연관 관광지** — 정식 서비스명 자체가 여전히 미확인.
 
 ### 공통으로 확인된 사항
@@ -197,11 +219,11 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 
 1. `AreaTarResDemService`의 `/areaCulResDemList`(문화 자원 수요) 유효 코드값 — 파라미터명(`culResDemIxCd`)
    은 확인됐으나 코드값을 찾지 못했다(METRIC_CODES.DEMAND_RESOURCE의 유력한 출처)
-2. 지역별 방문자수 API의 실제 base URL·오퍼레이션명
+2. ~~지역별 방문자수 API의 실제 base URL·오퍼레이션명~~ — 2026-07-28 확인 완료(위 5-B 참고)
 3. 기초지자체 중심 관광지 및 연관 관광지 API의 정식 서비스명
 
-(수요 오퍼레이션명·다양성 전체 코드 체계·자원수요 서비스 확인은 모두 완료 — 위 "서비스별 확인 상태"
-1~4번 항목 참고.)
+(수요 오퍼레이션명·다양성 전체 코드 체계·자원수요 서비스·방문자수 API 확인은 모두 완료 — 위 "서비스별
+확인 상태" 1~5번 항목 참고.)
 
 ---
 
