@@ -1,6 +1,22 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// 2026-07-28: syncVisitorCnt가 enforceDateCompleteness로 날짜 커버리지를 검사하므로, SUCCESS로 취급
+// 되려면 byCode의 rawItems가 baseYm 전체 일자를 커버해야 한다(비워두면 "날짜 전부 누락"으로 오판되어
+// ERROR 취급된다). 이 헬퍼가 그 최소 조건을 채운 더미 rawItems를 만들어준다 — 값 자체(touDivCd/touNum)는
+// 완전성 판정과 무관하므로 최소 형태만 채운다.
+function fullMonthRawItems(baseYm: string, code: string): Array<{ signguCode: string; touDivCd: string; touNum: number; baseYmd: string }> {
+  const year = Number(baseYm.slice(0, 4));
+  const month = Number(baseYm.slice(4, 6));
+  const lastDay = new Date(year, month, 0).getDate();
+  return Array.from({ length: lastDay }, (_, i) => ({
+    signguCode: code,
+    touDivCd: "2",
+    touNum: 1,
+    baseYmd: `${baseYm}${String(i + 1).padStart(2, "0")}`,
+  }));
+}
+
 // vi.mock 팩토리는 파일 상단으로 hoist되므로, 그 안에서 참조하는 값은 vi.hoisted로 함께 hoist해야 한다.
 const {
   dataSnapshotStore,
@@ -319,7 +335,18 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
     vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
       status: "SUCCESS",
       byCode: new Map([
-        ["30200", { code: "30200", name: "유성구", localNum: 1000, otherDomesticNum: 12000, foreignNum: 345, visitorCnt: 12345, rawItems: [] }],
+        [
+          "30200",
+          {
+            code: "30200",
+            name: "유성구",
+            localNum: 1000,
+            otherDomesticNum: 12000,
+            foreignNum: 345,
+            visitorCnt: 12345,
+            rawItems: fullMonthRawItems("202606", "30200"),
+          },
+        ],
       ]),
       resultCode: "0000",
       resultMsg: "OK",
@@ -496,7 +523,18 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
         status: "SUCCESS",
         byCode: new Map([
-          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: [] }],
+          [
+            "30200",
+            {
+              code: "30200",
+              name: "유성구",
+              localNum: 500,
+              otherDomesticNum: 700,
+              foreignNum: 299,
+              visitorCnt: 999,
+              rawItems: fullMonthRawItems("202606", "30200"),
+            },
+          ],
         ]),
         resultCode: "0000",
         resultMsg: "OK",
@@ -515,7 +553,18 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
         status: "SUCCESS",
         byCode: new Map([
-          ["30200", { code: "30200", name: "유성구", localNum: 500, otherDomesticNum: 700, foreignNum: 299, visitorCnt: 999, rawItems: [] }],
+          [
+            "30200",
+            {
+              code: "30200",
+              name: "유성구",
+              localNum: 500,
+              otherDomesticNum: 700,
+              foreignNum: 299,
+              visitorCnt: 999,
+              rawItems: fullMonthRawItems("202606", "30200"),
+            },
+          ],
         ]),
         resultCode: "0000",
         resultMsg: "OK",
@@ -541,6 +590,70 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
         (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
       );
       expect(callsForKey).toHaveLength(1); // 두 번째 실행에서는 쓰기 자체를 건너뛴다(보존).
+    });
+
+    it("VISITOR_CNT 응답의 baseYmd가 월 일부만 커버하면(날짜 누락) 불완전 합계를 저장하지 않고 기존 SUCCESS를 그대로 둔다", async () => {
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          [
+            "30200",
+            {
+              code: "30200",
+              name: "유성구",
+              localNum: 500,
+              otherDomesticNum: 700,
+              foreignNum: 299,
+              visitorCnt: 999,
+              rawItems: fullMonthRawItems("202606", "30200"),
+            },
+          ],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+      const key = "src-visitor-cnt|region-1|202606";
+      expect(dataSnapshotStore.get(key)?.status).toBe("SUCCESS");
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
+      const snapshotCallsAfterFirstRun = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      ).length;
+
+      // 두 번째 실행: 30일 중 10일치만 있는(=날짜 누락) SUCCESS 응답 — 페이지 일부 실패나 API 쪽 결손을
+      // 흉내낸다.
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          [
+            "30200",
+            {
+              code: "30200",
+              name: "유성구",
+              localNum: 100,
+              otherDomesticNum: 50,
+              foreignNum: 10,
+              visitorCnt: 60,
+              rawItems: fullMonthRawItems("202606", "30200").slice(0, 10),
+            },
+          ],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ response: { header: { resultCode: "0000", resultMsg: "OK" } } }],
+      });
+      await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+      // 불완전 합계(rawValue=60)가 정상값(999)을 덮어쓰지 않았어야 한다 — 기존 SUCCESS/LIVE_API 그대로.
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.rawValue).toBe(999);
+      expect(normalizedMetricStore.get("region-1|202606|visitorCnt")?.provenance).toBe("LIVE_API");
+      expect(dataSnapshotStore.get(key)?.status).toBe("SUCCESS");
+      const snapshotCallsAfterSecondRun = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      ).length;
+      // 불완전 응답은 "본문 자체를 못 받은 경우"와 동일하게 취급해 snapshot 쓰기 자체를 시도하지 않는다.
+      expect(snapshotCallsAfterSecondRun).toBe(snapshotCallsAfterFirstRun);
     });
   });
 });
