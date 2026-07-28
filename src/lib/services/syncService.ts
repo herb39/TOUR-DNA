@@ -4,6 +4,7 @@ import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
+import { enforceDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
@@ -212,6 +213,56 @@ async function upsertVisitorCntForRegion(params: {
 }
 
 /**
+ * VISITOR_CNT 전용 동기화(2026-07-28 분리) — 전국 시군구/광역 응답을 baseYm당 한 번씩만 조회하고,
+ * 날짜 커버리지가 불완전하면(enforceDateCompleteness) 저장하지 않는다. `runTourismDataSync`(전체 6개
+ * 소스 동기화)와 `scripts/sync-visitor.ts`(VISITOR_CNT만 동기화하는 CLI) 양쪽이 이 함수를 공유해
+ * 지역 매핑·저장 로직을 중복 구현하지 않는다.
+ */
+export async function syncVisitorCnt(params: {
+  baseYm: string;
+  serviceKey: string;
+  visitorSource: { id: string; baseUrl: string };
+  sigunguRegions: Array<{ id: string; code: string; level: RegionLevel; apiSigunguCode: string | null }>;
+  sidoRegions: Array<{ id: string; code: string; level: RegionLevel; apiAreaCode: string | null }>;
+}): Promise<SyncSourceResult[]> {
+  const { baseYm, serviceKey, visitorSource, sigunguRegions, sidoRegions } = params;
+
+  const [rawLocgo, rawMetco] = await Promise.all([
+    fetchLocgoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
+    fetchMetcoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm }),
+  ]);
+  // 시군구/광역 각각 독립적으로 날짜 커버리지를 검사한다 — 한쪽만 불완전해도 다른 쪽의 정상 데이터까지
+  // 버리지 않는다(예: 시군구는 완전한데 광역만 아직 EMPTY인 경우).
+  const locgoResult = enforceDateCompleteness(baseYm, rawLocgo);
+  const metcoResult = enforceDateCompleteness(baseYm, rawMetco);
+
+  const results: SyncSourceResult[] = [];
+  for (const region of sigunguRegions) {
+    results.push(
+      await upsertVisitorCntForRegion({
+        region,
+        code: region.apiSigunguCode,
+        result: locgoResult,
+        visitorSourceId: visitorSource.id,
+        baseYm,
+      }),
+    );
+  }
+  for (const region of sidoRegions) {
+    results.push(
+      await upsertVisitorCntForRegion({
+        region,
+        code: region.apiAreaCode,
+        result: metcoResult,
+        visitorSourceId: visitorSource.id,
+        baseYm,
+      }),
+    );
+  }
+  return results;
+}
+
+/**
  * 6개 공공데이터 API를 동기화한다. DATA_MODE=snapshot이거나 서비스키가 없으면 라이브 호출을
  * 생략하고 기존 성공 데이터를 그대로 유지한다(스냅샷 모드로 전체 데모 지속 가능). 일부 API가
  * 실패해도 다른 API의 기존 성공 데이터를 삭제하지 않는다 — 실패한 지표만 갱신을 건너뛴다.
@@ -256,17 +307,21 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
   const regions = await prisma.region.findMany({ where: { level: "SIGUNGU" } });
 
   // VISITOR_CNT(DataLabService)는 지역 필터가 없는 API라, 지역마다 반복 호출하지 않고 이번 baseYm의
-  // 전국 응답을 시군구/광역 각각 1회만 조회한 뒤(fetchAllPages 내부 페이지네이션은 있음) 지역 코드로
-  // 매핑한다(2026-07-28 신규 API 구조 전환). 광역은 시군구 값을 합산하지 않고 metcoRegnVisitrDDList를
-  // 별도로 직접 호출한다.
+  // 전국 응답을 시군구/광역 각각 1회만 조회한 뒤(syncVisitorCnt 내부에서 페이지네이션·날짜 완전성 검사·
+  // 지역 매핑을 모두 처리) 결과를 붙인다(2026-07-28). SIDO는 위 regions(SIGUNGU 전용)에 없으므로 별도
+  // 조회한다.
   const visitorSource = sourceByCode.get("VISITOR_CNT");
-  let locgoResult: VisitorCntFetchResult | null = null;
-  let metcoResult: VisitorCntFetchResult | null = null;
   if (visitorSource) {
-    [locgoResult, metcoResult] = await Promise.all([
-      fetchLocgoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm: params.baseYm }),
-      fetchMetcoRegnVisitr({ serviceKey, baseUrl: visitorSource.baseUrl, baseYm: params.baseYm }),
-    ]);
+    const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
+    results.push(
+      ...(await syncVisitorCnt({
+        baseYm: params.baseYm,
+        serviceKey,
+        visitorSource,
+        sigunguRegions: regions,
+        sidoRegions,
+      })),
+    );
   }
 
   for (const region of regions) {
@@ -404,18 +459,6 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       });
     }
 
-    if (visitorSource) {
-      results.push(
-        await upsertVisitorCntForRegion({
-          region,
-          code: region.apiSigunguCode,
-          result: locgoResult,
-          visitorSourceId: visitorSource.id,
-          baseYm: params.baseYm,
-        }),
-      );
-    }
-
     const tourInfoSource = sourceByCode.get("TOUR_INFO");
     if (tourInfoSource && region.tourApiLdongRegnCd) {
       const res = await fetchTourInfo({
@@ -501,23 +544,6 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
       itemCount: 0,
       errorMessage: "정식 서비스명/baseUrl 미확인 — fixture 데이터 사용 중",
     });
-  }
-
-  // 광역시도 VISITOR_CNT는 시군구 반복 루프 대상이 아니므로(위 regions는 SIGUNGU만) 별도로 처리한다 —
-  // metcoRegnVisitrDDList 응답을 시군구처럼 합산하지 않고 그대로 areaCode로 매핑한다(rule 13).
-  if (visitorSource) {
-    const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
-    for (const sidoRegion of sidoRegions) {
-      results.push(
-        await upsertVisitorCntForRegion({
-          region: sidoRegion,
-          code: sidoRegion.apiAreaCode,
-          result: metcoResult,
-          visitorSourceId: visitorSource.id,
-          baseYm: params.baseYm,
-        }),
-      );
-    }
   }
 
   const hasSuccess = results.some((r) => r.status === "SUCCESS");

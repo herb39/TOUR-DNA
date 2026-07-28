@@ -21,7 +21,10 @@
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
     "db:generate": "prisma generate",
     "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts",
-    "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts"
+    "sync:visitor": "tsx --env-file=.env.local scripts/sync-visitor.ts",
+    "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts",
+    "verify:visitor-api": "tsx --env-file=.env.local scripts/verify-visitor-api.ts",
+    "audit:region-codes": "tsx --env-file=.env.local scripts/audit-region-codes.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
