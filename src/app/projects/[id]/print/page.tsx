@@ -100,8 +100,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
             const breakdown = selectedStrategy.scoreBreakdown as unknown as {
               roleFit?: number;
               roleFitReason?: string;
-            };
-            if (typeof breakdown.roleFit !== "number" || !Number.isFinite(breakdown.roleFit)) {
+            } | null | undefined;
+            if (
+              typeof breakdown?.roleFit !== "number" ||
+              !Number.isFinite(breakdown.roleFit)
+            ) {
               return <p className="mt-1 text-xs text-amber-700">역할 적합도: 재분석 필요</p>;
             }
             return (

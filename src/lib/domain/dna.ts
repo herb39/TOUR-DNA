@@ -149,8 +149,15 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
       appliedRule: "화면 표시용 참고 지표 — 수요 적합도 점수 계산에는 포함되지 않음",
     });
   }
-  if (input.visitorGrowthComparison && input.visitorGrowthComparison.growthRatePercent !== null && input.currentVisitorCount) {
-    const g = input.visitorGrowthComparison;
+  const visitorGrowthComparison = input.visitorGrowthComparison;
+  const growthRatePercent = visitorGrowthComparison?.growthRatePercent;
+  if (
+    visitorGrowthComparison &&
+    growthRatePercent !== null &&
+    growthRatePercent !== undefined &&
+    input.currentVisitorCount
+  ) {
+    const g = visitorGrowthComparison;
     const appliedRule =
       g.basis === "YOY"
         ? `전년 동월(${g.comparisonBaseYm}) 방문자수 대비 증감률 — 화면 표시용, 수요 적합도 점수에는 미반영`
@@ -158,7 +165,7 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
     displayEvidence.push({
       axis: "demand",
       metricCode: METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY,
-      rawValue: g.growthRatePercent,
+      rawValue: growthRatePercent,
       normalizedValue: null,
       unit: "%",
       adminLevel: input.adminLevel,
