@@ -9,6 +9,8 @@ import {
   labelForTransport,
 } from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime, metricLabel, sourceLabel, summarizeEvidenceBaseYms } from "@/lib/format";
+import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
+import { METRIC_CODES } from "@/lib/domain/types";
 import { PrintButton } from "@/components/plan/PrintButton";
 import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
 import { parsePromoContent } from "@/lib/validation/promoContent.schema";
@@ -31,6 +33,16 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   // 분석 화면과 동일하게, env 상수가 아니라 이 프로젝트의 근거에 실제로 저장된 기준월을 표시한다
   // (2026-07-29) — 지표마다 기준월이 다를 수 있어 하나로 뭉개지 않는다.
   const baseYmSummary = summarizeEvidenceBaseYms(analysisResult.evidences);
+
+  // 2026-07-29(2차 개선): 분석 화면과 동일한 함수로 핵심 관광 지표 요약카드를 구성한다(값·단위·포맷 일치).
+  const findEvidence = (metricCode: string) =>
+    analysisResult.evidences.find((e) => e.metricCode === metricCode) ?? null;
+  const tourismMetricCards = buildTourismMetricCards({
+    visitor: findEvidence(METRIC_CODES.VISITOR_CNT),
+    growth: findEvidence(METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY),
+    stay: findEvidence(METRIC_CODES.STAY),
+    spend: findEvidence(METRIC_CODES.SPEND),
+  });
 
   // 저장된 promoContent가 없으면(DB NULL) 섹션 자체를 만들지 않는다. 값이 있어도 Phase 5-B와 동일한
   // 검증 경계(parsePromoContent)를 통과하지 못하면 잘못된 데이터를 그대로 출력하지 않고 조용히 생략한다.
@@ -63,12 +75,41 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <p className="mt-1 text-xs leading-relaxed text-slate-700">{plan.background}</p>
       </section>
 
+      {tourismMetricCards.length > 0 ? (
+        <section className="mt-4">
+          <h2 className="text-sm font-semibold">핵심 관광 지표</h2>
+          <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {tourismMetricCards.map((card) => (
+              <div key={card.key} className="rounded border border-slate-200 p-2">
+                <p className="text-[10px] text-slate-500">{card.label}</p>
+                <p className="text-sm font-semibold text-slate-900">{card.valueText}</p>
+                <p className="text-[9px] text-slate-400">{card.metaText}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {selectedStrategy ? (
         <section className="mt-4">
           <h2 className="text-sm font-semibold">
             선택 전략: {selectedStrategy.name} ({selectedStrategy.totalScore}점)
           </h2>
           <p className="mt-1 text-xs text-slate-600">타깃: {plan.targetSummary}</p>
+          {(() => {
+            const breakdown = selectedStrategy.scoreBreakdown as unknown as {
+              roleFit?: number;
+              roleFitReason?: string;
+            };
+            if (typeof breakdown.roleFit !== "number" || !Number.isFinite(breakdown.roleFit)) {
+              return <p className="mt-1 text-xs text-amber-700">역할 적합도: 재분석 필요</p>;
+            }
+            return (
+              <p className="mt-1 text-xs text-slate-600">
+                역할 적합도 {breakdown.roleFit}점{breakdown.roleFitReason ? ` — ${breakdown.roleFitReason}` : ""}
+              </p>
+            );
+          })()}
         </section>
       ) : null}
 

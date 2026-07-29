@@ -20,6 +20,8 @@ import {
   labelForTransport,
 } from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/format";
+import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
+import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +101,17 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   // 하나로 뭉개지 않고 그 사실을 알린다.
   const baseYmSummary = summarizeEvidenceBaseYms(analysisResult.evidences);
 
+  // 2026-07-29(2차 개선 Section 4): 핵심 관광 지표 요약카드 — 분석 시점에 저장된 Evidence만 사용한다
+  // (새 DB 조회 없음). 값이 없는 지표는 findEvidence가 null을 반환해 카드 자체가 생략된다.
+  const findEvidence = (metricCode: string) =>
+    analysisResult.evidences.find((e) => e.metricCode === metricCode) ?? null;
+  const tourismMetricCards = buildTourismMetricCards({
+    visitor: findEvidence(METRIC_CODES.VISITOR_CNT),
+    growth: findEvidence(METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY),
+    stay: findEvidence(METRIC_CODES.STAY),
+    spend: findEvidence(METRIC_CODES.SPEND),
+  });
+
   const axisEvidenceByAxis = new Map<string, EvidenceRow[]>();
   for (const e of analysisResult.evidences) {
     const list = axisEvidenceByAxis.get(e.axis ?? "") ?? [];
@@ -165,6 +178,23 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </p>
           </div>
         </div>
+
+        {tourismMetricCards.length > 0 ? (
+          <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {tourismMetricCards.map((card) => (
+              <div key={card.key} className="rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold text-slate-500">{card.label}</p>
+                <p className="mt-1 text-xl font-bold text-slate-900">{card.valueText}</p>
+                <p className="mt-1 text-[11px] text-slate-400">{card.metaText}</p>
+                {card.note ? <p className="mt-1 text-[11px] text-slate-500">{card.note}</p> : null}
+              </div>
+            ))}
+          </section>
+        ) : (
+          <section className="mt-6 rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">
+            핵심 관광 지표(방문자수·증감률·체류/소비 지수)를 표시할 데이터가 아직 확보되지 않았습니다.
+          </section>
+        )}
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">입력 조건 요약</h2>

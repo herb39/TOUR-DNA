@@ -2,7 +2,8 @@ import { clamp, roundForDisplay } from "./normalize";
 import { haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import type { FoodSubcategory } from "./foodClassification";
-import { AXIS_LABEL_KO, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
+import { AXIS_LABEL_KO, METRIC_CODES, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
+import { formatSignedPercent } from "@/lib/format";
 import {
   classifyThemes,
   computeNationalityFeasibilityDelta,
@@ -65,6 +66,10 @@ export interface StrategyScoreBreakdown {
   feasibilityFit: number;
   /** Phase 4: 역할(지자체/여행사)별 목표 우선순위 적합도. 지역 객관적 데이터가 아니라 CURATED 정책값. */
   roleFit: number;
+  /** 2026-07-29(2차 개선): computeRoleFit()이 이미 계산해 두는 근거 문장(ContextAdjustment.reason)을
+   * 그대로 보존한다. role이 없으면(중립값 50) 애초에 근거 문장이 없으므로 undefined — 화면에서는 이
+   * 값이 없을 때 "재분석 필요"가 아니라 단순히 이유 문구를 생략한다(신규/구버전 구분과는 별개). */
+  roleFitReason?: string;
 }
 
 export interface ConsumptionTouchpoints {
@@ -408,6 +413,7 @@ function buildReasons(
   breakdown: StrategyScoreBreakdown,
   dna: DnaResult,
   role: UserRoleCode | undefined,
+  touchpoints: ConsumptionTouchpoints,
 ): string[] {
   const reasons: string[] = [];
 
@@ -427,7 +433,7 @@ function buildReasons(
       : `지역 내 연계 인프라가 제한적이라 공급 적합도 ${breakdown.supplyFit}점 — 보완 필요`;
   reasons.push(
     role
-      ? `${supplyReason} · ${roleLabel(role)} 관점 목표 적합도 ${breakdown.roleFit}점(기획 규칙)`
+      ? `${supplyReason} · ${roleLabel(role)} 적합도 ${breakdown.roleFit}점 — ${breakdown.roleFitReason ?? "기획 규칙 반영"}`
       : supplyReason,
   );
 
@@ -437,7 +443,40 @@ function buildReasons(
       : `여행 시기가 성수기(${template.idealMonths.join(", ")}월)와 다소 어긋나 시즌 적합도 ${breakdown.seasonFit}점`,
   );
 
+  const metricReason = buildMetricGroundedReason(dna, touchpoints);
+  if (metricReason) reasons.push(metricReason);
+
   return reasons;
+}
+
+/**
+ * 2026-07-29(2차 개선 Section 5): 핵심 관광 지표(방문자수 증감률, 체류/소비 지수)를 실제 선택된 전략의
+ * 소비 접점(touchpoints)과 연결해 "왜 이 전략인가"를 설명한다. dna.demand.evidence에 저장된 화면
+ * 표시용 증감률(전년 동월 우선, DEMAND_VISITOR_GROWTH_DISPLAY)이 없으면 아무 문장도 만들지 않는다 —
+ * 존재하지 않는 비교 지역 평균이나 실측되지 않은 체류/소비 데이터를 지어내지 않는다. 근거가 있어도
+ * 뚜렷한 패턴(방문자↑+체류·소비 약세, 방문자↓+수요 강세)에 해당하지 않으면 과장 없이 제한된 일반
+ * 문구로 대체한다(Section 5 명시 허용 범위).
+ */
+function buildMetricGroundedReason(dna: DnaResult, touchpoints: ConsumptionTouchpoints): string | null {
+  const growthEvidence = dna.demand.evidence.find(
+    (e) => e.metricCode === METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY,
+  );
+  if (!growthEvidence) return null;
+
+  const percent = growthEvidence.rawValue;
+  const basisLabel = growthEvidence.appliedRule.startsWith("전년 동월") ? "전년 동월 대비" : "직전 확인월 대비";
+  const growthText = `${basisLabel} ${formatSignedPercent(percent)}`;
+
+  if (percent > 0 && dna.stay.score !== null && dna.stay.score < 50 && touchpoints.lodging) {
+    return `방문자는 ${growthText}했지만 체류 지표는 비교군 내 상대적으로 낮습니다(${dna.stay.score}점). 신규 방문객 유치보다 체류형·숙박 연계를 우선 추천합니다.`;
+  }
+  if (percent > 0 && dna.spend.score !== null && dna.spend.score < 50 && (touchpoints.food || touchpoints.experience)) {
+    return `방문자는 ${growthText}했지만 소비 지표는 비교군 내 상대적으로 낮습니다(${dna.spend.score}점). 유료 체험·로컬 상품 연계를 우선 추천합니다.`;
+  }
+  if (percent < 0 && dna.demand.score !== null && dna.demand.score >= 60) {
+    return `방문자는 ${growthText}했지만 수요 적합도는 비교군 내 상대적으로 높습니다(${dna.demand.score}점). 강점 테마 중심의 명확한 타깃 상품을 우선 추천합니다.`;
+  }
+  return `방문자는 ${growthText}했습니다. 현재 확보된 방문자 및 관광 지표를 바탕으로 이 전략을 추천합니다.`;
 }
 
 /**
@@ -466,7 +505,7 @@ export function computeStrategies(
     const seasonFit = computeSeasonFit(input.travelMonth, template.idealMonths);
     const { score: targetFit } = computeTargetFit(template, input);
     const { score: feasibilityFit } = computeFeasibilityFit(template, input);
-    const { score: roleFit } = computeRoleFit(template, input.role);
+    const { score: roleFit, adjustment: roleAdjustment } = computeRoleFit(template, input.role);
 
     const totalScore = roundForDisplay(
       clamp(
@@ -481,7 +520,15 @@ export function computeStrategies(
       ),
     );
 
-    const breakdown: StrategyScoreBreakdown = { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit, roleFit };
+    const breakdown: StrategyScoreBreakdown = {
+      demandFit,
+      supplyFit,
+      seasonFit,
+      targetFit,
+      feasibilityFit,
+      roleFit,
+      ...(roleAdjustment ? { roleFitReason: roleAdjustment.reason } : {}),
+    };
     const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration);
 
     return {
@@ -508,7 +555,7 @@ export function computeStrategies(
     concept: s.template.concept,
     totalScore: s.totalScore,
     scoreBreakdown: s.breakdown,
-    reasons: buildReasons(s.template, s.breakdown, dna, input.role),
+    reasons: buildReasons(s.template, s.breakdown, dna, input.role, s.touchpoints),
     targetDescription: s.template.targetDescriptionTemplate,
     poiIds: s.poiIds,
     consumptionTouchpoints: s.touchpoints,

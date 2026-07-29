@@ -33,7 +33,8 @@ export function formatBaseYm(baseYm: string | null | undefined): string {
 export const METRIC_LABEL_KO: Record<string, string> = {
   [METRIC_CODES.DEMAND_SERVICE]: "관광 서비스 수요",
   [METRIC_CODES.DEMAND_RESOURCE]: "관광자원 수요",
-  [METRIC_CODES.DEMAND_VISITOR_GROWTH]: "방문자수 증감률",
+  [METRIC_CODES.DEMAND_VISITOR_GROWTH]: "방문자수 증감률(전월 대비, 수요 점수 반영)",
+  [METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY]: "방문자수 증감률(전년 동월 우선 비교)",
   [METRIC_CODES.VISITOR_CNT]: "방문자수",
   [METRIC_CODES.VISITOR_CNT_LOCAL]: "현지인 방문자수",
   [METRIC_CODES.STAY]: "체류 강도",
@@ -45,6 +46,30 @@ export const METRIC_LABEL_KO: Record<string, string> = {
 
 export function metricLabel(metricCode: string): string {
   return METRIC_LABEL_KO[metricCode] ?? metricCode;
+}
+
+/** 방문자수(raw, 단위 "명")를 화면용으로 포맷한다(2026-07-29). 원본 단위가 "명"임을 실제 데이터
+ * (prisma/seed.ts VISITOR_CNT unit)로 확인한 뒤에만 이 포맷을 쓴다 — 임의로 시간/원 단위를 추정하지 않는다. */
+export function formatVisitorCount(rawValue: number): string {
+  if (!Number.isFinite(rawValue)) return "-";
+  return `${Math.round(rawValue).toLocaleString("ko-KR")}명`;
+}
+
+/** 증감률(%)을 방향이 드러나게 포맷한다. 정확히 0이면 "데이터 없음"과 구분되게 "변화 없음(0%)"으로
+ * 명시한다(2026-07-29) — 비교 데이터 자체가 없는 경우는 이 함수를 호출하지 않고 카드 자체를 생략한다. */
+export function formatSignedPercent(percent: number): string {
+  if (!Number.isFinite(percent)) return "-";
+  const rounded = Math.round(percent * 10) / 10;
+  if (rounded > 0) return `${rounded}% 증가`;
+  if (rounded < 0) return `${Math.abs(rounded)}% 감소`;
+  return "변화 없음(0%)";
+}
+
+/** 체류/소비 강도 지표의 실제 저장 단위는 "지수"다(prisma/seed.ts unit: "지수" — 시간·원이 아니다).
+ * 임의로 시간/원 단위로 환산하지 않고 원래 단위 그대로 소수 1자리까지 보여준다(2026-07-29). */
+export function formatIndexValue(rawValue: number): string {
+  if (!Number.isFinite(rawValue)) return "-";
+  return `${Math.round(rawValue * 10) / 10}`;
 }
 
 /** DataSource.code → 한글 서비스명. 새 코드를 하드코딩하지 않고 기존 DATA_SOURCE_SEED(코드의 유일한

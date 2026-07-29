@@ -126,7 +126,52 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
     entries.push(growthEntry);
   }
 
-  return buildAxis(evidence, entries);
+  const axis = buildAxis(evidence, entries);
+
+  // 2026-07-29: 방문자수 자체와 화면 표시용 증감률(전년 동월 우선)은 buildAxis 호출 *이후*에만
+  // evidence 배열에 추가한다 — buildAxis의 평균 산식(수요 축 점수)은 위에서 이미 확정되었으므로, 아래
+  // 두 항목의 normalizedValue(null)가 평균에 섞여 점수를 왜곡하지 않는다(DNA 5축 공식 변경 없음).
+  // 이 두 항목은 오직 핵심 지표 요약카드·전략 추천 근거 표시용 참고 데이터다.
+  const displayEvidence: EvidenceItem[] = [];
+  if (input.currentVisitorCount) {
+    displayEvidence.push({
+      axis: "demand",
+      metricCode: METRIC_CODES.VISITOR_CNT,
+      rawValue: input.currentVisitorCount.value,
+      normalizedValue: null,
+      unit: "명",
+      adminLevel: input.adminLevel,
+      regionCode: input.regionCode,
+      baseYm: input.currentVisitorCount.baseYm,
+      sourceCode: input.currentVisitorCount.sourceCode,
+      collectedAt: input.currentVisitorCount.collectedAt,
+      provenance: input.currentVisitorCount.provenance,
+      appliedRule: "화면 표시용 참고 지표 — 수요 적합도 점수 계산에는 포함되지 않음",
+    });
+  }
+  if (input.visitorGrowthComparison && input.visitorGrowthComparison.growthRatePercent !== null && input.currentVisitorCount) {
+    const g = input.visitorGrowthComparison;
+    const appliedRule =
+      g.basis === "YOY"
+        ? `전년 동월(${g.comparisonBaseYm}) 방문자수 대비 증감률 — 화면 표시용, 수요 적합도 점수에는 미반영`
+        : `직전 확인월(${g.comparisonBaseYm}) 방문자수 대비 증감률 — 전년 동월 데이터가 없어 대체함. 화면 표시용, 수요 적합도 점수에는 미반영`;
+    displayEvidence.push({
+      axis: "demand",
+      metricCode: METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY,
+      rawValue: g.growthRatePercent,
+      normalizedValue: null,
+      unit: "%",
+      adminLevel: input.adminLevel,
+      regionCode: input.regionCode,
+      baseYm: input.currentVisitorCount.baseYm,
+      sourceCode: input.currentVisitorCount.sourceCode,
+      collectedAt: input.currentVisitorCount.collectedAt,
+      provenance: input.currentVisitorCount.provenance,
+      appliedRule,
+    });
+  }
+
+  return { ...axis, evidence: [...axis.evidence, ...displayEvidence] };
 }
 
 function computeSimpleAxis(

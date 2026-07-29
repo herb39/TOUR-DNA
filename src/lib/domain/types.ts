@@ -87,6 +87,21 @@ export interface VisitorCountPoint {
   isSnapshotFallback: boolean;
 }
 
+export type VisitorGrowthComparisonBasis = "YOY" | "MOM";
+
+/**
+ * 화면 표시(핵심 지표 요약카드·전략 추천 근거)용 방문자수 증감률 비교(2026-07-29). 전년 동월 데이터를
+ * 우선 사용하고, 없으면 직전 확인 가능 월로 대체한다. DNA 수요(demand) 축 점수 계산에 쓰이는 기존
+ * DEMAND_VISITOR_GROWTH(전월 대비)와는 별개 채널이다 — 이 값은 축 점수식에 절대 반영되지 않는다.
+ */
+export interface VisitorGrowthComparisonInput {
+  basis: VisitorGrowthComparisonBasis;
+  comparisonBaseYm: string;
+  comparisonValue: number;
+  /** 비교월 방문자수가 0이면 나눗셈이 불가능하므로 null(허위로 0%를 지어내지 않는다). */
+  growthRatePercent: number | null;
+}
+
 export interface DnaEngineInput {
   regionCode: string;
   baseYm: string;
@@ -96,6 +111,8 @@ export interface DnaEngineInput {
   /** 직전 기준월의 방문자수(있으면 데맨드 축 증감률 보조지표로 사용) */
   previousVisitorCount?: VisitorCountPoint | null;
   currentVisitorCount?: VisitorCountPoint | null;
+  /** 화면 표시용 방문자수 증감률 비교(전년 동월 우선). 없으면 요약카드/추천근거에서 증감률을 생략한다. */
+  visitorGrowthComparison?: VisitorGrowthComparisonInput | null;
   networkInputs: NetworkRawInputs | null;
 }
 
@@ -122,6 +139,10 @@ export const METRIC_CODES = {
   DEMAND_SERVICE: "tarSvcDemIxVal",
   DEMAND_RESOURCE: "touResDemIxVal",
   DEMAND_VISITOR_GROWTH: "visitorGrowthRateVal",
+  /** 화면 표시용(핵심 지표 요약카드·전략 추천 근거) 증감률 — 전년 동월 우선, 없으면 직전 확인월로
+   * 대체. DEMAND_VISITOR_GROWTH(전월 대비, 수요 축 점수 반영)와 별개이며 축 점수에는 영향을 주지
+   * 않는다(2026-07-29). */
+  DEMAND_VISITOR_GROWTH_DISPLAY: "visitorGrowthDisplayVal",
   VISITOR_CNT: "visitorCnt",
   /** 외지인+외국인이 아니라 현지인(touDivCd=1) 합계 보조값. DNA 점수식에는 쓰지 않고 근거 패널 보조지표로만 노출. */
   VISITOR_CNT_LOCAL: "visitorCntLocal",

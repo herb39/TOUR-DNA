@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/db";
-import { METRIC_CODES, type DataProvenance, type DnaEngineInput } from "@/lib/domain/types";
+import {
+  METRIC_CODES,
+  type DataProvenance,
+  type DnaEngineInput,
+  type VisitorGrowthComparisonInput,
+} from "@/lib/domain/types";
 import { fetchMetricCohort } from "./metricCohort";
-import { previousBaseYm } from "./baseYm";
+import { previousBaseYm, previousYearSameMonth } from "./baseYm";
 
 const AXIS_METRIC_CODES = [
   METRIC_CODES.DEMAND_SERVICE,
@@ -20,12 +25,38 @@ export async function buildDnaEngineInput(regionCode: string, baseYm: string): P
   }
 
   const prevBaseYm = previousBaseYm(baseYm);
-  const [visitorCurrentCohort, visitorPrevCohort] = await Promise.all([
+  const yoyBaseYm = previousYearSameMonth(baseYm);
+  const [visitorCurrentCohort, visitorPrevCohort, visitorYoyCohort] = await Promise.all([
     fetchMetricCohort(METRIC_CODES.VISITOR_CNT, baseYm, region.level),
     fetchMetricCohort(METRIC_CODES.VISITOR_CNT, prevBaseYm, region.level),
+    fetchMetricCohort(METRIC_CODES.VISITOR_CNT, yoyBaseYm, region.level),
   ]);
   const currentVisitor = visitorCurrentCohort.find((v) => v.regionCode === regionCode);
   const prevVisitor = visitorPrevCohort.find((v) => v.regionCode === regionCode);
+  const yoyVisitor = visitorYoyCohort.find((v) => v.regionCode === regionCode);
+
+  // 화면 표시용 증감률 비교(2026-07-29): 전년 동월 데이터를 우선 사용하고, 없을 때만 직전 확인월로
+  // 대체한다. DNA 수요 축 점수(previousVisitorCount 기반, 전월 대비)는 그대로 두고 절대 바꾸지 않는다 —
+  // 이 비교값은 요약카드/전략 추천 근거 표시에만 쓰인다.
+  const visitorGrowthComparison: VisitorGrowthComparisonInput | null = (() => {
+    if (!currentVisitor) return null;
+    const chosen = yoyVisitor
+      ? { basis: "YOY" as const, entry: yoyVisitor }
+      : prevVisitor
+        ? { basis: "MOM" as const, entry: prevVisitor }
+        : null;
+    if (!chosen) return null;
+    const growthRatePercent =
+      chosen.entry.rawValue > 0
+        ? Math.round(((currentVisitor.rawValue - chosen.entry.rawValue) / chosen.entry.rawValue) * 10000) / 100
+        : null;
+    return {
+      basis: chosen.basis,
+      comparisonBaseYm: chosen.entry.baseYm,
+      comparisonValue: chosen.entry.rawValue,
+      growthRatePercent,
+    };
+  })();
 
   const pois = await prisma.poi.findMany({ where: { regionId: region.id } });
   const relatedPoiCount = await prisma.poiRelation.count({
@@ -98,6 +129,7 @@ export async function buildDnaEngineInput(regionCode: string, baseYm: string): P
           isSnapshotFallback: currentVisitor.isSnapshotFallback,
         }
       : null,
+    visitorGrowthComparison,
     networkInputs,
   };
 }

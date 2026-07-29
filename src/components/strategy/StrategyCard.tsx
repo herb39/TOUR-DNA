@@ -10,6 +10,9 @@ interface ScoreBreakdown {
   // 실제 저장 데이터의 현실을 반영해 optional로 둔다(2026-07-29). 값이 없으면 화면에서 "재분석 필요"로
   // 안내한다(formatBreakdownScore).
   roleFit?: number;
+  // 2026-07-29(2차 개선): computeRoleFit()이 실제로 계산한 근거 문장. roleFit이 undefined(레거시)이거나
+  // role 자체가 없던 분석(중립값 50)이면 이 값도 없다 — 화면에서는 값이 있을 때만 노출한다.
+  roleFitReason?: string;
 }
 
 interface ConsumptionTouchpoints {
@@ -33,7 +36,9 @@ export interface StrategyCardData {
   evidences: EvidenceRow[];
 }
 
-const SCORE_BREAKDOWN_LABEL: Record<keyof ScoreBreakdown, string> = {
+type ScoreBreakdownKey = keyof Omit<ScoreBreakdown, "roleFitReason">;
+
+const SCORE_BREAKDOWN_LABEL: Record<ScoreBreakdownKey, string> = {
   demandFit: "수요 적합도",
   supplyFit: "공급 적합도",
   seasonFit: "시즌 적합도",
@@ -44,7 +49,7 @@ const SCORE_BREAKDOWN_LABEL: Record<keyof ScoreBreakdown, string> = {
 
 /** 각 적합도 항목이 무엇을 보는 점수인지 짧게 설명한다(2026-07-29) — 항목 이름만으로는 특히 "역할
  * 적합도"가 무엇을 반영하는지 알기 어렵다는 피드백에 대응한다. */
-const SCORE_BREAKDOWN_DESCRIPTION: Record<keyof ScoreBreakdown, string> = {
+const SCORE_BREAKDOWN_DESCRIPTION: Record<ScoreBreakdownKey, string> = {
   demandFit: "지역의 객관적 관광 수요 데이터와 이 전략의 궁합",
   supplyFit: "지역의 객관적 관광 공급(체류·소비 등) 데이터와 이 전략의 궁합",
   seasonFit: "입력한 여행월과 이 전략이 어울리는 성수기의 일치도",
@@ -87,10 +92,15 @@ export function StrategyCard({
       </p>
 
       <ul className="mt-3 space-y-1 text-xs text-slate-600">
-        {(Object.keys(SCORE_BREAKDOWN_LABEL) as (keyof ScoreBreakdown)[]).map((key) => (
-          <li key={key} className="flex justify-between" title={SCORE_BREAKDOWN_DESCRIPTION[key]}>
-            <span>{SCORE_BREAKDOWN_LABEL[key]}</span>
-            <span className="font-medium">{formatBreakdownScore(strategy.scoreBreakdown[key])}</span>
+        {(Object.keys(SCORE_BREAKDOWN_LABEL) as ScoreBreakdownKey[]).map((key) => (
+          <li key={key}>
+            <div className="flex justify-between" title={SCORE_BREAKDOWN_DESCRIPTION[key]}>
+              <span>{SCORE_BREAKDOWN_LABEL[key]}</span>
+              <span className="font-medium">{formatBreakdownScore(strategy.scoreBreakdown[key])}</span>
+            </div>
+            {key === "roleFit" && strategy.scoreBreakdown.roleFitReason ? (
+              <p className="mt-0.5 text-[11px] text-slate-500">{strategy.scoreBreakdown.roleFitReason}</p>
+            ) : null}
           </li>
         ))}
       </ul>

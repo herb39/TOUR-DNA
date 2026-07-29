@@ -39,6 +39,76 @@
 요약 카드, 방문자수-전략 연결, POI 테마 필터링, 외부 API 실패 로그 개선, 신규 API 연동, 데이터
 동기화, Prisma schema 변경.
 
+## 역할 적합도·관광 지표 요약 2차 개선 (2026-07-29)
+
+### 1) 역할 적합도 "재분석 필요" 근본 원인 조사 결과
+
+코드를 직접 추적한 결과 **신규 분석 경로 자체에는 버그가 없다**: `computeRoleFit()`
+(`src/lib/domain/audienceContext.ts`)은 role이 없어도 항상 `{score: number, adjustment}`를
+반환하고(중립값 50, undefined/NaN 없음), `computeStrategies()`(`src/lib/domain/strategy.ts`)는 이
+값을 항상 `scoreBreakdown.roleFit`에 포함해 저장한다(`analyzeProject.ts`). "재분석 필요"가 보이는
+유일한 경우는 `roleFit` 필드 도입 **이전**에 생성된 레거시 `StrategyResult.scoreBreakdown`(JSON)에
+그 키 자체가 없는 경우이며, 이는 1차 개선에서 이미 올바르게 처리되어 있었다. 따라서 이번 라운드는
+"버그 수정"이 아니라 **이미 계산되고 있던 근거를 화면에 실제로 노출**하는 작업이다:
+
+- `computeRoleFit()`이 매번 계산하는 `adjustment.reason`(예: "여행사 직원 관점의 목표 우선순위(기획
+  규칙) 반영")을 그동안 버려왔다(`computeStrategies()`에서 `score`만 구조분해). 이제
+  `StrategyScoreBreakdown.roleFitReason?: string`(신규, optional — Prisma는 `Json` 타입이라 마이그레이션
+  불필요)에 그대로 보존해 `StrategyCard.tsx`의 "역할 적합도" 항목 아래와 인쇄 화면 "선택 전략"
+  섹션에 노출한다. role이 없던 분석(중립값 50)은 `adjustment`가 `null`이라 `roleFitReason`도 없음 —
+  화면은 이 경우 이유 문구를 그냥 생략한다(허위 문구 없음).
+- `buildReasons()`의 역할 관련 문장도 하드코딩 텍스트 대신 같은 `roleFitReason`을 재사용하도록 바꿨다.
+- `prisma/schema.prisma`의 `StrategyResult.scoreBreakdown` 주석이 `roleFit` 필드를 누락하고 있던
+  문서 드리프트를 주석만 수정했다(스키마/컬럼 변경 없음, 마이그레이션 없음).
+- 레거시 데이터 정책은 변경하지 않았다 — `roleFit` 자체가 없는 과거 `StrategyResult`는 여전히
+  "재분석 필요"로 표시된다(분석 화면·인쇄 화면 동일 정책).
+
+### 2) 핵심 관광 지표 요약카드
+
+- 방문자수(`METRIC_CODES.VISITOR_CNT`, 단위 "명" — `prisma/seed.ts` 실제 저장 단위로 확인)와 화면
+  표시용 증감률(`METRIC_CODES.DEMAND_VISITOR_GROWTH_DISPLAY`, 신규)을 `computeDemandAxis()`
+  (`src/lib/domain/dna.ts`)에서 **축 점수 계산이 끝난 뒤에만** `evidence` 배열에 추가한다 — 기존
+  `DEMAND_VISITOR_GROWTH`(전월 대비, 수요 점수 반영)는 그대로 두어 DNA 5축 공식은 전혀 바뀌지 않았다.
+- 증감률 비교 기준은 **전년 동월 우선, 없으면 직전 확인월로 대체**한다
+  (`previousYearSameMonth()`/`previousBaseYm()`, `src/lib/services/buildDnaEngineInput.ts`). 비교월
+  방문자수가 0이면(나눗셈 불가) 증감률을 계산하지 않고 카드 자체를 만들지 않는다(허위 0% 금지). 실제
+  0%(비교값과 동일)는 "변화 없음(0%)"으로 명시해 "데이터 없음"과 구분한다(`formatSignedPercent`,
+  `src/lib/format.ts`).
+- 체류(`STAY`)/소비(`SPEND`) 지표의 실제 저장 단위는 **"지수"**다(`prisma/seed.ts` 확인 — 시간·원이
+  아니다). 과제 예시가 든 "6.2시간"/"84.3억 원" 같은 단위는 실제 데이터에 존재하지 않아 **임의로
+  환산하지 않았고**, "체류 강도 X.X 지수" 형태로 원래 단위 그대로 표시한다(`formatIndexValue`).
+- 카드 구성은 `src/lib/domain/tourismMetricSummary.ts`(신규, 순수 함수) 하나로 중앙화했고 분석
+  화면(`analysis/page.tsx`)과 인쇄 화면(`print/page.tsx`)이 이 함수를 그대로 공유한다 — 값 자체가
+  없는 지표는 카드를 만들지 않는다(0으로 지어내지 않음). 각 카드는 실제 저장된 `baseYm`/`sourceCode`를
+  그대로 노출해 지표별 기준월이 달라도 뭉개지 않는다.
+
+### 3) 관광 지표 → 전략 추천 근거 연결
+
+- `buildReasons()`(`src/lib/domain/strategy.ts`)에 `buildMetricGroundedReason()`을 추가해 기존
+  근거 생성 함수를 확장했다(별도 로직 신설 아님). 화면 표시용 증감률 근거(`dna.demand.evidence`에서
+  `DEMAND_VISITOR_GROWTH_DISPLAY` 검색)가 없으면 문장을 만들지 않는다.
+- 근거가 있으면: 방문자↑ + 체류 지수(`dna.stay.score`) 비교군 내 상대적으로 낮음(<50) + 전략이 숙박
+  접점을 포함 → 체류형·숙박 연계 우선 추천 문구. 방문자↑ + 소비 지수 낮음 + 음식/체험 접점 포함 →
+  유료 체험·로컬 상품 연계 문구. 방문자↓ + 수요 적합도(`dna.demand.score`) 상대적으로 높음(≥60) →
+  강점 테마 중심 타깃 상품 문구. 위 조건에 모두 해당하지 않으면(뚜렷한 패턴 없음) "현재 확보된 방문자
+  및 관광 지표를 바탕으로 이 전략을 추천합니다" 같은 제한된 일반 문구로 대체한다(Section 5가 명시
+  허용한 폴백 — 존재하지 않는 지역 평균/전국 평균은 어디에서도 사용하지 않았다).
+- 이 문장은 전략별 `consumptionTouchpoints`(숙박/음식/체험 포함 여부)에 따라 갈리므로, 같은 분석
+  안에서도 전략마다 다른 문구가 나올 수 있다. 다만 세 전략 모두 위 패턴에 해당하지 않으면 동일한
+  일반 폴백 문구가 나올 수 있다 — 이는 실제로 뚜렷한 데이터 근거가 없을 때의 정직한 표시이지, 하드
+  코딩된 고정 문구가 아니다.
+
+### 4) 알려진 제약(정직하게 남겨둔 것)
+
+- 인쇄 화면의 "데이터 근거 요약" 표(`evidenceSummary = analysisResult.evidences.slice(0, 6)`)는
+  이번에 demand 축에 근거 2건(방문자수, 증감률)이 늘어난 만큼, 앞쪽 6건 안에 다른 축(diversity/network
+  등) 근거가 덜 보일 수 있다. 슬라이스 로직 자체는 이번 범위 밖이라 건드리지 않았다.
+- 홍보자료(`promoContent`)는 이번 라운드에서 자동 재생성하지 않는다 — 사용자가 이미 생성/편집한
+  홍보자료 텍스트는 그대로 남고, 새 지표 요약·역할 적합 이유는 (재)생성해야 반영된다(1차 개선 문서의
+  정책과 동일).
+- Prisma 스키마(컬럼/모델), DB 마이그레이션, POI/코스 추천 로직, DNA 5축 공식, 전략 순위 결정 로직은
+  전혀 건드리지 않았다.
+
 ## 다음 작업 순서 (P0, 2026-07-27 갱신 — P0-2 대표 시나리오 3개 로컬 구현 완료 반영)
 
 Phase 4(P0-1, `origin/main`에 push 완료)에 이어 대표 시나리오 3개(P0-2)도 로컬 구현·테스트를 마쳤다.

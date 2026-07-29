@@ -345,7 +345,9 @@ model StrategyResult {
   name                   String
   concept                String
   totalScore             Float
-  scoreBreakdown         Json // { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit }
+  scoreBreakdown         Json // { demandFit, supplyFit, seasonFit, targetFit, feasibilityFit, roleFit, roleFitReason? }
+  // roleFit/roleFitReason은 Phase 4(역할 적합도)에서 추가됨 — roleFit 도입 이전 레코드에는 두 필드
+  // 모두 없을 수 있다(화면에서는 그 경우 "재분석 필요"로 안내한다, 2026-07-29 문서 드리프트 수정).
   reasons                Json // string[] (길이 3)
   targetDescription      String
   poiIds                 Json // string[] (Poi.id)
