@@ -6,7 +6,10 @@ interface ScoreBreakdown {
   seasonFit: number;
   targetFit: number;
   feasibilityFit: number;
-  roleFit: number;
+  // roleFit 도입 이전에 저장된 StrategyResult.scoreBreakdown(JSON)에는 이 필드 자체가 없을 수 있다 —
+  // 실제 저장 데이터의 현실을 반영해 optional로 둔다(2026-07-29). 값이 없으면 화면에서 "재분석 필요"로
+  // 안내한다(formatBreakdownScore).
+  roleFit?: number;
 }
 
 interface ConsumptionTouchpoints {
@@ -39,6 +42,24 @@ const SCORE_BREAKDOWN_LABEL: Record<keyof ScoreBreakdown, string> = {
   roleFit: "역할 적합도",
 };
 
+/** 각 적합도 항목이 무엇을 보는 점수인지 짧게 설명한다(2026-07-29) — 항목 이름만으로는 특히 "역할
+ * 적합도"가 무엇을 반영하는지 알기 어렵다는 피드백에 대응한다. */
+const SCORE_BREAKDOWN_DESCRIPTION: Record<keyof ScoreBreakdown, string> = {
+  demandFit: "지역의 객관적 관광 수요 데이터와 이 전략의 궁합",
+  supplyFit: "지역의 객관적 관광 공급(체류·소비 등) 데이터와 이 전략의 궁합",
+  seasonFit: "입력한 여행월과 이 전략이 어울리는 성수기의 일치도",
+  targetFit: "선호/제외 테마 등 입력한 타깃 조건과의 일치도",
+  feasibilityFit: "입력한 국적 조건에서 실제 운영이 가능한 정도",
+  roleFit: "여행사/지자체 등 입력한 역할에 이 전략이 적합한 정도",
+};
+
+/** 분석 당시 scoreBreakdown에 이 항목 자체가 없었던 과거 데이터(예: roleFit 도입 이전에 생성된
+ * StrategyResult)를 빈 문자열로 방치하지 않고 명시적으로 안내한다 — 실제 0점과 "값이 없음"을 구분한다. */
+function formatBreakdownScore(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "재분석 필요";
+  return `${value}`;
+}
+
 export function StrategyCard({
   strategy,
   isSelected,
@@ -67,9 +88,9 @@ export function StrategyCard({
 
       <ul className="mt-3 space-y-1 text-xs text-slate-600">
         {(Object.keys(SCORE_BREAKDOWN_LABEL) as (keyof ScoreBreakdown)[]).map((key) => (
-          <li key={key} className="flex justify-between">
+          <li key={key} className="flex justify-between" title={SCORE_BREAKDOWN_DESCRIPTION[key]}>
             <span>{SCORE_BREAKDOWN_LABEL[key]}</span>
-            <span className="font-medium">{strategy.scoreBreakdown[key]}</span>
+            <span className="font-medium">{formatBreakdownScore(strategy.scoreBreakdown[key])}</span>
           </li>
         ))}
       </ul>

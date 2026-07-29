@@ -8,8 +8,7 @@ import {
   labelForRole,
   labelForTransport,
 } from "@/lib/validation/codes";
-import { formatBaseYm, formatDateTime } from "@/lib/format";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { formatBaseYm, formatDateTime, metricLabel, sourceLabel, summarizeEvidenceBaseYms } from "@/lib/format";
 import { PrintButton } from "@/components/plan/PrintButton";
 import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
 import { parsePromoContent } from "@/lib/validation/promoContent.schema";
@@ -29,6 +28,9 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   const selectedStrategy = analysisResult.strategyResults.find((s) => s.id === plan.strategyResultId);
   const course = plan.course as unknown as { days: CourseDay[] };
   const evidenceSummary = analysisResult.evidences.slice(0, 6);
+  // 분석 화면과 동일하게, env 상수가 아니라 이 프로젝트의 근거에 실제로 저장된 기준월을 표시한다
+  // (2026-07-29) — 지표마다 기준월이 다를 수 있어 하나로 뭉개지 않는다.
+  const baseYmSummary = summarizeEvidenceBaseYms(analysisResult.evidences);
 
   // 저장된 promoContent가 없으면(DB NULL) 섹션 자체를 만들지 않는다. 값이 있어도 Phase 5-B와 동일한
   // 검증 경계(parsePromoContent)를 통과하지 못하면 잘못된 데이터를 그대로 출력하지 않고 조용히 생략한다.
@@ -145,10 +147,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           <tbody>
             {evidenceSummary.map((e, i) => (
               <tr key={i} className="border-b border-slate-100">
-                <td className="py-0.5 pr-2 font-mono">{e.metricCode}</td>
+                <td className="py-0.5 pr-2">{metricLabel(e.metricCode)}</td>
                 <td className="py-0.5 pr-2">{e.rawValue}</td>
                 <td className="py-0.5 pr-2">{formatBaseYm(e.baseYm)}</td>
-                <td className="py-0.5 pr-2">{e.sourceCode}</td>
+                <td className="py-0.5 pr-2">{sourceLabel(e.sourceCode)}</td>
               </tr>
             ))}
           </tbody>
@@ -235,8 +237,9 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
       <footer className="mt-6 flex justify-between border-t border-slate-300 pt-2 text-[10px] text-slate-400">
         <span>
-          생성일 {formatDateTime(new Date())} · 데이터 기준월{" "}
-          {formatBaseYm(process.env.TOUR_DATA_BASE_YM ?? DEFAULT_BASE_YM)}
+          생성일 {formatDateTime(new Date())} · 분석 기준월{" "}
+          {baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}
+          {baseYmSummary.mixed ? `(지표별 기준월 상이: ${baseYmSummary.all.map(formatBaseYm).join(", ")})` : ""}
         </span>
         <span>모델 버전 {analysisResult.modelVersion}</span>
       </footer>

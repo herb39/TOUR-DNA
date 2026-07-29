@@ -55,9 +55,13 @@ function FieldError({ messages }: { messages?: string[] }) {
 export function ProjectInputForm({
   regionOptions,
   baseYm,
+  latestAvailableBaseYm,
 }: {
   regionOptions: RegionOption[];
   baseYm: string;
+  /** 메인 화면과 같은 조회(getLatestDataFreshness)로 구한 "사용 가능 최신 데이터" 기준월. baseYm과 값이
+   * 같으면 굳이 별도 안내를 보여주지 않는다(불필요한 문구 추가 방지). */
+  latestAvailableBaseYm?: string | null;
 }) {
   const [state, formAction, isPending] = useActionState(createProjectAction, initialState);
   const [sidoCode, setSidoCode] = useState(regionOptions[0]?.code ?? "");
@@ -546,7 +550,12 @@ export function ProjectInputForm({
           </div>
         </dl>
         <div className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-500">
-          이번 분석에는 <strong>{formatBaseYm(baseYm)}</strong> 기준 공공데이터가 사용됩니다.
+          <p>
+            이번 분석에는 <strong>{formatBaseYm(baseYm)}</strong> 기준 공공데이터가 사용됩니다.
+          </p>
+          {latestAvailableBaseYm && latestAvailableBaseYm !== baseYm ? (
+            <p className="mt-1">사용 가능 최신 데이터: {formatBaseYm(latestAvailableBaseYm)} 기준</p>
+          ) : null}
         </div>
       </aside>
     </form>

@@ -93,17 +93,32 @@ export async function generatePromoContentForProject(
     return { ok: false, code: "alreadyExists", message: "이미 생성된 홍보자료가 있습니다. 덮어쓰려면 재생성을 확인해주세요." };
   }
 
-  let strategy: { name: string; evidences: Parameters<typeof buildPromoContentInputFromProjectData>[0]["evidenceRows"] } | null;
+  type EvidenceRows = Parameters<typeof buildPromoContentInputFromProjectData>[0]["evidenceRows"];
+  let strategy: { name: string; evidences: EvidenceRows; analysisResult: { evidences: EvidenceRows } | null } | null;
   try {
     strategy = await prisma.strategyResult.findUnique({
       where: { id: project.selectedStrategyResultId },
-      select: { name: true, evidences: { select: EVIDENCE_SELECT } },
+      select: {
+        name: true,
+        evidences: { select: EVIDENCE_SELECT },
+        // 전략에 직접 연결된 근거(evidences)가 비어 있을 수 있다(예: 전략 evidenceIds 연결 이전 데이터,
+        // 또는 특정 전략만 근거가 저장되지 않은 경우) — 그 경우 같은 분석의 축(axis) 근거를
+        // fallback으로 쓴다(아래 참고). 분석 자체가 LIVE 5/5인데 홍보자료만 "근거 없음"이라고 말하는
+        // 모순을 없애기 위해서다(2026-07-29).
+        analysisResult: { select: { evidences: { select: EVIDENCE_SELECT } } },
+      },
     });
   } catch (error) {
     logInternalError("generate:loadStrategy", error);
     return { ok: false, code: "internalError", message: "전략 정보 조회 중 오류가 발생했습니다." };
   }
   if (!strategy) return { ok: false, code: "internalError", message: "선택된 전략 정보를 찾을 수 없습니다." };
+
+  // 전략 전용 근거가 비어 있으면 분석 전체(축별) 근거로 대체한다 — 둘 다 같은 Evidence 모델이라 구조
+  // 변환 없이 그대로 재사용할 수 있다. 둘 다 비어 있으면(실제로 근거가 전혀 없으면) 빈 배열 그대로
+  // 넘겨 기존 "근거 없음" 문구가 정확히 그 경우에만 나오게 한다.
+  const evidenceRows: EvidenceRows =
+    strategy.evidences.length > 0 ? strategy.evidences : (strategy.analysisResult?.evidences ?? []);
 
   const input = buildPromoContentInputFromProjectData({
     project: {
@@ -116,7 +131,7 @@ export async function generatePromoContentForProject(
     },
     plan: project.selectedPlan,
     strategyName: strategy.name,
-    evidenceRows: strategy.evidences,
+    evidenceRows,
   });
 
   const content = buildPromoContent(input);

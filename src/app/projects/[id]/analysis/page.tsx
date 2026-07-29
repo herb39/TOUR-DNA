@@ -19,9 +19,8 @@ import {
   labelForRole,
   labelForTransport,
 } from "@/lib/validation/codes";
-import { formatBaseYm, formatDateTime } from "@/lib/format";
+import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/format";
 import { prisma } from "@/lib/db";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +94,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     };
   });
 
+  // 헤더에는 env 상수가 아니라 이 프로젝트의 분석에 실제로 사용된 기준월(evidence에 저장된 값)을
+  // 표시한다(2026-07-29) — 메인/기획 화면과 다른 소스를 쓰던 것을 바로잡는다. 지표마다 기준월이 다르면
+  // 하나로 뭉개지 않고 그 사실을 알린다.
+  const baseYmSummary = summarizeEvidenceBaseYms(analysisResult.evidences);
+
   const axisEvidenceByAxis = new Map<string, EvidenceRow[]>();
   for (const e of analysisResult.evidences) {
     const list = axisEvidenceByAxis.get(e.axis ?? "") ?? [];
@@ -143,9 +147,14 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </div>
           <div className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
             <p>
-              데이터 기준월{" "}
-              <strong>{formatBaseYm(process.env.TOUR_DATA_BASE_YM ?? DEFAULT_BASE_YM)}</strong>
+              분석 기준월{" "}
+              <strong>{baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}</strong>
             </p>
+            {baseYmSummary.mixed ? (
+              <p className="text-[11px] text-amber-700">
+                일부 지표는 서로 다른 기준월의 데이터를 사용합니다({baseYmSummary.all.map(formatBaseYm).join(", ")})
+              </p>
+            ) : null}
             <p>데이터 버전 {analysisResult.dataVersion}</p>
             <p>모델 버전 {analysisResult.modelVersion}</p>
             <p>

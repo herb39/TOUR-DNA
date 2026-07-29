@@ -1,3 +1,6 @@
+import { METRIC_CODES } from "@/lib/domain/types";
+import { DATA_SOURCE_SEED } from "@/lib/fixtures/dataSources";
+
 export const PROJECT_STATUS_LABEL: Record<string, string> = {
   DRAFT: "조건 입력 완료",
   ANALYZED: "분석 완료",
@@ -19,4 +22,53 @@ export function formatDateTime(date: Date | string | null | undefined): string {
 export function formatBaseYm(baseYm: string | null | undefined): string {
   if (!baseYm || baseYm.length !== 6) return "-";
   return `${baseYm.slice(0, 4)}년 ${Number(baseYm.slice(4, 6))}월`;
+}
+
+/**
+ * 내부 지표 코드 → 한글 라벨(2026-07-29, 원래 promoContent.ts에만 있던 것을 공용화). 사용자 화면(분석
+ * 근거 테이블, 인쇄물)과 홍보자료 생성 로직이 이 매핑 하나를 공유해, "tarSjrnDsIxVal" 같은 내부 코드가
+ * 화면에 그대로 노출되지 않게 한다. 알 수 없는 코드(향후 추가되는 지표 등)는 코드 자체를 그대로 보여줘
+ * 안전하게 degrade한다(빈 문자열이나 크래시보다 낫다).
+ */
+export const METRIC_LABEL_KO: Record<string, string> = {
+  [METRIC_CODES.DEMAND_SERVICE]: "관광 서비스 수요",
+  [METRIC_CODES.DEMAND_RESOURCE]: "관광자원 수요",
+  [METRIC_CODES.DEMAND_VISITOR_GROWTH]: "방문자수 증감률",
+  [METRIC_CODES.VISITOR_CNT]: "방문자수",
+  [METRIC_CODES.VISITOR_CNT_LOCAL]: "현지인 방문자수",
+  [METRIC_CODES.STAY]: "체류 강도",
+  [METRIC_CODES.SPEND]: "소비 강도",
+  [METRIC_CODES.DIVERSITY]: "관광 다양성",
+  networkPoiCount: "중심 관광지 수",
+  networkRelationCount: "연관 관광지 연결 수",
+};
+
+export function metricLabel(metricCode: string): string {
+  return METRIC_LABEL_KO[metricCode] ?? metricCode;
+}
+
+/** DataSource.code → 한글 서비스명. 새 코드를 하드코딩하지 않고 기존 DATA_SOURCE_SEED(코드의 유일한
+ * 출처)를 그대로 재사용한다 — 코드가 늘어도 이 파일을 손댈 필요가 없다. */
+const SOURCE_NAME_BY_CODE: Record<string, string> = Object.fromEntries(
+  DATA_SOURCE_SEED.map((d) => [d.code, d.name]),
+);
+
+export function sourceLabel(sourceCode: string): string {
+  return SOURCE_NAME_BY_CODE[sourceCode] ?? sourceCode;
+}
+
+/**
+ * 여러 Evidence의 baseYm을 요약한다(2026-07-29) — 분석/인쇄 화면이 "분석 기준월"을 env 상수 대신 실제
+ * 근거에 저장된 기준월로 표시하기 위해 쓴다. 모든 지표가 같은 월이라고 가정하지 않고, 서로 다른 달이
+ * 섞여 있으면 그 사실 자체를 알려준다(값을 하나로 뭉개지 않음).
+ */
+export function summarizeEvidenceBaseYms(
+  evidences: Array<{ baseYm: string }>,
+): { primary: string | null; all: string[]; mixed: boolean } {
+  const all = Array.from(new Set(evidences.map((e) => e.baseYm))).sort();
+  return {
+    primary: all.length > 0 ? all[all.length - 1] : null,
+    all,
+    mixed: all.length > 1,
+  };
 }

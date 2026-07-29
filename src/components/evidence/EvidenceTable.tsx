@@ -1,4 +1,4 @@
-import { formatBaseYm, formatDateTime } from "@/lib/format";
+import { formatBaseYm, formatDateTime, metricLabel, sourceLabel } from "@/lib/format";
 
 export interface EvidenceRow {
   metricCode: string;
@@ -36,13 +36,13 @@ export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
         <tbody>
           {items.map((e, i) => (
             <tr key={`${e.metricCode}-${i}`} className="border-t border-slate-100 text-slate-700">
-              <td className="py-1.5 pr-3 font-mono">{e.metricCode}</td>
+              <td className="py-1.5 pr-3">{metricLabel(e.metricCode)}</td>
               <td className="py-1.5 pr-3">{e.rawValue}</td>
               <td className="py-1.5 pr-3">{e.normalizedValue ?? "-"}</td>
               <td className="py-1.5 pr-3">{e.unit}</td>
               <td className="py-1.5 pr-3">{e.adminLevel}</td>
               <td className="py-1.5 pr-3">{formatBaseYm(e.baseYm)}</td>
-              <td className="py-1.5 pr-3">{e.sourceCode}</td>
+              <td className="py-1.5 pr-3">{sourceLabel(e.sourceCode)}</td>
               <td className="py-1.5 pr-3">{formatDateTime(e.collectedAt)}</td>
               <td className="py-1.5 pr-3">{e.appliedRule}</td>
             </tr>

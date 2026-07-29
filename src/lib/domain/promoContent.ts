@@ -1,6 +1,6 @@
 import type { CourseDay, MealPurpose } from "./planBuilder";
-import { METRIC_CODES, type DataProvenance, type EvidenceItem } from "./types";
-import { formatBaseYm } from "@/lib/format";
+import type { DataProvenance, EvidenceItem } from "./types";
+import { formatBaseYm, metricLabel } from "@/lib/format";
 import { labelForNationality } from "@/lib/validation/codes";
 
 /**
@@ -215,25 +215,6 @@ function buildEvidenceReferences(evidences: EvidenceItem[]): PromoEvidenceRefere
     });
   }
   return result;
-}
-
-/** P0-6(2026-07-27): tarSjrnDsIxVal 같은 내부 지표 코드를 사용자 화면에 그대로 노출하지 않도록
- * 한글 라벨로 바꾼다. 알 수 없는 코드(향후 추가되는 지표 등)는 코드 자체를 그대로 보여줘 안전하게
- * degrade한다(빈 문자열이나 크래시보다 낫다). */
-const METRIC_LABEL_KO: Record<string, string> = {
-  [METRIC_CODES.DEMAND_SERVICE]: "관광 서비스 수요",
-  [METRIC_CODES.DEMAND_RESOURCE]: "관광자원 수요",
-  [METRIC_CODES.DEMAND_VISITOR_GROWTH]: "방문자수 증감률",
-  [METRIC_CODES.VISITOR_CNT]: "방문자수",
-  [METRIC_CODES.STAY]: "체류 강도",
-  [METRIC_CODES.SPEND]: "소비 강도",
-  [METRIC_CODES.DIVERSITY]: "관광 다양성",
-  networkPoiCount: "중심 관광지 수",
-  networkRelationCount: "연관 관광지 연결 수",
-};
-
-function metricLabel(metricCode: string): string {
-  return METRIC_LABEL_KO[metricCode] ?? metricCode;
 }
 
 function formatEvidenceLine(ref: PromoEvidenceReference): string {
