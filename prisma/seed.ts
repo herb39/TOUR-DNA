@@ -7,15 +7,13 @@ import { METRIC_CODES } from "../src/lib/domain/types";
 import { runAnalysisForProject } from "../src/lib/services/analyzeProject";
 import { ensureSelectedPlan } from "../src/lib/services/planService";
 import { classifyVerifiedMetricProvenance, upsertSeedMetric } from "../src/lib/services/seedMetrics";
+import { syncDataSources } from "../src/lib/services/dataSourceSync";
 
+// DataSource upsert 로직 자체는 dataSourceSync.ts로 분리했다 — scripts/sync-data-sources.ts(DataSource만
+// 반영하는 전용 CLI, 2026-07-29 도입)와 이 파일이 같은 함수를 공유해 중복 구현하지 않는다. 출력 문구는
+// 기존 db:seed 동작과 동일하게 유지한다.
 async function upsertDataSources() {
-  for (const ds of DATA_SOURCE_SEED) {
-    await prisma.dataSource.upsert({
-      where: { code: ds.code },
-      update: { name: ds.name, baseUrl: ds.baseUrl, description: ds.description },
-      create: ds,
-    });
-  }
+  await syncDataSources();
   console.log(`  DataSource ${DATA_SOURCE_SEED.length}건 반영`);
 }
 

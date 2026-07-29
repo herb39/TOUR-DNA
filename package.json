@@ -19,6 +19,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
+    "db:sync-data-sources": "tsx --env-file=.env.local scripts/sync-data-sources.ts",
     "db:generate": "prisma generate",
     "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts",
     "sync:visitor": "tsx --env-file=.env.local scripts/sync-visitor.ts",

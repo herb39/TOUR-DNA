@@ -93,8 +93,29 @@ PostgreSQL이 필요합니다. 로컬에 Postgres가 없다면 다음 중 하나
 
 ```bash
 npm run db:migrate   # prisma migrate deploy — 커밋된 migration만 적용, shadow DB 불필요
-npm run db:seed      # idempotent — 여러 번 실행해도 안전
+npm run db:seed      # idempotent — 여러 번 실행해도 안전(Region/Poi/NormalizedMetric/Project까지 전체 fixture 반영)
 ```
+
+### DataSource만 동기화(2026-07-29)
+
+`DATA_SOURCE_SEED`(`src/lib/fixtures/dataSources.ts`)의 `baseUrl` 등을 코드에서 고쳤는데 DB에는 아직
+반영되지 않은 경우(예: VISITOR_CNT가 실제 API 구조 변경 이후 재시드되지 않아 구 URL을 물고 있던 사례,
+`docs/public-api-status.md` §5-D/§5-E 참고), 전체 `db:seed`를 돌리지 않고 `DataSource` 테이블만 안전하게
+바로잡을 수 있습니다.
+
+```bash
+npm run db:sync-data-sources              # DataSource만 code 기준으로 생성·갱신
+npm run db:sync-data-sources -- --dry-run # DB를 바꾸지 않고 CREATED/UPDATED/UNCHANGED만 미리 확인
+```
+
+- `DataSource.code`를 기준으로 생성(CREATED)·갱신(UPDATED)만 하며, fixture에 값이 없는데도 이미 있는
+  기존 행을 삭제하지 않습니다(그 code는 그냥 건드리지 않습니다).
+- Region/Poi/PoiRelation/NormalizedMetric/DataSnapshot/Project/SyncLog 등 다른 테이블은 전혀 조회·변경
+  하지 않습니다 — `db:seed`와의 차이가 바로 이 범위입니다.
+- Prisma migration(`db:migrate`)과는 별개입니다 — migration은 스키마(테이블/컬럼) 구조를 바꾸고, 이
+  명령은 `DataSource` 행의 값(코드 fixture 내용)만 데이터베이스에 반영합니다.
+- 실행에는 다른 DB 명령과 마찬가지로 `DATABASE_URL` 환경변수가 필요합니다.
+- 이번 도입에서는 배포 자동화(Vercel Cron 등)에 연결하지 않았습니다 — 필요할 때 수동으로 실행하세요.
 
 ## 스냅샷 모드 실행 (키 없이 전체 데모)
 
