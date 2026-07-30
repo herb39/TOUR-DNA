@@ -283,3 +283,152 @@ describe("ensureSelectedPlan — Phase 4: 역할·국적·테마·월 컨텍스�
     expect(saved.operationChecklist).toContain("출발 3일 전 예약 인원 최종 확정");
   });
 });
+
+describe("ensureSelectedPlan — 저적합 POI 추천 제외(2026-07-30, 경주 문화·역사 전략 재현)", () => {
+  // 기존 foodRow() 헬퍼는 통영 좌표(lat 34.81)로 고정돼 있어, 경주 좌표(lat 35.8)와 섞으면 100km+
+  // 떨어진 두 클러스터가 생긴다 — DAY_TRIP은 날짜가 하루뿐이라 교환할 다른 날짜가 없어, buildDraftCourse의
+  // 기존 장거리 구간 처리(repairExcessiveTravelSegments)가 필터링과 무관하게 POI를 제외해버린다.
+  // 이 describe 안에서는 모든 후보를 같은 지역 좌표로 통일한 전용 헬퍼를 쓴다.
+  function culturalRow(id: string, name: string) {
+    return {
+      id,
+      name,
+      category: "ATTRACTION",
+      address: "경주시 어딘가",
+      lat: 35.8,
+      lng: 129.2 + Number(id.replace(/\D/g, "") || 0) * 0.001,
+      operatingHours: null,
+      closedDays: null,
+      sourceType: "API",
+      rawPayload: null,
+    };
+  }
+
+  function foodRowNear(id: string, cat3: string) {
+    return {
+      id,
+      name: `식당-${id}`,
+      category: "FOOD",
+      address: "경주시 어딘가",
+      lat: 35.81,
+      lng: 129.21,
+      operatingHours: null,
+      closedDays: null,
+      sourceType: "API",
+      rawPayload: { contenttypeid: "39", cat1: "A05", cat2: "A0502", cat3 },
+    };
+  }
+
+  it("선호 테마와 명백히 무관한 일반 관광 POI(워터파크)는 코스에서 제외되고, 그 자리를 다른 저적합 POI로 채우지 않는다", async () => {
+    const ids = ["food1", "food2", "waterpark", "heritage1", "heritage2"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-6",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-6",
+      selectedPlan: null,
+      travelMonth: 10,
+      input: { duration: "DAY_TRIP", transport: "WALK", preferredThemes: ["문화·역사"] },
+      region: { name: "경주시" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-6",
+      templateId: "CULTURE_HISTORY",
+      name: "문화·역사 체험형",
+      concept: "경주 문화유산 코스",
+      totalScore: 80,
+      targetDescription: "역사·문화 학습에 관심 있는 여행객",
+      reasons: ["r1", "r2", "r3"],
+      poiIds: ids,
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [
+          foodRowNear("food1", "A05020100"),
+          foodRowNear("food2", "A05020200"),
+          culturalRow("waterpark", "강동 워터파크"),
+          culturalRow("heritage1", "경주 문화유적 전시관 1"),
+          culturalRow("heritage2", "경주 문화유적 전시관 2"),
+        ];
+      }
+      // 목표(6곳)에 못 미쳐 일반 방문 후보 보충이 시도되지만, 이 테스트는 필터링 자체만 확인하므로
+      // 지역 DB에 추가 후보가 없다고 가정한다(보충 없이도 필터링 결과를 그대로 검증할 수 있게).
+      return [];
+    });
+
+    await ensureSelectedPlan("project-6");
+
+    const savedCourse = selectedPlanUpsert.mock.calls[0][0].create.course as {
+      days: { items: { poiId: string }[] }[];
+    };
+    const allIds = savedCourse.days.flatMap((d) => d.items.map((i) => i.poiId));
+
+    // 선호 테마(문화·역사)와 이름이 명백히 무관한 워터파크는 제외된다.
+    expect(allIds).not.toContain("waterpark");
+    // 실제 테마와 일치하는 문화유적은 유지된다.
+    expect(allIds).toContain("heritage1");
+    expect(allIds).toContain("heritage2");
+    // FOOD(필수 슬롯)는 테마 키워드가 없어도 제거되지 않는다.
+    expect(allIds).toContain("food1");
+    expect(allIds).toContain("food2");
+  });
+
+  it("일반 관광 POI가 전부 저적합으로 제외되어도 예외 없이 완료되고, 식사·숙박 필수 슬롯은 그대로 유지된다", async () => {
+    const ids = ["food1", "lodge1", "waterpark", "camp"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-7",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-7",
+      selectedPlan: null,
+      travelMonth: 10,
+      input: { duration: "ONE_NIGHT_TWO_DAYS", transport: "WALK", preferredThemes: ["문화·역사"] },
+      region: { name: "경주시" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-7",
+      templateId: "CULTURE_HISTORY",
+      name: "문화·역사 체험형",
+      concept: "경주 문화유산 코스",
+      totalScore: 80,
+      targetDescription: "역사·문화 학습에 관심 있는 여행객",
+      reasons: ["r1", "r2", "r3"],
+      poiIds: ids,
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [
+          foodRowNear("food1", "A05020100"),
+          {
+            id: "lodge1",
+            name: "이름에 키워드 없는 숙소",
+            category: "LODGING",
+            address: "경주시 어딘가",
+            lat: 35.8,
+            lng: 129.2,
+            operatingHours: null,
+            closedDays: null,
+            sourceType: "API",
+            rawPayload: null,
+          },
+          culturalRow("waterpark", "강동 워터파크"),
+          { ...culturalRow("camp", "경주초우오토캠핑장"), category: "EXPERIENCE" },
+        ];
+      }
+      return [];
+    });
+
+    await expect(ensureSelectedPlan("project-7")).resolves.not.toThrow();
+
+    const savedCourse = selectedPlanUpsert.mock.calls[0][0].create.course as {
+      days: { items: { poiId: string }[]; lodging: { poiId: string } | null }[];
+    };
+    const allItemIds = savedCourse.days.flatMap((d) => d.items.map((i) => i.poiId));
+    const lodgingIds = savedCourse.days.map((d) => d.lodging?.poiId).filter(Boolean);
+
+    // 일반 관광 POI(워터파크·캠핑장)는 모두 제외된다.
+    expect(allItemIds).not.toContain("waterpark");
+    expect(allItemIds).not.toContain("camp");
+    // 필수 슬롯(식사·숙박)은 유지된다.
+    expect(allItemIds).toContain("food1");
+    expect(lodgingIds).toContain("lodge1");
+  });
+});

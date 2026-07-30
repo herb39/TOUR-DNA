@@ -379,10 +379,7 @@ export function PlanEditor({
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
           {poiShortage ? (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <p>
-                ⚠ 이 전략에 적합한 장소가 목표({poiShortage.targetCount}곳)보다{" "}
-                {poiShortage.shortfallCount}곳 부족합니다({poiShortage.actualCount}곳 확보). {poiShortage.message}
-              </p>
+              <p>⚠ {poiShortage.message}</p>
               <p className="mt-1 text-amber-700">{poiShortage.suggestion}</p>
             </div>
           ) : null}

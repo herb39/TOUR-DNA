@@ -13,6 +13,8 @@ import {
   NON_LODGING_POI_TARGET_BY_DURATION,
   type DurationCode,
 } from "@/lib/domain/strategy";
+import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
+import { filterRecommendablePois, isRequiredSlotCategory, type PoiFitContext } from "@/lib/domain/poiFit";
 import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
 
 function countMealEligibleFood(pois: PoiDetail[]): number {
@@ -21,6 +23,37 @@ function countMealEligibleFood(pois: PoiDetail[]): number {
 
 function countNonLodging(pois: PoiDetail[]): number {
   return pois.filter((p) => p.category !== "LODGING").length;
+}
+
+/**
+ * 최소 적합 기준(poiFit.ts)에 미달한 일반 관광 POI를 코스 생성 전에 실제로 제외한다(2026-07-30,
+ * 저적합 POI 추천 제외 보완). 여기서 제외하면 SelectedPlan.course 자체가 걸러진 결과를 담게 되어,
+ * 실행안·인쇄 화면이 같은 DB 값을 읽는 한 항상 같은 POI 목록·점수를 보게 된다(화면 렌더링 시점에
+ * 따로 필터링을 반복하지 않아도 됨). FOOD/LODGING(필수 슬롯)은 이 필터링 대상에서 제외한다 — 테마
+ * 키워드가 이름에 없다는 이유만으로 식사·숙박 자리가 사라지면 안 되기 때문이다. 선택 로직(selectPois)
+ * 자체나 전략 점수는 건드리지 않고, 이미 확정된 후보 목록을 다시 한 번 걸러낼 뿐이다.
+ */
+function excludeBelowMinimumFitPois(
+  pois: PoiDetail[],
+  templateId: string,
+  travelMonth: number,
+  preferredThemes: string[],
+): PoiDetail[] {
+  const template = getTemplateById(templateId);
+  const context: PoiFitContext = { template, travelMonth, preferredThemes };
+
+  const generalPois = pois.filter((p) => !isRequiredSlotCategory(p.category as PoiCategoryCode));
+  const fitInputs = generalPois.map((p) => ({
+    ...p,
+    category: p.category as PoiCategoryCode,
+    sourceType: p.sourceType ?? "FIXTURE",
+  }));
+  const { recommended } = filterRecommendablePois(fitInputs, context);
+  const recommendedGeneralIds = new Set(recommended.map((p) => p.id));
+
+  // 필수 슬롯(FOOD/LODGING)은 항상 통과시키고, 일반 관광 POI만 위 판정 결과로 거른다 — 원래 목록
+  // 순서는 그대로 유지한다(선택 순서가 의미 있는 다른 로직에 영향을 주지 않도록).
+  return pois.filter((p) => isRequiredSlotCategory(p.category as PoiCategoryCode) || recommendedGeneralIds.has(p.id));
 }
 
 /**
@@ -80,6 +113,16 @@ export async function ensureSelectedPlan(projectId: string) {
     );
     if (generalSupplement.length > 0) pois = [...pois, ...generalSupplement];
   }
+
+  // 보충까지 끝난 최종 후보에 최소 적합 기준을 적용한다 — 여기서 걸러진 자리는 다시 채우지 않는다
+  // ("전략과 무관한 장소로 억지로 채우지 않는다"는 원칙을 필터링 이후에도 그대로 유지). preferredThemes
+  // 필드가 없는 레거시 데이터(마이그레이션 이전 프로젝트)도 빈 배열로 안전하게 처리한다.
+  pois = excludeBelowMinimumFitPois(
+    pois,
+    strategy.templateId,
+    project.travelMonth,
+    (project.input.preferredThemes as string[] | undefined) ?? [],
+  );
 
   const course = buildDraftCourse(pois, duration, project.input.transport as TransportCode);
   const audienceContext: AudiencePlanContext = {

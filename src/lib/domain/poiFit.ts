@@ -55,6 +55,33 @@ const SEASON_MATCH_SCORE = 20;
 
 export type PoiFitGrade = "HIGH" | "MEDIUM" | "LOW";
 
+/**
+ * 실행안 추천 포함 여부 판정(2026-07-30, 저적합 POI 추천 제외 보완). 단순히 grade==="LOW"라고 해서
+ * 전부 제외하면, 실제로는 "정보가 부족해서 낮게 나온 것"과 "실제 근거가 있어 안 맞다고 확인된 것"이
+ * 뒤섞여 정당한 이유 없이 제외될 위험이 있다.
+ * - RECOMMENDED: grade가 LOW가 아니거나(그대로 추천), 아래 REQUIRED_SLOT.
+ * - BELOW_MINIMUM_FIT: grade가 LOW이면서, 실제로 확인 가능한 부정적 근거가 있는 경우 — 카테고리
+ *   자체가 이 전략과 전혀 무관한 FALLBACK 티어이거나(항상 확실한 데이터), 사용자가 실제로 입력한
+ *   선호 테마와 장소명 키워드가 명백히 불일치(themeFit.evaluated===true && matched===false, 사용자
+ *   선호가 실제로 존재하는데 이름에서 그 근거를 찾지 못함)하는 경우. 실행안 추천에서 제외한다.
+ * - INSUFFICIENT_EVALUATION_DATA: grade가 LOW이지만 위 두 근거 중 어느 것도 해당하지 않는 경우 —
+ *   보통 사용자가 선호 테마 자체를 입력하지 않아(themeFit.evaluated===false) 테마 판단 근거가 없이
+ *   카테고리+계절만으로 낮게 나온 경우다. 실제로 안 맞다는 근거가 없으므로 제외하지 않는다.
+ * - REQUIRED_SLOT: FOOD/LODGING처럼 일정 구성상 반드시 필요한 역할 — 등급과 무관하게 항상 유지한다.
+ */
+export type PoiRecommendationStatus =
+  | "RECOMMENDED"
+  | "BELOW_MINIMUM_FIT"
+  | "INSUFFICIENT_EVALUATION_DATA"
+  | "REQUIRED_SLOT";
+
+/** FOOD/LODGING은 일정 구성상 필수 슬롯 역할이라 일반 관광 POI 필터링 대상에서 제외한다(2026-07-30).
+ * 코드에 명시적으로 분리해 두어 일반 관광 POI 판정 로직과 섞이지 않게 한다. */
+const REQUIRED_SLOT_CATEGORIES: PoiCategoryCode[] = ["FOOD", "LODGING"];
+export function isRequiredSlotCategory(category: PoiCategoryCode): boolean {
+  return REQUIRED_SLOT_CATEGORIES.includes(category);
+}
+
 export interface PoiFitInput {
   id: string;
   name: string;
@@ -75,6 +102,7 @@ export interface PoiFitContext {
 export interface PoiFitResult {
   totalScore: number; // 0~100(평가된 항목만으로 재정규화)
   grade: PoiFitGrade;
+  recommendationStatus: PoiRecommendationStatus;
   breakdown: {
     categoryFit: { score: number; tier: PoiCategoryTier };
     /** evaluated=false면 선호 테마 자체가 입력되지 않아 이 항목을 점수에 포함하지 않았다는 뜻이다
@@ -121,6 +149,20 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
   // (기존 40이었을 때는 이런 경우도 "보통"으로 표시돼 실제로는 무관한 장소가 그럴듯해 보였다).
   const grade: PoiFitGrade = totalScore >= 75 ? "HIGH" : totalScore >= 55 ? "MEDIUM" : "LOW";
 
+  // 2026-07-30(저적합 POI 추천 제외 보완): FOOD/LODGING은 등급과 무관하게 필수 슬롯으로 유지한다.
+  // 일반 관광 POI 중 LOW는 "실제 확인 가능한 부정적 근거가 있는 경우"만 제외 대상(BELOW_MINIMUM_FIT)
+  // 으로 판정하고, 그 근거가 없으면(선호 테마 자체를 안 정해 테마 판단 근거가 없는 경우 등)
+  // INSUFFICIENT_EVALUATION_DATA로 남겨 임의로 부적합 취급하지 않는다.
+  let recommendationStatus: PoiRecommendationStatus;
+  if (isRequiredSlotCategory(input.category)) {
+    recommendationStatus = "REQUIRED_SLOT";
+  } else if (grade !== "LOW") {
+    recommendationStatus = "RECOMMENDED";
+  } else {
+    const hasConfirmedNegativeEvidence = tier === "FALLBACK" || (themeEvaluated && !themeMatched);
+    recommendationStatus = hasConfirmedNegativeEvidence ? "BELOW_MINIMUM_FIT" : "INSUFFICIENT_EVALUATION_DATA";
+  }
+
   const positiveReasons: string[] = [];
   const cautions: string[] = [];
 
@@ -152,12 +194,19 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
     cautions.push("운영시간 정보가 확인되지 않았습니다 — 실제 상품 확정 전 별도로 확인해야 합니다.");
   }
 
+  if (recommendationStatus === "BELOW_MINIMUM_FIT") {
+    cautions.push("전략 적합 기준에 미달해 실행안 추천에서 제외되었습니다.");
+  } else if (recommendationStatus === "INSUFFICIENT_EVALUATION_DATA") {
+    cautions.push("현재 데이터만으로는 전략 적합 여부를 충분히 판단하기 어려워 추천에서 제외하지 않았습니다.");
+  }
+
   const provenance = input.sourceType === "API" ? "LIVE_API" : "CURATED";
   const sourceLabel = input.sourceType === "API" ? "실제 공공데이터 동기화 결과" : "관리자가 정리한 데이터(큐레이션)";
 
   return {
     totalScore,
     grade,
+    recommendationStatus,
     breakdown: {
       categoryFit: { score: categoryScore, tier },
       themeFit: { score: themeScore, evaluated: themeEvaluated, matched: themeMatched },
@@ -173,4 +222,38 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
       closedDaysText: input.closedDays,
     },
   };
+}
+
+/** 이 판정 결과가 실행안 추천 목록에서 제외되어야 하는지 — 필터링 위치(코스 생성·요약 계산 등)마다
+ * 같은 기준을 반복해서 하드코딩하지 않도록 단일 함수로 둔다. */
+export function isExcludedFromRecommendation(fit: PoiFitResult): boolean {
+  return fit.recommendationStatus === "BELOW_MINIMUM_FIT";
+}
+
+export interface PoiFilterResult<T> {
+  recommended: T[];
+  excluded: Array<{ poi: T; fit: PoiFitResult }>;
+}
+
+/**
+ * 후보 목록에서 최소 적합 기준에 미달한 일반 관광 POI를 걸러낸다(2026-07-30, 저적합 POI 추천 제외
+ * 보완). FOOD/LODGING(필수 슬롯)과 "정보 부족으로 낮게 나온" POI는 제외하지 않는다 — 제외 기준은
+ * computePoiFit()의 recommendationStatus 판정 하나로 일원화해, 코스 생성(planService.ts)과 화면 표시
+ * (poiFitService.ts) 양쪽이 같은 함수를 호출해 같은 결과를 얻도록 한다.
+ */
+export function filterRecommendablePois<T extends PoiFitInput>(
+  pois: T[],
+  context: PoiFitContext,
+): PoiFilterResult<T> {
+  const recommended: T[] = [];
+  const excluded: Array<{ poi: T; fit: PoiFitResult }> = [];
+  for (const poi of pois) {
+    const fit = computePoiFit(poi, context);
+    if (isExcludedFromRecommendation(fit)) {
+      excluded.push({ poi, fit });
+    } else {
+      recommended.push(poi);
+    }
+  }
+  return { recommended, excluded };
 }
