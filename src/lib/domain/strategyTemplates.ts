@@ -34,6 +34,21 @@ export interface StrategyTemplate {
   foreignReadinessAdjustment: number;
   /** 위 조정치의 근거를 사람이 읽을 수 있는 문장으로 남긴다(홍보자료·화면에 그대로 노출 가능). */
   foreignReadinessNote: string;
+  /**
+   * 2026-07-31: 전략 3안이 제목·설명만 다르고 구조는 동일해 보이는 문제를 해결하기 위해 추가한
+   * 구조화된 차별화 필드(CURATED, 기획 규칙) — targetDescriptionTemplate(핵심 대상)/kpiTemplates
+   * (핵심 KPI)/riskTemplates(주요 위험)는 이미 있으므로 나머지 항목만 신설한다.
+   */
+  /** 해결하려는 문제 — 이 전략이 대응하는 지역의 구조적 약점이나 기회. */
+  coreProblem: string;
+  /** 활용 자원 — 이 전략이 실제로 활용하는 지역 자원/인프라. */
+  coreResource: string;
+  /** 체류 방식 — 방문객이 실제로 머무는 방식(당일/숙박, 밀도, 이동 방식). */
+  stayStyle: string;
+  /** 실행 난이도(CURATED) — 준비 기간·이해관계자 조율·인프라 요구 수준을 정성적으로 구분. */
+  executionDifficulty: "LOW" | "MEDIUM" | "HIGH";
+  /** 기대 효과 — 정량 수치를 지어내지 않고 정성적으로 서술한다. */
+  expectedEffect: string;
 }
 
 export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
@@ -61,6 +76,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "미식에 관심이 높은 소규모 동행 여행객",
     foreignReadinessAdjustment: -5,
     foreignReadinessNote: "전통시장 상점 대다수가 현장 안내에 의존해 외국어 메뉴판/안내 준비가 상대적으로 부족할 수 있음",
+    coreProblem: "전통시장 방문객의 체류시간이 짧고 단순 구경에 그쳐 실제 소비로 이어지지 않음",
+    coreResource: "전통시장 상점과 인근 로컬 맛집",
+    stayStyle: "당일 방문, 도보 중심으로 짧게 순회하는 방식",
+    executionDifficulty: "LOW",
+    expectedEffect: "시장 상권 매출 증가와 골목 상권 활성화(정성적 기대 — 정량 효과는 실제 매출 데이터로 별도 확인 필요)",
   },
   {
     id: "NIGHT_STAY_EXTENSION",
@@ -86,6 +106,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "체류를 늘리고 싶은 20~30대 커플/소그룹",
     foreignReadinessAdjustment: 3,
     foreignReadinessNote: "야경/야시장은 언어 장벽 없이 자기주도로 즐기기 쉬운 콘텐츠 위주라 접근성이 상대적으로 양호함",
+    coreProblem: "일몰 이후 즐길 거리가 부족해 당일 방문에 그치고 숙박 소비로 이어지지 않음",
+    coreResource: "야경 명소, 야시장, 야간 조명·공연 프로그램",
+    stayStyle: "저녁부터 심야까지 이어지는 1박 이상 체류형",
+    executionDifficulty: "MEDIUM",
+    expectedEffect: "숙박 전환율 증가와 야간 시간대 소비 확대(정성적 기대)",
   },
   {
     id: "NATURE_WELLNESS",
@@ -115,6 +140,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "자연 속 휴식을 원하는 30~50대 여행객",
     foreignReadinessAdjustment: 5,
     foreignReadinessNote: "자연경관 위주 코스는 별도 해설 없이도 자기주도 관람이 쉬워 접근성이 상대적으로 양호함",
+    coreProblem: "자연·휴양 자원은 있으나 체계적인 프로그램화가 안 돼 단순 경관 관람에 머무름",
+    coreResource: "자연경관과 온천·스파 등 실내 휴양시설",
+    stayStyle: "느긋한 휴식 중심의 저밀도 일정",
+    executionDifficulty: "LOW",
+    expectedEffect: "재방문 의사 제고와 지역 브랜드 이미지 개선(정성적 기대)",
   },
   {
     id: "CULTURE_HISTORY",
@@ -140,6 +170,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "역사·문화 학습에 관심 있는 가족/단체 여행객",
     foreignReadinessAdjustment: -6,
     foreignReadinessNote: "역사·문화 스토리텔링은 해설 의존도가 높아 외국어 해설사/오디오가이드 준비가 없으면 이해도가 크게 떨어질 수 있음",
+    coreProblem: "문화유산의 스토리가 충분히 전달되지 않아 방문객의 체류시간과 학습 몰입도가 낮음",
+    coreResource: "문화재·유적지와 해설사·전시 콘텐츠",
+    stayStyle: "해설 중심의 학습형 도보·차량 순회",
+    executionDifficulty: "MEDIUM",
+    expectedEffect: "체류시간 증가와 지역 브랜드 이미지 제고(정성적 기대)",
   },
   {
     id: "FESTIVAL_EVENT",
@@ -165,6 +200,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "축제 시즌에 맞춰 방문하는 다양한 동행 유형",
     foreignReadinessAdjustment: 4,
     foreignReadinessNote: "대형 축제·행사는 통상 다국어 안내판/외국인 부스가 갖춰지는 경우가 많아 접근성이 상대적으로 양호함",
+    coreProblem: "축제 기간에만 방문이 몰리고 그 외 기간에는 급격히 줄어드는 방문 쏠림",
+    coreResource: "축제 프로그램과 인근 상권·POI",
+    stayStyle: "행사 일정에 맞춘 집중 방문형",
+    executionDifficulty: "HIGH",
+    expectedEffect: "행사 기간 방문객 증가와 비수기 분산 효과(정성적 기대)",
   },
   {
     id: "FAMILY_EXPERIENCE",
@@ -190,6 +230,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "아이를 동반한 가족 단위 여행객",
     foreignReadinessAdjustment: 2,
     foreignReadinessNote: "체험형 콘텐츠는 시연·실습 위주라 언어 의존도가 상대적으로 낮음",
+    coreProblem: "아이 동반 가족이 안전하게 체험할 수 있는 프로그램과 동선 정보가 부족함",
+    coreResource: "체험 프로그램 시설과 가족 친화 편의시설",
+    stayStyle: "안전 동선 중심의 반나절~1일 체험형",
+    executionDifficulty: "MEDIUM",
+    expectedEffect: "가족 단위 재방문율 증가와 신규 가족 고객 확보(정성적 기대)",
   },
   {
     id: "YOUTH_LOCAL_CONTENT",
@@ -215,6 +260,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     targetDescriptionTemplate: "감성 콘텐츠와 로컬 경험을 중시하는 20대",
     foreignReadinessAdjustment: 3,
     foreignReadinessNote: "SNS 감성 스팟은 사진 중심 콘텐츠라 언어 장벽 없이도 즐기기 쉬움",
+    coreProblem: "청년층에게 소구할 감성 콘텐츠와 SNS 확산 유도 동선이 체계화되어 있지 않음",
+    coreResource: "SNS 감성 스팟과 로컬 소규모 매장",
+    stayStyle: "도보 중심의 자유 탐방형 짧은 일정",
+    executionDifficulty: "LOW",
+    expectedEffect: "SNS 콘텐츠 확산과 신규 청년 타깃 시장 개척(정성적 기대)",
   },
 ];
 

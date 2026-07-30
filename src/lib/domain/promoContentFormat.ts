@@ -1,4 +1,12 @@
-import type { InstagramContent, LandingContent, BlogContent, PromoContent, RolePromoContent } from "./promoContent";
+import type {
+  BlogContent,
+  CardNewsContent,
+  InstagramContent,
+  LandingContent,
+  PromoChannel,
+  PromoContent,
+  RolePromoContent,
+} from "./promoContent";
 
 /**
  * Phase 5-C 복사 기능이 쓰는 순수 포맷 함수. PromoContent를 읽기만 하고 mutate하지 않으며, 저장된
@@ -21,6 +29,10 @@ export function formatInstagramForCopy(instagram: InstagramContent): string {
 
 export function formatBlogForCopy(blog: BlogContent): string {
   return `${blog.title}\n\n${blog.body}`;
+}
+
+export function formatCardNewsForCopy(cardNews: CardNewsContent): string {
+  return cardNews.slides.map((s, i) => `${i + 1}. ${s.title}\n${s.body}`).join("\n\n");
 }
 
 export function roleContentSectionLabel(role: RolePromoContent["role"]): string {
@@ -67,16 +79,29 @@ export function formatRoleContentForCopy(roleContent: RolePromoContent): string 
   return lines.join("\n");
 }
 
-/** 화면 표시 순서(제안서 요약 → 랜딩 → Instagram → 블로그 → 역할별 자료)와 동일한 순서로 합친다. */
+function channelSection(content: PromoContent, channel: PromoChannel): [string, string] {
+  switch (channel) {
+    case "proposalSummary":
+      return ["제안서 요약", formatProposalSummaryForCopy(content.proposalSummary)];
+    case "landing":
+      return ["랜딩페이지", formatLandingForCopy(content.landing)];
+    case "instagram":
+      return ["Instagram", formatInstagramForCopy(content.instagram)];
+    case "blog":
+      return ["블로그", formatBlogForCopy(content.blog)];
+    case "cardNews":
+      return ["카드뉴스", formatCardNewsForCopy(content.cardNews)];
+    case "roleContent":
+      return [roleContentSectionLabel(content.roleContent.role), formatRoleContentForCopy(content.roleContent)];
+  }
+}
+
+/** 역할별 채널 우선순위(content.channelPriority) 순서로 합친다 — 채널 자체를 생략하지 않고 순서만
+ * 역할에 맞게 재배열한다(2026-07-31). */
 export function formatFullPromoContentForCopy(content: PromoContent): string {
-  const sections: Array<[string, string]> = [
-    ["제안서 요약", formatProposalSummaryForCopy(content.proposalSummary)],
-    ["랜딩페이지", formatLandingForCopy(content.landing)],
-    ["Instagram", formatInstagramForCopy(content.instagram)],
-    ["블로그", formatBlogForCopy(content.blog)],
-    [roleContentSectionLabel(content.roleContent.role), formatRoleContentForCopy(content.roleContent)],
-  ];
-  return sections.map(([label, body]) => `[${label}]\n${body}`).join("\n\n");
+  const sections = content.channelPriority.map((channel) => channelSection(content, channel));
+  const body = sections.map(([label, text]) => `[${label}]\n${text}`).join("\n\n");
+  return content.translationNotice ? `${body}\n\n[안내] ${content.translationNotice}` : body;
 }
 
 /** Instagram 해시태그 편집 textarea 입력을 배열로 변환한다. 쉼표/공백/줄바꿈을 구분자로 인정하고,

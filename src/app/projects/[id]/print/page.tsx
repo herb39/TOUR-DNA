@@ -242,6 +242,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
       {promoContent ? (
         <section className="mt-4 border-t border-slate-300 pt-3">
           <h2 className="text-sm font-semibold">홍보자료</h2>
+          {promoContent.translationNotice ? (
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              ⚠ {promoContent.translationNotice}
+            </p>
+          ) : null}
 
           <div className="mt-2">
             <h3 className="text-xs font-semibold text-slate-700">제안서 요약</h3>
@@ -273,6 +278,18 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                 {promoContent.instagram.hashtags.map((tag) => `#${tag}`).join(" ")}
               </p>
             ) : null}
+          </div>
+
+          <div className="mt-3">
+            <h3 className="text-xs font-semibold text-slate-700">카드뉴스 구성안</h3>
+            <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {promoContent.cardNews.slides.map((slide, i) => (
+                <div key={i} className="rounded border border-slate-200 p-1.5">
+                  <p className="text-[10px] font-semibold text-slate-800">{slide.title}</p>
+                  <p className="text-[10px] text-slate-600">{slide.body}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-3">

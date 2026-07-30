@@ -66,8 +66,8 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 2026-07-30(P0-1): 전략별 POI 적합도·후보 부족 안내를 이 코스에 담긴 poiId 기준으로 매번 새로
   // 계산한다(저장하지 않음) — 사용자가 장소를 추가·삭제해도 다음 렌더링에서 항상 최신 상태로 반영되고,
   // 선택 로직(selectPois)이나 전략 점수·순위는 전혀 건드리지 않는다.
-  const templateId = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId)
-    ?.templateId;
+  const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
+  const templateId = selectedStrategy?.templateId;
   let poiFitSummary: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>> | null = null;
   if (templateId && project.input) {
     const poiIds = planData.course.days.flatMap((d) => [
@@ -98,6 +98,31 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <p className="mt-1 text-sm text-slate-600">
           {project.region.name} · {project.travelYear}년 {project.travelMonth}월
         </p>
+        {selectedStrategy ? (
+          <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-700">
+            <p className="text-sm font-semibold text-slate-900">
+              선택 전략: {selectedStrategy.name} ({selectedStrategy.totalScore}점)
+            </p>
+            <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <dt className="font-medium text-slate-500">해결하려는 문제</dt>
+                <dd>{selectedStrategy.coreProblem ?? "재분석 필요"}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">활용 자원</dt>
+                <dd>{selectedStrategy.coreResource ?? "재분석 필요"}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">체류 방식</dt>
+                <dd>{selectedStrategy.stayStyle ?? "재분석 필요"}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">기대 효과</dt>
+                <dd>{selectedStrategy.expectedEffect ?? "재분석 필요"}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
         <div className="mt-6">
           <PlanEditor
             plan={planData}

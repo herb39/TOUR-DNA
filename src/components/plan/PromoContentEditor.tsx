@@ -11,6 +11,7 @@ import type {
 import type { PromoContent } from "@/lib/domain/promoContent";
 import {
   formatBlogForCopy,
+  formatCardNewsForCopy,
   formatFullPromoContentForCopy,
   formatInstagramForCopy,
   formatLandingForCopy,
@@ -22,6 +23,7 @@ import { ProposalSummaryEditor } from "./promo/ProposalSummaryEditor";
 import { LandingEditor } from "./promo/LandingEditor";
 import { InstagramEditor } from "./promo/InstagramEditor";
 import { BlogEditor } from "./promo/BlogEditor";
+import { CardNewsEditor } from "./promo/CardNewsEditor";
 import { RoleContentEditor } from "./promo/RoleContentEditor";
 import { PromoContentSources } from "./promo/PromoContentSources";
 
@@ -232,48 +234,93 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
             </button>
           </div>
 
-          <ProposalSummaryEditor
-            sentences={content.proposalSummary.sentences}
-            onChangeSentence={(index, value) =>
-              updateContent((prev) => ({
-                ...prev,
-                proposalSummary: { sentences: replaceTupleAt(prev.proposalSummary.sentences, index, value) },
-              }))
+          {content.translationNotice ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              {content.translationNotice}
+            </div>
+          ) : null}
+
+          <p className="text-[11px] text-slate-400">
+            아래 채널은 현재 역할에서 우선 확인하도록 정렬되어 있습니다(모든 채널은 그대로 제공됩니다).
+          </p>
+
+          {content.channelPriority.map((channel) => {
+            if (channel === "proposalSummary") {
+              return (
+                <ProposalSummaryEditor
+                  key={channel}
+                  sentences={content.proposalSummary.sentences}
+                  onChangeSentence={(index, value) =>
+                    updateContent((prev) => ({
+                      ...prev,
+                      proposalSummary: { sentences: replaceTupleAt(prev.proposalSummary.sentences, index, value) },
+                    }))
+                  }
+                  onCopy={() => copyToClipboard("proposal", formatProposalSummaryForCopy(content.proposalSummary))}
+                  copied={copiedKey === "proposal"}
+                />
+              );
             }
-            onCopy={() => copyToClipboard("proposal", formatProposalSummaryForCopy(content.proposalSummary))}
-            copied={copiedKey === "proposal"}
-          />
-
-          <LandingEditor
-            landing={content.landing}
-            onChange={(next) => updateContent((prev) => ({ ...prev, landing: next }))}
-            onCopy={() => copyToClipboard("landing", formatLandingForCopy(content.landing))}
-            copied={copiedKey === "landing"}
-          />
-
-          <InstagramEditor
-            instagram={content.instagram}
-            onChangeCaption={(value) => updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, caption: value } }))}
-            onChangeHashtagsText={(text) =>
-              updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, hashtags: parseHashtagsInput(text) } }))
+            if (channel === "landing") {
+              return (
+                <LandingEditor
+                  key={channel}
+                  landing={content.landing}
+                  onChange={(next) => updateContent((prev) => ({ ...prev, landing: next }))}
+                  onCopy={() => copyToClipboard("landing", formatLandingForCopy(content.landing))}
+                  copied={copiedKey === "landing"}
+                />
+              );
             }
-            onCopy={() => copyToClipboard("instagram", formatInstagramForCopy(content.instagram))}
-            copied={copiedKey === "instagram"}
-          />
-
-          <BlogEditor
-            blog={content.blog}
-            onChange={(next) => updateContent((prev) => ({ ...prev, blog: next }))}
-            onCopy={() => copyToClipboard("blog", formatBlogForCopy(content.blog))}
-            copied={copiedKey === "blog"}
-          />
-
-          <RoleContentEditor
-            roleContent={content.roleContent}
-            onChange={(next) => updateContent((prev) => ({ ...prev, roleContent: next }))}
-            onCopy={() => copyToClipboard("role", formatRoleContentForCopy(content.roleContent))}
-            copied={copiedKey === "role"}
-          />
+            if (channel === "instagram") {
+              return (
+                <InstagramEditor
+                  key={channel}
+                  instagram={content.instagram}
+                  onChangeCaption={(value) =>
+                    updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, caption: value } }))
+                  }
+                  onChangeHashtagsText={(text) =>
+                    updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, hashtags: parseHashtagsInput(text) } }))
+                  }
+                  onCopy={() => copyToClipboard("instagram", formatInstagramForCopy(content.instagram))}
+                  copied={copiedKey === "instagram"}
+                />
+              );
+            }
+            if (channel === "blog") {
+              return (
+                <BlogEditor
+                  key={channel}
+                  blog={content.blog}
+                  onChange={(next) => updateContent((prev) => ({ ...prev, blog: next }))}
+                  onCopy={() => copyToClipboard("blog", formatBlogForCopy(content.blog))}
+                  copied={copiedKey === "blog"}
+                />
+              );
+            }
+            if (channel === "cardNews") {
+              return (
+                <CardNewsEditor
+                  key={channel}
+                  cardNews={content.cardNews}
+                  onChange={(next) => updateContent((prev) => ({ ...prev, cardNews: next }))}
+                  onCopy={() => copyToClipboard("cardNews", formatCardNewsForCopy(content.cardNews))}
+                  copied={copiedKey === "cardNews"}
+                />
+              );
+            }
+            // channel === "roleContent" (PromoChannel의 마지막 케이스)
+            return (
+              <RoleContentEditor
+                key={channel}
+                roleContent={content.roleContent}
+                onChange={(next) => updateContent((prev) => ({ ...prev, roleContent: next }))}
+                onCopy={() => copyToClipboard("role", formatRoleContentForCopy(content.roleContent))}
+                copied={copiedKey === "role"}
+              />
+            );
+          })}
 
           <PromoContentSources evidenceReferences={content.evidenceReferences} courseHighlights={content.courseHighlights} />
         </div>

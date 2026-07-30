@@ -93,6 +93,13 @@ export interface StrategyComputationResult {
   risks: string[];
   evidences: EvidenceItem[];
   modelVersion: string;
+  /** 2026-07-31: 전략 3안 구조적 차별화 필드 — strategyTemplates.ts에 그대로 정의된 값을 옮긴다
+   * (조건별로 계산되지 않는 템플릿 고유 속성, CURATED). */
+  coreProblem: string;
+  coreResource: string;
+  stayStyle: string;
+  executionDifficulty: "LOW" | "MEDIUM" | "HIGH";
+  expectedEffect: string;
 }
 
 function circularMonthDistance(a: number, b: number): number {
@@ -562,5 +569,10 @@ export function computeStrategies(
     risks: s.template.riskTemplates,
     evidences: s.evidences,
     modelVersion,
+    coreProblem: s.template.coreProblem,
+    coreResource: s.template.coreResource,
+    stayStyle: s.template.stayStyle,
+    executionDifficulty: s.template.executionDifficulty,
+    expectedEffect: s.template.expectedEffect,
   }));
 }

@@ -325,3 +325,49 @@ export function computeNationalityKpiNotes(nationality: NationalityCode | undefi
   if (nationality !== "FOREIGN") return [];
   return [{ name: "외국인 예약 비중 추이", method: "예약 시스템의 국적 입력값 기준 외국인 예약 건수 비율을 추적" }];
 }
+
+/**
+ * 2026-07-31: 프로젝트 조건(역할·국적·테마·여행월·지역)이 "프로젝트 조건 → DNA 분석 → 전략 3안 →
+ * 선택 전략 → 실행안 → 홍보자료" 파이프라인 전체에 같은 정규화 규칙으로 전달되도록 하는 공통 도메인
+ * 타입이다. 이전에는 analyzeProject.ts/planService.ts/promoContentAdapter.ts가 각자 raw 값을 받아
+ * 개별적으로 normalizeRole/normalizeNationality 등을 다시 호출했다 — 정규화 규칙 자체(무엇을 유효한
+ * 값으로 볼지)는 이 파일에 이미 모여 있었으므로 결과가 갈릴 위험은 없었지만, "같은 컨텍스트 타입을
+ * 파이프라인 전체가 공유"하지는 않아 각 단계가 독립적으로 재정규화하는 구조였다. 이 타입과
+ * buildAnalysisContext()로 그 공유 지점을 명시적으로 만든다.
+ */
+export interface AnalysisContext {
+  role: UserRoleCode | undefined;
+  nationality: NationalityCode | undefined;
+  travelMonth: number | undefined;
+  /** 정규화된 원본 문자열 목록(표시·비교용 — 예: substring 매칭, 화면 노출). */
+  preferredThemes: string[];
+  excludedThemes: string[];
+  /** 자유 텍스트 테마를 내부 분류 카테고리로 매핑한 결과(THEME_KEYWORDS 기반). */
+  themeCategories: ThemeCategory[];
+  regionCode: string;
+}
+
+export interface BuildAnalysisContextInput {
+  role: unknown;
+  nationality: unknown;
+  travelMonth: unknown;
+  preferredThemes: unknown;
+  excludedThemes?: unknown;
+  regionCode: string;
+}
+
+/** 파이프라인 전체가 공유하는 단일 진입점 — 역할/국적/월/테마 값이 유효하지 않거나(레거시 데이터,
+ * 잘못된 폼 입력 등) 없으면 각 필드가 조용히 undefined/빈 배열로 빠진다(하위 호환, 임의 문자열이
+ * 그대로 분석·프롬프트에 들어가지 않는다). */
+export function buildAnalysisContext(input: BuildAnalysisContextInput): AnalysisContext {
+  const preferredThemes = normalizeThemeList(input.preferredThemes);
+  return {
+    role: normalizeRole(input.role),
+    nationality: normalizeNationality(input.nationality),
+    travelMonth: normalizeMonth(input.travelMonth),
+    preferredThemes,
+    excludedThemes: normalizeThemeList(input.excludedThemes),
+    themeCategories: classifyThemes(preferredThemes),
+    regionCode: input.regionCode,
+  };
+}

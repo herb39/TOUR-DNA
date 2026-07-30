@@ -39,6 +39,7 @@ function toEvidenceRow(e: {
   sourceCode: string;
   collectedAt: Date;
   appliedRule: string;
+  provenance?: string | null;
 }): EvidenceRow {
   return e;
 }
@@ -131,6 +132,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     consumptionTouchpoints: s.consumptionTouchpoints as unknown as StrategyCardData["consumptionTouchpoints"],
     risks: s.risks as string[],
     evidences: s.evidences.map(toEvidenceRow),
+    coreProblem: s.coreProblem,
+    coreResource: s.coreResource,
+    stayStyle: s.stayStyle,
+    executionDifficulty: s.executionDifficulty as "LOW" | "MEDIUM" | "HIGH" | null,
+    expectedEffect: s.expectedEffect,
   }));
 
   const allPoiIds = Array.from(

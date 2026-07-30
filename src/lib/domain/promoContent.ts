@@ -130,16 +130,48 @@ export interface PromoCourseHighlight {
   mealPurpose: MealPurpose | null;
 }
 
+export interface CardNewsSlide {
+  title: string;
+  body: string;
+}
+
+/** 카드뉴스 채널(2026-07-31 추가) — course/targetSummary/kpis 등 이미 저장된 값만으로 슬라이드를
+ * 구성하는 결정론적 채널. 새 이미지·디자인 자산은 만들지 않고 텍스트 구성안만 제공한다. */
+export interface CardNewsContent {
+  slides: CardNewsSlide[];
+}
+
+export type PromoChannel = "proposalSummary" | "landing" | "instagram" | "blog" | "cardNews" | "roleContent";
+
+/** cardNews/channelPriority/translationNotice 도입(2026-07-31) 이전에 저장된 홍보자료를 안전하게
+ * 채우기 위한 기본값 — `promoContent.schema.ts`의 하위 호환 처리에서만 사용한다. */
+export const DEFAULT_CHANNEL_PRIORITY: PromoChannel[] = [
+  "proposalSummary",
+  "landing",
+  "instagram",
+  "blog",
+  "cardNews",
+  "roleContent",
+];
+
 export interface PromoContent {
   version: string;
   proposalSummary: ProposalSummary;
   landing: LandingContent;
   instagram: InstagramContent;
   blog: BlogContent;
+  cardNews: CardNewsContent;
   roleContent: RolePromoContent;
   evidenceReferences: PromoEvidenceReference[];
   /** course를 홍보자료 문구에 쓰기 위해 뽑아낸 대표 일정 — 원래 순서(dayIndex → order)를 그대로 유지한다. */
   courseHighlights: PromoCourseHighlight[];
+  /** 역할별로 어떤 채널을 우선 확인해야 하는지 순서를 담는다(화면 표시 순서 힌트일 뿐, 채널 자체를
+   * 숨기지는 않는다) — 지자체는 보도자료·제안서, 축제 기획자는 SNS·카드뉴스, 여행사는 상품 소개문·SNS
+   * 순서를 우선한다(마스터 문서 6절). */
+  channelPriority: PromoChannel[];
+  /** 국적이 FOREIGN일 때만 채워진다 — 검증된 다국어 번역 데이터/기능이 없다는 사실을 화면에 투명하게
+   * 알린다(저품질 대량 번역을 만들지 않는다는 원칙, 2026-07-31). */
+  translationNotice: string | null;
 }
 
 function joinNonEmpty(parts: Array<string | null | undefined>, separator = " "): string {
@@ -425,6 +457,43 @@ function buildFestivalPlannerPromo(
   };
 }
 
+/** 카드뉴스 슬라이드 구성안 — 표지(전략명+타깃) → 대표 방문지 1장당 1슬라이드(최대 3장) → 핵심
+ * KPI/판매 포인트 요약 순으로 결정론적으로 만든다. 새 수치·이미지는 만들지 않고 이미 저장된 값만 옮긴다. */
+function buildCardNews(input: BuildPromoContentInput, highlights: PromoCourseHighlight[]): CardNewsContent {
+  const { project, strategy, plan } = input;
+  const slides: CardNewsSlide[] = [
+    { title: `${project.regionName} ${strategy.name}`, body: plan.targetSummary },
+  ];
+  for (const h of highlights.slice(0, 3)) {
+    slides.push({ title: h.poiName, body: `${h.dayIndex}일차 ${h.timeSlot}` });
+  }
+  const closingBody =
+    plan.sellingPoints.filter(isNonEmptyString)[0] ??
+    (plan.kpis[0] ? `${plan.kpis[0].name} — ${plan.kpis[0].method}` : "자세한 내용은 실행안을 참고해 주세요.");
+  slides.push({ title: "핵심 포인트", body: closingBody });
+  return { slides };
+}
+
+/** 역할별 홍보자료 채널 확인 우선순위(CURATED, 마스터 문서 6절) — 채널 자체를 숨기지 않고 표시 순서만
+ * 안내한다. 지자체는 보도자료·제안서, 축제 기획자는 SNS·카드뉴스, 여행사는 상품 소개문·SNS·블로그를
+ * 우선한다. */
+function computeChannelPriority(role: PromoUserRole): PromoChannel[] {
+  if (role === "LOCAL_GOV") {
+    return ["roleContent", "proposalSummary", "landing", "blog", "cardNews", "instagram"];
+  }
+  if (role === "FESTIVAL_PLANNER") {
+    return ["instagram", "cardNews", "roleContent", "proposalSummary", "landing", "blog"];
+  }
+  return ["roleContent", "instagram", "blog", "landing", "cardNews", "proposalSummary"];
+}
+
+/** 외국인 대상일 때만 노출되는 안내 — 검증된 번역 데이터/기능이 없다는 사실을 투명하게 알린다(저품질
+ * 대량 번역을 자동 생성하지 않는다는 원칙, 2026-07-31). */
+function buildTranslationNotice(nationality: PromoNationality | null): string | null {
+  if (nationality !== "FOREIGN") return null;
+  return "외국인 대상 홍보자료입니다. 현재 검증된 다국어 번역 데이터나 번역 기능이 없어 한국어 기획안 그대로 제공합니다 — 실제 배포 전 전문 번역을 거쳐 주세요.";
+}
+
 export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
   const highlights = extractCourseHighlights(input.plan.course, 4);
   const highlightNames = highlights.map((h) => h.poiName);
@@ -445,8 +514,11 @@ export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
     landing: buildLanding(input, highlightNames, lunchName, dinnerName),
     instagram: buildInstagram(input, highlightNames),
     blog: buildBlog(input, highlightNames),
+    cardNews: buildCardNews(input, highlights),
     roleContent,
     evidenceReferences: evidenceRefs,
     courseHighlights: highlights,
+    channelPriority: computeChannelPriority(input.project.role),
+    translationNotice: buildTranslationNotice(input.project.nationality),
   };
 }

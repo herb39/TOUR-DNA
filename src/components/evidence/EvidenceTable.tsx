@@ -1,4 +1,4 @@
-import { formatBaseYm, formatDateTime, metricLabel, sourceLabel } from "@/lib/format";
+import { formatBaseYm, formatDateTime, metricLabel, provenanceLabel, sourceLabel } from "@/lib/format";
 
 export interface EvidenceRow {
   metricCode: string;
@@ -11,12 +11,15 @@ export interface EvidenceRow {
   sourceCode: string;
   collectedAt: Date | string;
   appliedRule: string;
+  /** 값이 없거나(레거시) 호출부가 넘기지 않으면 근거 수준 열을 생략한다(기존 호출부 회귀 방지). */
+  provenance?: string | null;
 }
 
 export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
   if (items.length === 0) {
     return <p className="text-xs text-slate-500">연결된 데이터 근거가 없습니다.</p>;
   }
+  const showProvenance = items.some((e) => e.provenance !== undefined);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-left text-xs">
@@ -31,6 +34,7 @@ export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
             <th scope="col" className="py-1 pr-3 font-medium">출처</th>
             <th scope="col" className="py-1 pr-3 font-medium">수집일</th>
             <th scope="col" className="py-1 pr-3 font-medium">반영 규칙</th>
+            {showProvenance ? <th scope="col" className="py-1 pr-3 font-medium">근거 수준</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -45,6 +49,19 @@ export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
               <td className="py-1.5 pr-3">{sourceLabel(e.sourceCode)}</td>
               <td className="py-1.5 pr-3">{formatDateTime(e.collectedAt)}</td>
               <td className="py-1.5 pr-3">{e.appliedRule}</td>
+              {showProvenance ? (
+                <td className="py-1.5 pr-3">
+                  <span
+                    className={
+                      e.provenance === "ESTIMATED" || !e.provenance
+                        ? "text-amber-700"
+                        : "text-slate-700"
+                    }
+                  >
+                    {provenanceLabel(e.provenance)}
+                  </span>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

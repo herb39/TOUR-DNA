@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROMO_CONTENT_VERSION, type PromoContent } from "@/lib/domain/promoContent";
+import { DEFAULT_CHANNEL_PRIORITY, PROMO_CONTENT_VERSION, type PromoContent } from "@/lib/domain/promoContent";
 
 /**
  * DB에 저장된(또는 클라이언트가 편집해 보낸) 홍보자료 JSON이 Phase 5-A `PromoContent`와 실제로 일치하는지
@@ -64,16 +64,33 @@ const festivalPlannerPromoSchema = z.object({
   risks: z.array(z.string()),
 });
 
-const promoContentSchema = z.object({
-  version: z.literal(PROMO_CONTENT_VERSION),
-  proposalSummary: proposalSummarySchema,
-  landing: landingSchema,
-  instagram: instagramSchema,
-  blog: blogSchema,
-  roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema, festivalPlannerPromoSchema]),
-  evidenceReferences: z.array(promoEvidenceReferenceSchema),
-  courseHighlights: z.array(promoCourseHighlightSchema),
-});
+const cardNewsSlideSchema = z.object({ title: z.string(), body: z.string() });
+const cardNewsSchema = z.object({ slides: z.array(cardNewsSlideSchema) });
+const promoChannelSchema = z.enum(["proposalSummary", "landing", "instagram", "blog", "cardNews", "roleContent"]);
+
+// cardNews/channelPriority/translationNotice는 2026-07-31에 추가됐다 — 그 이전에 저장된 홍보자료(v1
+// 초기 형태)에는 이 필드들이 아예 없다. optional로 받아들이고 파싱 후 안전한 기본값으로 채워 넣는다
+// (기존 프로젝트가 새 필드 때문에 "형식이 올바르지 않음"으로 막히지 않도록 하는 하위 호환 처리).
+const promoContentSchema = z
+  .object({
+    version: z.literal(PROMO_CONTENT_VERSION),
+    proposalSummary: proposalSummarySchema,
+    landing: landingSchema,
+    instagram: instagramSchema,
+    blog: blogSchema,
+    cardNews: cardNewsSchema.optional(),
+    roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema, festivalPlannerPromoSchema]),
+    evidenceReferences: z.array(promoEvidenceReferenceSchema),
+    courseHighlights: z.array(promoCourseHighlightSchema),
+    channelPriority: z.array(promoChannelSchema).optional(),
+    translationNotice: z.string().nullable().optional(),
+  })
+  .transform((data) => ({
+    ...data,
+    cardNews: data.cardNews ?? { slides: [] },
+    channelPriority: data.channelPriority ?? DEFAULT_CHANNEL_PRIORITY,
+    translationNotice: data.translationNotice ?? null,
+  }));
 
 export type PromoContentParseResult = { ok: true; value: PromoContent } | { ok: false; message: string };
 

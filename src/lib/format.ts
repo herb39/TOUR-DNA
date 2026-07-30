@@ -22,6 +22,22 @@ export function poiCategoryLabel(category: string): string {
   return POI_CATEGORY_LABEL_KO[category] ?? category;
 }
 
+/** DataProvenance → 사용자용 한글 근거 수준 라벨(2026-07-31, 역할별 맞춤 분석 완성). 내부 enum 이름을
+ * 화면에 그대로 노출하지 않고, "근거 있는 사실"과 "추정/근거 없음"을 한국어로 명확히 구분한다.
+ * null은 판정 근거 자체가 없다는 뜻이라 MISSING과 동일하게 취급한다. */
+export const DATA_PROVENANCE_LABEL_KO: Record<string, string> = {
+  LIVE_API: "실제 공공데이터(최신)",
+  CACHED_API: "실제 공공데이터(이전 확인분 재사용)",
+  CURATED: "운영자 검수 데이터",
+  ESTIMATED: "추정값(정량 근거 낮음)",
+  MISSING: "근거 없음",
+};
+
+export function provenanceLabel(provenance: string | null | undefined): string {
+  if (!provenance) return DATA_PROVENANCE_LABEL_KO.MISSING;
+  return DATA_PROVENANCE_LABEL_KO[provenance] ?? provenance;
+}
+
 export function formatDateTime(date: Date | string | null | undefined): string {
   if (!date) return "-";
   const d = typeof date === "string" ? new Date(date) : date;

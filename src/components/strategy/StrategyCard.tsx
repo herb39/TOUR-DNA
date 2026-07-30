@@ -34,7 +34,19 @@ export interface StrategyCardData {
   consumptionTouchpoints: ConsumptionTouchpoints;
   risks: string[];
   evidences: EvidenceRow[];
+  /** 2026-07-31: 전략 3안 구조적 차별화 필드 — 이 필드 도입 이전에 저장된 레코드는 null(레거시). */
+  coreProblem: string | null;
+  coreResource: string | null;
+  stayStyle: string | null;
+  executionDifficulty: "LOW" | "MEDIUM" | "HIGH" | null;
+  expectedEffect: string | null;
 }
+
+const EXECUTION_DIFFICULTY_LABEL: Record<"LOW" | "MEDIUM" | "HIGH", string> = {
+  LOW: "낮음",
+  MEDIUM: "보통",
+  HIGH: "높음",
+};
 
 type ScoreBreakdownKey = keyof Omit<ScoreBreakdown, "roleFitReason">;
 
@@ -90,6 +102,29 @@ export function StrategyCard({
       <p className="mt-1 text-xs font-medium text-amber-700">
         ※ 점수는 조건 적합도이며, 매출·방문객 증가 예측치가 아닙니다.
       </p>
+
+      <dl className="mt-3 space-y-1.5 rounded-md bg-slate-50 p-3 text-xs text-slate-700">
+        <div>
+          <dt className="font-medium text-slate-500">해결하려는 문제</dt>
+          <dd>{strategy.coreProblem ?? "재분석 필요"}</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-slate-500">활용 자원</dt>
+          <dd>{strategy.coreResource ?? "재분석 필요"}</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-slate-500">체류 방식</dt>
+          <dd>{strategy.stayStyle ?? "재분석 필요"}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="font-medium text-slate-500">실행 난이도</dt>
+          <dd>{strategy.executionDifficulty ? EXECUTION_DIFFICULTY_LABEL[strategy.executionDifficulty] : "재분석 필요"}</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-slate-500">기대 효과</dt>
+          <dd>{strategy.expectedEffect ?? "재분석 필요"}</dd>
+        </div>
+      </dl>
 
       <ul className="mt-3 space-y-1 text-xs text-slate-600">
         {(Object.keys(SCORE_BREAKDOWN_LABEL) as ScoreBreakdownKey[]).map((key) => (

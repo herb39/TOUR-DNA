@@ -351,6 +351,34 @@ Phase 4(P0-1, `origin/main`에 push 완료)에 이어 대표 시나리오 3개(P
 | 배열 정렬 후 해시 | DONE | [analysisKey.ts:3-14](../src/lib/domain/analysisKey.ts#L3-L14) `sortDeep`이 객체 키를 정렬(단, 배열 요소 자체의 순서는 정렬하지 않음 — `preferredThemes` 등 배열의 원소 순서가 바뀌면 키가 달라질 수 있어 "의미상 순서 없는 배열은 정렬 후 해시"라는 요구를 완전히 충족하지 못함) |
 | 같은 입력/데이터 → 같은 결과 테스트 | 부분 DONE | `analysisKey.test.ts`(4), `strategy.test.ts`(12)에 결정론 테스트 존재. 단 위 두 결함 때문에 "동일 데이터=동일 dataVersion" 전제 자체가 깨져 있어 테스트가 결함을 못 잡고 있을 가능성 있음(재검토 필요) |
 
+## Phase 4-보완. 역할별 맞춤 분석·결과물 차별화 완성 — `DONE(로컬, 2026-07-31, migration 미적용)`
+
+Phase 4(역할·국적·테마·여행월의 점수/체크리스트 반영)는 이미 완료돼 있었다. 이번 보완은 "전략 3안이
+제목·설명만 다르고 구조는 동일하다"는 남은 문제와, 공통 분석 컨텍스트 부재, 근거 수준 미표시, 홍보자료
+채널 부족을 해소한다.
+
+- **전략 3안 구조적 차별화**: [strategyTemplates.ts](../src/lib/domain/strategyTemplates.ts)에
+  `coreProblem`(해결하려는 문제)/`coreResource`(활용 자원)/`stayStyle`(체류 방식)/
+  `executionDifficulty`(실행 난이도)/`expectedEffect`(기대 효과) 5개 필드를 7개 템플릿 전부에 추가.
+  `targetDescriptionTemplate`(핵심 대상)/`kpiTemplates`(핵심 KPI)/`riskTemplates`(주요 위험)는
+  이미 있었으므로 요청한 8개 항목을 모두 충족. `StrategyResult`(Prisma)에 동일 5개 nullable 컬럼
+  추가(`add_strategy_differentiation_fields` migration, **미적용** — 배포 전 `prisma migrate deploy`
+  필요). 기존 레코드는 null → 화면에서 "재분석 필요"로 안내(roleFit과 동일한 패턴).
+- **공통 AnalysisContext**: [audienceContext.ts](../src/lib/domain/audienceContext.ts)에
+  `AnalysisContext`/`buildAnalysisContext()` 도입, [analyzeProject.ts](../src/lib/services/analyzeProject.ts)가
+  이를 통해 role/nationality/travelMonth/테마를 한 번만 정규화해 전략 계산에 넘긴다.
+- **근거 수준 한글 표시**: `format.ts`의 `provenanceLabel()`이 `DataProvenance`를 한글 라벨로
+  변환, `EvidenceTable.tsx`에 "근거 수준" 열 추가(값이 없는 기존 호출부는 열 자체를 생략).
+- **홍보자료 카드뉴스 채널 + 역할별 채널 우선순위 + 외국인 번역 안내**:
+  [promoContent.ts](../src/lib/domain/promoContent.ts)에 `cardNews`/`channelPriority`/
+  `translationNotice` 추가. `PROMO_CONTENT_VERSION`은 그대로 두고 `promoContent.schema.ts`에서
+  이 3개 필드를 optional로 받아 기본값을 채우는 방식으로 하위 호환을 유지했다(기존 저장 데이터가
+  "형식 오류"로 막히지 않음).
+- **미구현/후속 과제로 남긴 것**: 타깃 국적은 여전히 DOMESTIC/FOREIGN 2종뿐(신규 국가 추가 없음).
+  실제 다국어 번역 기능은 만들지 않고 안내 문구만 제공. `promoContentAdapter.ts`/`planService.ts`는
+  이번에 공통 컨텍스트로 교체하지 않음(회귀 위험 대비 최소 변경 원칙, 이미 각자 audienceContext.ts의
+  같은 정규화 함수를 사용 중이라 결과 자체는 갈리지 않는다).
+
 ## Phase 4. 역할·국적·테마·여행월 반영 — `DONE(로컬)` — 원격/DB/배포는 별도 확인 필요
 
 DB 스키마 변경 없이(role/nationality/travelMonth/preferredThemes는 이미 저장돼 있던 필드) 도메인 로직만

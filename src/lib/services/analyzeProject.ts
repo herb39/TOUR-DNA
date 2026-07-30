@@ -4,7 +4,7 @@ import { MODEL_VERSION } from "@/lib/domain/constants";
 import { computeDataVersion } from "@/lib/domain/dataVersion";
 import { computeDna } from "@/lib/domain/dna";
 import { computeStrategies, type ProjectInputForScoring } from "@/lib/domain/strategy";
-import { normalizeNationality, normalizeRole } from "@/lib/domain/audienceContext";
+import { buildAnalysisContext } from "@/lib/domain/audienceContext";
 import type { EvidenceItem } from "@/lib/domain/types";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
@@ -47,6 +47,19 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
   const dataVersion = computeDataVersion(dnaInput);
 
   const poisByCategory = await fetchPoisByCategory(project.region.code);
+
+  // 프로젝트 조건(역할·국적·테마·월·지역)을 파이프라인 전체가 공유하는 단일 컨텍스트로 정규화한다
+  // (2026-07-31, 역할별 맞춤 분석 완성) — DNA 분석/전략 계산/실행안/홍보자료가 모두 이 컨텍스트가
+  // 만든 값(role/nationality/travelMonth/themeCategories)을 그대로 신뢰한다.
+  const analysisContext = buildAnalysisContext({
+    role: project.role,
+    nationality: project.input.nationality,
+    travelMonth: project.travelMonth,
+    preferredThemes: project.input.preferredThemes,
+    excludedThemes: project.input.excludedThemes,
+    regionCode: project.region.code,
+  });
+
   const scoringInput: ProjectInputForScoring = {
     ageGroups: project.input.ageGroups as string[],
     companionType: project.input.companionType,
@@ -56,11 +69,11 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
     budgetLevel: project.input.budgetLevel,
     transport: project.input.transport,
     groupType: project.input.groupType,
-    travelMonth: project.travelMonth,
-    preferredThemes: project.input.preferredThemes as string[],
-    excludedThemes: project.input.excludedThemes as string[],
-    role: normalizeRole(project.role),
-    nationality: normalizeNationality(project.input.nationality),
+    travelMonth: analysisContext.travelMonth ?? project.travelMonth,
+    preferredThemes: analysisContext.preferredThemes,
+    excludedThemes: analysisContext.excludedThemes,
+    role: analysisContext.role,
+    nationality: analysisContext.nationality,
   };
 
   const strategies = computeStrategies(dna, scoringInput, poisByCategory, MODEL_VERSION);
@@ -121,6 +134,11 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
         consumptionTouchpoints: { ...s.consumptionTouchpoints },
         risks: s.risks,
         evidenceIds: [],
+        coreProblem: s.coreProblem,
+        coreResource: s.coreResource,
+        stayStyle: s.stayStyle,
+        executionDifficulty: s.executionDifficulty,
+        expectedEffect: s.expectedEffect,
       },
     });
 

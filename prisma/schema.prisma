@@ -372,6 +372,13 @@ model StrategyResult {
   consumptionTouchpoints Json // { food: boolean, lodging: boolean, experience: boolean, examples: string[] }
   risks                  Json // string[]
   evidenceIds            Json // string[] (Evidence.id) — 조인 없이 빠른 조회용 캐시
+  /// 2026-07-31: 전략 3안 구조적 차별화 필드(역할별 맞춤 분석 완성). 이 필드들이 없던 기존 레코드는
+  /// null이며, 화면에서는 그 경우 "재분석 필요"로 안내한다(roleFit과 동일한 하위 호환 패턴).
+  coreProblem            String?
+  coreResource           String?
+  stayStyle              String?
+  executionDifficulty    String? // "LOW" | "MEDIUM" | "HIGH"
+  expectedEffect         String?
 
   evidences Evidence[]
 
