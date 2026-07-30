@@ -1,6 +1,10 @@
 import { computePoiFit, classifyPoiCategoryTier, type PoiFitResult } from "@/lib/domain/poiFit";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
-import { NON_LODGING_POI_TARGET_BY_DURATION, type DurationCode } from "@/lib/domain/strategy";
+import {
+  MEAL_RESERVE_TARGET_BY_DURATION,
+  NON_LODGING_POI_TARGET_BY_DURATION,
+  type DurationCode,
+} from "@/lib/domain/strategy";
 import { fetchPoiDetailsInOrder } from "./poiDetails";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 
@@ -57,7 +61,12 @@ export async function buildStrategyPoiFitSummary(params: {
     );
   }
 
-  const nonLodgingTarget = NON_LODGING_POI_TARGET_BY_DURATION[params.duration];
+  // 2026-07-30(통합 검증): planService.ts(ensureSelectedPlan)가 실제로 코스를 구성할 때 목표로 삼는
+  // 개수는 NON_LODGING_POI_TARGET_BY_DURATION 하나가 아니라 여기에 식사 선점 목표(MEAL_RESERVE_
+  // TARGET_BY_DURATION)를 더한 값이다(desiredNonLodgingCount, planService.ts 참고) — 이 값을 빼먹으면
+  // 실제로는 목표에 못 미쳐 부족한 상황에서도 목표치를 낮게 잡아 부족 안내가 누락될 수 있었다.
+  const nonLodgingTarget =
+    NON_LODGING_POI_TARGET_BY_DURATION[params.duration] + MEAL_RESERVE_TARGET_BY_DURATION[params.duration];
   const actualNonLodging = details.filter((d) => d.category !== "LODGING").length;
 
   let shortage: PoiShortageNotice | null = null;

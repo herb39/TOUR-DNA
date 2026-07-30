@@ -9,6 +9,14 @@ vi.mock("@/lib/services/projectQueries", () => ({
   getProjectDetail: (...args: unknown[]) => getProjectDetail(...args),
 }));
 
+// print/page.tsx가 POI 적합도 요약(P0-1)을 계산할 때 @/lib/db(Prisma)까지 로드되는 실제 서비스 체인을
+// 타지 않도록 모킹한다 — 이 테스트는 홍보자료 출력 로직만 검증하며, 실제 DB 연결(DATABASE_URL)이
+// 필요 없어야 한다. 반환값은 "적합도 결과 없음"에 해당하며, 이 상태에서도 화면이 정상 렌더링됨을
+// 함께 확인한다.
+vi.mock("@/lib/services/poiFitService", () => ({
+  buildStrategyPoiFitSummary: vi.fn().mockResolvedValue({ fitsByPoiId: {}, shortage: null }),
+}));
+
 import PrintPage from "@/app/projects/[id]/print/page";
 import { buildPromoContent } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";
