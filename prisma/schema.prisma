@@ -266,16 +266,33 @@ model Project {
   travelMonth              Int
   status                   ProjectStatus @default(DRAFT)
   selectedStrategyResultId String?
+  /// 프로젝트 비밀번호 접근 보호(2026-07-30). scrypt 해시를 "<saltHex>:<hashHex>" 형식 문자열로
+  /// 저장한다. null이면 공개 프로젝트(기존 프로젝트는 모두 null로 유지 — 하위 호환). 계정 기반
+  /// 소유권이 아니라 "비밀번호를 아는 사람은 누구나 접근 가능"한 수준의 보호다.
+  passwordHash             String?
 
   input          ProjectInput?
   analysisResult AnalysisResult?
   selectedPlan   SelectedPlan?
+  accessAttempt  ProjectAccessAttempt?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([regionId])
+}
+
+/// 프로젝트 비밀번호 확인 실패 횟수를 DB에 기록해 무차별 대입을 방어한다(2026-07-30). Vercel의
+/// 서버리스 인스턴스는 상태를 공유하지 않으므로 메모리 카운터로는 실효성이 없어, 요청마다 공유 DB에
+/// 기록하는 방식만 사용한다. 프로젝트당 최대 1행(@@unique)만 유지한다.
+model ProjectAccessAttempt {
+  id          String    @id @default(cuid())
+  projectId   String    @unique
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  failedCount Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
 }
 
 model ProjectInput {

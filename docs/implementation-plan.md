@@ -257,16 +257,16 @@ docs/
 | S-B | E2E 확장 대신, 실제 fixture 데이터(METRIC_FIXTURES/POI_SEED)로 `computeDna`→`computeStrategies`→`planBuilder`를 직접 통과시켜 3개 시나리오의 DNA·점수·순위·근거·KPI·체크리스트·위험요인이 실제로 다름을 단위 테스트로 검증(`contestScenarios.test.ts`) | **DONE(로컬)** — Playwright E2E 확장은 하지 않음(브라우저·dev 서버 구동이 필요해 이번 범위 밖으로 미룸) |
 | S-C | `docs/test-scenarios.md`에 대표 시나리오 수동 확인 체크리스트 추가 | **DONE(로컬)** |
 
-### P1-5. Phase 8 (축소 구현 — `ProjectOwnerRecovery` 제외, `ProjectAccessAttempt`는 8-C에 필수 포함)
+### P1-5. Phase 8 (완료, 2026-07-30 — `OwnerSession`/`ProjectAccessSession`/`publicId`/`ProjectOwnerRecovery`는 계정 시스템 부재로 범위 제외, 8-E 컷오버도 이번 범위에서 보류)
 
-| 단위 | 내용 | 배포 안전성 |
-|---|---|---|
-| 8-A | Migration: `OwnerSession`, `ProjectAccessSession`, `ProjectAccessAttempt`, `Project.publicId/passwordHash/passwordSalt/passwordVersion`(**`ProjectOwnerRecovery`는 이번 범위에서 제외**) | 안전(additive) |
-| 8-B | 서버 전용 권한 검증 함수 배선(기존 `SITE_ACCESS_PASSWORD` 게이트는 유지) | 안전 |
-| 8-C | 비밀번호 설정/변경/해제 UI + `scrypt` 해시 **+ `ProjectAccessAttempt` rate limit을 같은 커밋에서 함께 구현**(분리 배포 금지 — 브루트포스 노출 중간상태 방지) | 안전(사이트 게이트 뒤) |
-| 8-D | 공개 프로젝트 목록 + 안전한 DTO + 비밀번호 입력 화면 | 안전(사이트 게이트 뒤) |
-| 8-E | **컷오버**: `SITE_ACCESS_PASSWORD`/`src/proxy.ts` 게이트 제거 | 이 커밋부터 사이트가 열림 — 8-B~8-D 스테이징 검증 후에만 배포 |
-| (보류) | `ProjectOwnerRecovery` — P1 이후 별도 단위로 추가. UI에는 "쿠키 삭제 시 복구 불가" 안내만 우선 표시 | — |
+| 단위 | 내용 | 배포 안전성 | 상태 |
+|---|---|---|---|
+| 8-A | Migration: `Project.passwordHash`(nullable), `ProjectAccessAttempt`(failedCount/lockedUntil) — `OwnerSession`/`ProjectAccessSession`/`publicId`는 계정 기반 소유권 개념이라 이번 범위에서 만들지 않는다 | 안전(additive) | DONE |
+| 8-B | `src/lib/services/projectAccess.ts` 공통 가드(`getProjectAccessStatus`/`assertProjectAccessible`)를 `src/app/projects/[id]/layout.tsx` + 관련 Server Action 전체에 배선(기존 `SITE_ACCESS_PASSWORD` 게이트는 유지) | 안전 | DONE |
+| 8-C | 비밀번호 설정(생성 시점만) + `scrypt` 해시 **+ `ProjectAccessAttempt` rate limit을 같은 커밋에서 함께 구현** — 비밀번호 변경/해제 UI는 후속 과제로 남김 | 안전(사이트 게이트 뒤) | DONE(생성 시점만), 변경/해제는 후속 |
+| 8-D | 프로젝트 목록에 `isProtected` 배지(passwordHash는 응답에서 항상 제외) + 잠금 화면(`ProjectLockScreen`) | 안전(사이트 게이트 뒤) | DONE |
+| 8-E | **컷오버**: `SITE_ACCESS_PASSWORD`/`src/proxy.ts` 게이트 제거 | 이 커밋부터 사이트가 열림 | 보류(이번 범위 제외 — 사용자가 명시적으로 요청 전까지 두 게이트가 공존) |
+| (보류) | `ProjectOwnerRecovery`/`publicId`/비밀번호 변경·해제 UI — 계정 시스템 도입 여부와 함께 재검토 | — | 후속 과제 |
 
 ### P1-6. Phase 2 (축소 구현)
 

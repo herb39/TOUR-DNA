@@ -463,11 +463,16 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 - 대전 라벨("대전광역시 (DNA 지표는 유성구 기준)")은 이미 반영됨(직전 세션, `regionQueries.ts`).
 - 그러나 분석 화면에 "7개 지역 내 상대점수"라는 명시적 문구, 지표별 코호트 수(N)·min/max 범위 표시는 없음(검색 결과 근거 패널 관련 컴포넌트에 코호트/표본 언급 없음).
 
-## Phase 8. 사이트 전체 잠금 제거 + 프로젝트별 비밀번호 — `NOT_STARTED`
+## Phase 8. 프로젝트별 비밀번호 접근 보호 — `DONE(로컬+원격, 축소 구현)` (2026-07-30)
 
-- 현재 `SITE_ACCESS_PASSWORD` + `src/proxy.ts` 전역 게이트가 그대로 존재([proxy.ts](../src/proxy.ts) 전체 내용 확인, 2026-07-21 도입 그대로).
-- `OwnerSession`, `ProjectAccessSession`, `ProjectOwnerRecovery`, `ProjectAccessAttempt`, `Project.publicId`/`passwordHash` 등 마스터 프롬프트가 요구하는 모델이 schema에 전혀 없음.
-- **가장 우선순위 높은 미착수 항목** — 마스터 문서 자체가 "최우선 보안 작업"으로 지정.
+- 계정/로그인 시스템은 도입하지 않았다 — `OwnerSession`/계정 기반 소유권/역할별 권한(OWNER/VIEWER)은 이번 범위에서 의도적으로 제외했다. 대신 "비밀번호를 아는 사람은 해당 프로젝트에 한해 접근할 수 있다"는 수준의 보호만 구현했다.
+- `Project.passwordHash`(nullable, null=공개) 컬럼 하나만 추가(`add_project_access_protection` migration). `publicId`는 도입하지 않음(기존 `Project.id`를 그대로 URL 식별자로 계속 사용 — 하위 호환).
+- `ProjectAccessAttempt`(프로젝트당 1행, `failedCount`/`lockedUntil`)로 무차별 대입을 DB에 기록해 방어한다 — Vercel 서버리스 인스턴스는 상태를 공유하지 않으므로 메모리 카운터 대신 공유 DB 행을 사용한다. `ProjectOwnerRecovery`는 여전히 보류(계정이 없으므로 "복구" 개념 자체가 적용되지 않음).
+- 서명은 `PROJECT_ACCESS_SECRET`(없으면 `SITE_ACCESS_PASSWORD`로 폴백) 기반 HMAC-SHA256 쿠키(`src/lib/services/projectAccess.ts`, 기존 `siteAuth.ts`와 같은 무-세션-테이블 방식). 서명 키가 전혀 없으면 항상 잠금 상태를 유지한다(폐쇄 실패).
+- 공통 가드(`getProjectAccessStatus`/`assertProjectAccessible`)를 `src/app/projects/[id]/layout.tsx`(분석/실행안/인쇄 3개 화면 공통)와 모든 관련 Server Action(`analysis/actions.ts`, `plan/actions.ts`)에 배선했다 — 화면마다 다른 방식으로 판정하지 않는다.
+- 기존 `SITE_ACCESS_PASSWORD` + `src/proxy.ts` 전역 게이트는 그대로 유지한다(컷오버 8-E는 이번 범위에서 진행하지 않음 — 사이트 전체 게이트와 프로젝트별 보호는 별개 계층으로 공존).
+- 목록 화면(`listProjectSummaries`)은 `passwordHash`를 절대 응답에 포함하지 않고 `isProtected` boolean만 파생해 노출한다. `getProjectDetail`/`getDemoProject`는 `omit: {passwordHash: true}`로 조회한다.
+- 비밀번호 변경/해제 UI, `publicId`, `ProjectOwnerRecovery`는 후속 과제로 명시적으로 남긴다.
 
 ## Phase 9. 무료 운영비 가드 — `NOT_STARTED`
 
@@ -507,7 +512,7 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 | (신규) 대표 시나리오 3개 차별화 + E2E | **DONE(로컬)** — 원격 반영·실제 브라우저 검증 미완료(위 "대표 시나리오 3개" 절 참고). E2E 확장은 미착수(단위 테스트로 대체 검증) | 로컬 완료, P0-3/P0-4에서 원격 반영·브라우저 검증 진행 |
 | (신규) DB migration 적용 + 통합 검증(Phase 5 포함) | NOT_STARTED | **P0-3** |
 | (신규) 원격 반영(push) + 배포 | NOT_STARTED | **P0-4** |
-| 8. 사이트 잠금 제거/프로젝트 비밀번호(축소 구현) | NOT_STARTED | P1-5 |
+| 8. 프로젝트별 비밀번호 접근 보호(축소 구현, 사이트 게이트 컷오버 제외) | **DONE(로컬+원격)** | 완료 |
 | 2. 최소 갱신 구조(축소 구현) | NOT_STARTED | P1-6 |
 | 11. 빌드/CI 정비 | NOT_STARTED | P1-7 |
 | 10. `/admin/ops` | NOT_STARTED | P2-8 |

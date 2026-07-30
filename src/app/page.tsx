@@ -63,6 +63,11 @@ async function ProjectListSection() {
                   <Link href={href} className="font-medium text-slate-900 hover:underline">
                     {p.name}
                   </Link>
+                  {p.isProtected ? (
+                    <span className="ml-2 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">
+                      🔒 비밀번호 보호됨
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3 text-slate-600">{p.region.name}</td>
                 <td className="px-4 py-3 text-slate-600">

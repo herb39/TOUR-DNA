@@ -297,7 +297,7 @@ export function PlanEditor({
     let cancelled = false;
     const timer = setTimeout(async () => {
       setPoiSearchPending(true);
-      const results = await searchAvailablePoisAction(plan.regionId, trimmedPoiQuery);
+      const results = await searchAvailablePoisAction(plan.projectId, plan.regionId, trimmedPoiQuery);
       if (!cancelled) {
         setPoiResults(results);
         setPoiSearchPending(false);
@@ -307,7 +307,7 @@ export function PlanEditor({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [addingToDay, trimmedPoiQuery, plan.regionId]);
+  }, [addingToDay, trimmedPoiQuery, plan.projectId, plan.regionId]);
 
   const visiblePoiResults =
     trimmedPoiQuery.length === 0 ? [] : poiResults.filter((p) => !existingPoiIds.has(p.id));

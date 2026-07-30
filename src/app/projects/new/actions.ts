@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { projectInputSchema } from "@/lib/validation/project-input.schema";
 import { runAnalysisForProject } from "@/lib/services/analyzeProject";
+import { hashProjectPassword, validateProjectPasswordInput } from "@/lib/services/projectAccess";
 
 export interface CreateProjectFormState {
   success: boolean;
@@ -49,6 +50,19 @@ export async function createProjectAction(
     return { success: false, errors: parsed.error.flatten().fieldErrors as Record<string, string[]>, submittedValues: raw };
   }
 
+  // 비밀번호 보호는 입력 조건(projectInputSchema)과 무관한 별도 설정이라 여기서 직접 검증한다.
+  // 빈 값이면 공개 프로젝트로 만든다(기존 프로젝트와 동일한 기본값 — 하위 호환).
+  const passwordInput = formData.get("password");
+  const password = typeof passwordInput === "string" ? passwordInput : "";
+  let passwordHash: string | null = null;
+  if (password.length > 0) {
+    const passwordError = validateProjectPasswordInput(password);
+    if (passwordError) {
+      return { success: false, errors: { password: [passwordError] }, submittedValues: raw };
+    }
+    passwordHash = hashProjectPassword(password);
+  }
+
   const region = await prisma.region.findUnique({ where: { code: parsed.data.sigunguCode } });
   if (!region) {
     return {
@@ -67,6 +81,7 @@ export async function createProjectAction(
       sigunguCode: parsed.data.sigunguCode,
       travelYear: parsed.data.travelYear,
       travelMonth: parsed.data.travelMonth,
+      passwordHash,
       input: {
         create: {
           nationality: parsed.data.nationality,

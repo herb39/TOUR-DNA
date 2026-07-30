@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 
+/** 목록 화면에는 비밀번호 해시를 절대 내보내지 않는다 — 보호 여부(boolean)만 파생해 남긴다. */
 export async function listProjectSummaries() {
-  return prisma.project.findMany({
+  const projects = await prisma.project.findMany({
     orderBy: { updatedAt: "desc" },
     include: {
       region: true,
@@ -13,6 +14,7 @@ export async function listProjectSummaries() {
     },
     take: 50,
   });
+  return projects.map(({ passwordHash, ...rest }) => ({ ...rest, isProtected: passwordHash !== null }));
 }
 
 export async function getLatestDataFreshness() {
@@ -32,6 +34,7 @@ export async function getDemoProject() {
   return prisma.project.findFirst({
     where: { name: { startsWith: "[데모]" } },
     orderBy: { createdAt: "asc" },
+    omit: { passwordHash: true },
   });
 }
 
@@ -49,5 +52,6 @@ export async function getProjectDetail(projectId: string) {
       },
       selectedPlan: true,
     },
+    omit: { passwordHash: true },
   });
 }

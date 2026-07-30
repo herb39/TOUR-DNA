@@ -1,10 +1,12 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { searchPoisInRegion } from "@/lib/services/poiDetails";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
+import { assertProjectAccessible, projectAccessCookieName } from "@/lib/services/projectAccess";
 import {
   generatePromoContentForProject,
   getPromoContentForProject,
@@ -13,6 +15,11 @@ import {
   type GetPromoContentResult,
   type SavePromoContentResult,
 } from "@/lib/services/promoContentService";
+
+async function requireProjectAccess(projectId: string): Promise<void> {
+  const cookieStore = await cookies();
+  await assertProjectAccessible(projectId, cookieStore.get(projectAccessCookieName(projectId))?.value);
+}
 
 export interface SavePlanFormState {
   success: boolean;
@@ -34,6 +41,8 @@ export async function savePlanAction(
   const operationChecklistJson = String(formData.get("operationChecklistJson") ?? "");
   const risksJson = String(formData.get("risksJson") ?? "");
   const kpisJson = String(formData.get("kpisJson") ?? "");
+
+  await requireProjectAccess(projectId);
 
   if (!productName) {
     return { success: false, message: "상품명을 입력해주세요." };
@@ -72,11 +81,13 @@ export async function savePlanAction(
 }
 
 export async function backToAnalysisAction(projectId: string) {
+  await requireProjectAccess(projectId);
   redirect(`/projects/${projectId}/analysis`);
 }
 
 /** 실행안 편집기의 "장소 추가" 검색창에서 호출한다. 해당 프로젝트의 지역으로 한정해 POI를 찾는다. */
-export async function searchAvailablePoisAction(regionId: string, query: string): Promise<PoiDetail[]> {
+export async function searchAvailablePoisAction(projectId: string, regionId: string, query: string): Promise<PoiDetail[]> {
+  await requireProjectAccess(projectId);
   return searchPoisInRegion(regionId, query);
 }
 
@@ -89,18 +100,21 @@ export async function generatePromoContentAction(
   projectId: string,
   options: { overwrite?: boolean } = {},
 ): Promise<GeneratePromoContentResult> {
+  await requireProjectAccess(projectId);
   const result = await generatePromoContentForProject(projectId, options);
   if (result.ok) revalidatePath(`/projects/${projectId}/plan`);
   return result;
 }
 
 export async function getPromoContentAction(projectId: string): Promise<GetPromoContentResult> {
+  await requireProjectAccess(projectId);
   return getPromoContentForProject(projectId);
 }
 
 /** 사용자가 편집한 홍보자료를 저장한다. content는 클라이언트가 보낸 unknown 값 그대로 넘기고,
  * 런타임 검증은 서비스 계층(savePromoContentForProject)에서만 수행한다. */
 export async function savePromoContentAction(projectId: string, content: unknown): Promise<SavePromoContentResult> {
+  await requireProjectAccess(projectId);
   const result = await savePromoContentForProject(projectId, content);
   if (result.ok) revalidatePath(`/projects/${projectId}/plan`);
   return result;
