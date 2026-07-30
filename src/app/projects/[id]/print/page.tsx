@@ -14,6 +14,9 @@ import { METRIC_CODES } from "@/lib/domain/types";
 import { PrintButton } from "@/components/plan/PrintButton";
 import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
 import { parsePromoContent } from "@/lib/validation/promoContent.schema";
+import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
+import type { DurationCode } from "@/lib/domain/strategy";
+import type { PoiFitResult } from "@/lib/domain/poiFit";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,34 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   // 검증 경계(parsePromoContent)를 통과하지 못하면 잘못된 데이터를 그대로 출력하지 않고 조용히 생략한다.
   const promoContentParsed = plan.promoContent !== null ? parsePromoContent(plan.promoContent) : null;
   const promoContent = promoContentParsed?.ok ? promoContentParsed.value : null;
+
+  // 2026-07-30(P0-1): 실행안 화면과 동일한 근거로 POI 적합도·후보 부족 안내를 계산한다(저장하지 않고
+  // 렌더링 시점에 매번 계산 — 전략 점수·선택 로직은 건드리지 않는다).
+  let poiFits: Record<string, PoiFitResult> | undefined;
+  let poiShortageMessage: string | null = null;
+  if (selectedStrategy && project.input) {
+    const poiIds = course.days.flatMap((d) => [
+      ...d.items.map((i) => i.poiId),
+      ...(d.lodging ? [d.lodging.poiId] : []),
+    ]);
+    try {
+      const summary = await buildStrategyPoiFitSummary({
+        templateId: selectedStrategy.templateId,
+        regionCode: project.region.code,
+        poiIds,
+        travelMonth: project.travelMonth,
+        preferredThemes: project.input.preferredThemes as string[],
+        duration: project.input.duration as DurationCode,
+      });
+      poiFits = summary.fitsByPoiId;
+      poiShortageMessage = summary.shortage
+        ? `${summary.shortage.message} ${summary.shortage.suggestion}`
+        : null;
+    } catch {
+      poiFits = undefined;
+      poiShortageMessage = null;
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
@@ -118,16 +149,23 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
       <section className="mt-4">
         <h2 className="text-sm font-semibold">코스</h2>
+        {poiShortageMessage ? (
+          <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">⚠ {poiShortageMessage}</p>
+        ) : null}
         <div className="mt-1 grid grid-cols-2 gap-4">
           {course.days.map((day) => (
             <div key={day.dayIndex}>
               <p className="text-xs font-semibold text-slate-600">{day.dayIndex}일차</p>
               <ol className="mt-1 space-y-1 text-xs text-slate-700">
-                {day.items.map((item, i) => (
-                  <li key={i}>
-                    {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분)
-                  </li>
-                ))}
+                {day.items.map((item, i) => {
+                  const fit = poiFits?.[item.poiId];
+                  return (
+                    <li key={i}>
+                      {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분)
+                      {fit ? <span className="text-slate-400"> · 적합도 {fit.totalScore}점</span> : null}
+                    </li>
+                  );
+                })}
               </ol>
               {day.lodging != null ? (
                 <p className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">

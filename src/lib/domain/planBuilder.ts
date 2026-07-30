@@ -43,6 +43,10 @@ export interface PoiDetail {
   /** FOOD일 때만 의미가 있다(3단계 mealEligible의 세부판. foodClassification.ts 기준). 값이 없으면
    * 판정 안 함(레거시/비FOOD 호출부 하위 호환). */
   foodSubcategory?: FoodSubcategory;
+  /** POI 적합도 평가(poiFit.ts, P0-1)의 데이터 출처 판정에 쓴다 — Prisma PoiSourceType("API"|"FIXTURE")
+   * 문자열 그대로. 값을 지정하지 않은 기존 호출부(테스트 등)는 undefined이며, 적합도 계산 쪽에서
+   * 안전하게 CURATED로 취급한다(하위 호환). */
+  sourceType?: string;
 }
 
 /** FOOD 항목이 실제로 왜 이 시각에 배치됐는지(5단계, 2026-07-26 강릉 사례 보완) — 장소명이나 시작

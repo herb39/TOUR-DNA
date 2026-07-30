@@ -7,6 +7,21 @@ export const PROJECT_STATUS_LABEL: Record<string, string> = {
   PLANNED: "실행안 완료",
 };
 
+/** POI 카테고리 코드 → 한글 라벨(2026-07-30, POI 적합도 화면 표시용). 지역·프로젝트와 무관한 공통
+ * 카테고리 코드 매핑이다. */
+export const POI_CATEGORY_LABEL_KO: Record<string, string> = {
+  ATTRACTION: "관광지",
+  FOOD: "음식",
+  LODGING: "숙박",
+  EXPERIENCE: "체험",
+  FESTIVAL: "축제/행사",
+  SHOPPING: "쇼핑",
+};
+
+export function poiCategoryLabel(category: string): string {
+  return POI_CATEGORY_LABEL_KO[category] ?? category;
+}
+
 export function formatDateTime(date: Date | string | null | undefined): string {
   if (!date) return "-";
   const d = typeof date === "string" ? new Date(date) : date;

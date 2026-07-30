@@ -3,6 +3,8 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { getProjectDetail } from "@/lib/services/projectQueries";
 import { ensureSelectedPlan } from "@/lib/services/planService";
 import { getPromoContentForProject } from "@/lib/services/promoContentService";
+import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
+import type { DurationCode } from "@/lib/domain/strategy";
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { PromoContentEditor } from "@/components/plan/PromoContentEditor";
 
@@ -61,6 +63,32 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     kpiMemo: planRow.kpiMemo ?? "",
   };
 
+  // 2026-07-30(P0-1): 전략별 POI 적합도·후보 부족 안내를 이 코스에 담긴 poiId 기준으로 매번 새로
+  // 계산한다(저장하지 않음) — 사용자가 장소를 추가·삭제해도 다음 렌더링에서 항상 최신 상태로 반영되고,
+  // 선택 로직(selectPois)이나 전략 점수·순위는 전혀 건드리지 않는다.
+  const templateId = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId)
+    ?.templateId;
+  let poiFitSummary: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>> | null = null;
+  if (templateId && project.input) {
+    const poiIds = planData.course.days.flatMap((d) => [
+      ...d.items.map((i) => i.poiId),
+      ...(d.lodging ? [d.lodging.poiId] : []),
+    ]);
+    try {
+      poiFitSummary = await buildStrategyPoiFitSummary({
+        templateId,
+        regionCode: project.region.code,
+        poiIds,
+        travelMonth: project.travelMonth,
+        preferredThemes: project.input.preferredThemes as string[],
+        duration: project.input.duration as DurationCode,
+      });
+    } catch {
+      // 적합도 표시는 부가 정보라 계산에 실패해도 실행안 화면 자체는 그대로 보여준다.
+      poiFitSummary = null;
+    }
+  }
+
   return (
     <>
       <SiteHeader />
@@ -71,7 +99,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           {project.region.name} · {project.travelYear}년 {project.travelMonth}월
         </p>
         <div className="mt-6">
-          <PlanEditor plan={planData} />
+          <PlanEditor
+            plan={planData}
+            poiFits={poiFitSummary?.fitsByPoiId}
+            poiShortage={poiFitSummary?.shortage ?? null}
+          />
         </div>
         <div className="mt-6">
           <PromoContentEditor projectId={id} initial={promoContentResult} />

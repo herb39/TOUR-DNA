@@ -68,6 +68,7 @@ function mapRowToPoiDetail(r: PoiRow): PoiDetail {
     closedDays: r.closedDays,
     mealEligible: deriveMealEligible(r),
     foodSubcategory: r.category === "FOOD" ? deriveFoodSubcategory(r) : undefined,
+    sourceType: r.sourceType,
   };
 }
 
@@ -151,5 +152,6 @@ export async function searchPoisInRegion(regionId: string, query: string): Promi
     lng: r.lng,
     operatingHours: r.operatingHours,
     closedDays: r.closedDays,
+    sourceType: r.sourceType,
   }));
 }

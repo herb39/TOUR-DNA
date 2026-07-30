@@ -16,6 +16,8 @@ import {
   type PoiDetail,
 } from "@/lib/domain/planBuilder";
 import { CourseMap } from "@/components/map/CourseMap";
+import type { PoiFitResult } from "@/lib/domain/poiFit";
+import type { PoiShortageNotice } from "@/lib/services/poiFitService";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -40,7 +42,28 @@ export interface PlanEditorData {
 
 const initialActionState: SavePlanFormState = { success: false };
 
-export function PlanEditor({ plan }: { plan: PlanEditorData }) {
+/** 적합도 등급별 배지 스타일(P0-1, 2026-07-30) — 점수 자체는 poiFit.ts가 결정하고, 여기서는 표시만
+ * 담당한다. */
+const FIT_GRADE_BADGE_CLASS: Record<PoiFitResult["grade"], string> = {
+  HIGH: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  MEDIUM: "border-amber-300 bg-amber-50 text-amber-700",
+  LOW: "border-slate-300 bg-slate-100 text-slate-600",
+};
+const FIT_GRADE_LABEL: Record<PoiFitResult["grade"], string> = {
+  HIGH: "적합도 높음",
+  MEDIUM: "적합도 보통",
+  LOW: "적합도 낮음",
+};
+
+export function PlanEditor({
+  plan,
+  poiFits,
+  poiShortage,
+}: {
+  plan: PlanEditorData;
+  poiFits?: Record<string, PoiFitResult>;
+  poiShortage?: PoiShortageNotice | null;
+}) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
   const [state, formAction, isPending] = useActionState(boundSave, initialActionState);
 
@@ -354,6 +377,15 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
+          {poiShortage ? (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p>
+                ⚠ 이 전략에 적합한 장소가 목표({poiShortage.targetCount}곳)보다{" "}
+                {poiShortage.shortfallCount}곳 부족합니다({poiShortage.actualCount}곳 확보). {poiShortage.message}
+              </p>
+              <p className="mt-1 text-amber-700">{poiShortage.suggestion}</p>
+            </div>
+          ) : null}
           <div className="no-print mt-3">
             <CourseMap days={days} kakaoKey={plan.kakaoKey} />
           </div>
@@ -369,10 +401,11 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                 <ul className="mt-2 space-y-2">
                   {day.items.map((item, idx) => {
                     const feasibility = checkFeasibility(day.items, idx);
+                    const fit = poiFits?.[item.poiId];
                     return (
                       <li
                         key={item.poiId + item.order}
-                        className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
+                        className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
                           feasibility.infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
                         }`}
                       >
@@ -402,6 +435,40 @@ export function PlanEditor({ plan }: { plan: PlanEditorData }) {
                           </span>
                           {feasibility.infeasible ? (
                             <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibility.reason}</p>
+                          ) : null}
+                          {fit ? (
+                            <details className="mt-1">
+                              <summary className="cursor-pointer text-xs">
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${FIT_GRADE_BADGE_CLASS[fit.grade]}`}
+                                >
+                                  {FIT_GRADE_LABEL[fit.grade]}({fit.totalScore}점)
+                                </span>
+                                <span className="ml-1 text-slate-400">추천 근거 보기</span>
+                              </summary>
+                              <div className="mt-1 max-w-md space-y-1 rounded border border-slate-100 bg-white p-2 text-[11px] text-slate-600">
+                                {fit.positiveReasons.length > 0 ? (
+                                  <ul className="list-disc space-y-0.5 pl-4">
+                                    {fit.positiveReasons.map((r, i) => (
+                                      <li key={i}>{r}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                {fit.cautions.length > 0 ? (
+                                  <ul className="list-disc space-y-0.5 pl-4 text-amber-700">
+                                    {fit.cautions.map((c, i) => (
+                                      <li key={i}>{c}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                <p className="text-slate-400">
+                                  데이터 출처: {fit.dataSource.sourceLabel}
+                                  {fit.dataSource.operatingHoursConfirmed
+                                    ? ` · 운영시간: ${fit.dataSource.operatingHoursText}`
+                                    : " · 운영시간 확인 필요"}
+                                </p>
+                              </div>
+                            </details>
                           ) : null}
                         </div>
                         <div className="no-print flex items-center gap-1">
