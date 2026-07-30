@@ -24,7 +24,9 @@ export function formatBlogForCopy(blog: BlogContent): string {
 }
 
 export function roleContentSectionLabel(role: RolePromoContent["role"]): string {
-  return role === "TRAVEL_AGENCY" ? "여행상품 홍보자료" : "보도자료";
+  if (role === "TRAVEL_AGENCY") return "여행상품 홍보자료";
+  if (role === "FESTIVAL_PLANNER") return "프로그램 운영 자료";
+  return "보도자료";
 }
 
 export function formatRoleContentForCopy(roleContent: RolePromoContent): string {
@@ -38,6 +40,21 @@ export function formatRoleContentForCopy(roleContent: RolePromoContent): string 
       "",
       `일정 하이라이트: ${roleContent.itineraryHighlight}`,
     ].join("\n");
+  }
+
+  if (roleContent.role === "FESTIVAL_PLANNER") {
+    const lines = [roleContent.title, "", `콘텐츠 구성: ${roleContent.programHighlight}`];
+    if (roleContent.timeSlotPlan.length > 0) {
+      lines.push("", "시간대별 프로그램", ...roleContent.timeSlotPlan.map((t) => `- ${t}`));
+    }
+    lines.push("", `체류 유도: ${roleContent.retentionTip}`);
+    if (roleContent.operationChecklist.length > 0) {
+      lines.push("", "운영 체크리스트", ...roleContent.operationChecklist.map((c) => `- ${c}`));
+    }
+    if (roleContent.risks.length > 0) {
+      lines.push("", "위험요인", ...roleContent.risks.map((r) => `- ${r}`));
+    }
+    return lines.join("\n");
   }
 
   const lines = [roleContent.title, roleContent.lead, "", `추진 배경: ${roleContent.background}`, `핵심 프로그램: ${roleContent.coreProgram}`];

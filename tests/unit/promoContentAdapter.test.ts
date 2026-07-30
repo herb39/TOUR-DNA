@@ -83,6 +83,8 @@ describe("buildPromoContentInputFromProjectData", () => {
         sellingPoints: ["1", "2", "3"],
         course: { days: [] },
         kpis: [],
+        operationChecklist: [],
+        risks: [],
       },
       strategyName: "로컬미식·시장 연계형",
       evidenceRows: rows,
@@ -101,6 +103,8 @@ describe("buildPromoContentInputFromProjectData", () => {
         sellingPoints: { not: "an array" },
         course: null,
         kpis: [{ name: "kpi1", method: "m1" }, { broken: true }],
+        operationChecklist: ["체크1", 123],
+        risks: [{ risk: "위험1", mitigation: "대응1" }, { broken: true }],
       },
       strategyName: "전략",
       evidenceRows: [],
@@ -114,7 +118,17 @@ describe("buildPromoContentInputFromProjectData", () => {
   it("역할·지역·국적·여행연월이 DB 값 그대로 전달된다", () => {
     const input = buildPromoContentInputFromProjectData({
       project: { role: "TRAVEL_AGENCY", travelYear: 2027, travelMonth: 3, regionName: "제천시", nationality: "FOREIGN", preferredThemes: [] },
-      plan: { productName: "p", conceptText: "c", background: "b", targetSummary: "t", sellingPoints: [], course: { days: [] }, kpis: [] },
+      plan: {
+        productName: "p",
+        conceptText: "c",
+        background: "b",
+        targetSummary: "t",
+        sellingPoints: [],
+        course: { days: [] },
+        kpis: [],
+        operationChecklist: [],
+        risks: [],
+      },
       strategyName: "전략명",
       evidenceRows: [],
     });
@@ -139,6 +153,8 @@ function samplePromoContent(): PromoContent {
       sellingPoints: ["a", "b", "c"],
       course: [{ dayIndex: 1, items: [{ order: 1, poiId: "p1", poiName: "경포대", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "이동" }], lodging: null }],
       kpis: [{ name: "kpi", method: "method" }],
+      operationChecklist: ["체크리스트 항목"],
+      risks: [{ risk: "위험", mitigation: "대응" }],
     },
     evidences: [],
   });

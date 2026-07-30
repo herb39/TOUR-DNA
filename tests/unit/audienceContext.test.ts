@@ -5,6 +5,7 @@ import {
   computeNationalityFeasibilityDelta,
   computeRoleChecklistNotes,
   computeRoleFit,
+  computeRoleKpiNotes,
   computeSeasonalRiskNotes,
   computeThemeChecklistNotes,
   computeThemeFit,
@@ -19,6 +20,7 @@ import { STRATEGY_TEMPLATES, getTemplateById } from "@/lib/domain/strategyTempla
 describe("normalize* — 레거시/잘못된 값 안전 처리", () => {
   it("정상 값은 그대로 반환한다", () => {
     expect(normalizeRole("LOCAL_GOV")).toBe("LOCAL_GOV");
+    expect(normalizeRole("FESTIVAL_PLANNER")).toBe("FESTIVAL_PLANNER");
     expect(normalizeNationality("FOREIGN")).toBe("FOREIGN");
     expect(normalizeMonth(7)).toBe(7);
     expect(normalizeThemeList(["미식", "자연"])).toEqual(["미식", "자연"]);
@@ -58,12 +60,22 @@ describe("computeRoleFit — 역할별 목표 우선순위", () => {
 
   it("모든 템플릿에서 역할별 점수는 0~100 범위 안에 있다", () => {
     for (const template of STRATEGY_TEMPLATES) {
-      for (const role of ["LOCAL_GOV", "TRAVEL_AGENCY"] as const) {
+      for (const role of ["LOCAL_GOV", "TRAVEL_AGENCY", "FESTIVAL_PLANNER"] as const) {
         const { score } = computeRoleFit(template, role);
         expect(score).toBeGreaterThanOrEqual(0);
         expect(score).toBeLessThanOrEqual(100);
       }
     }
+  });
+
+  it("축제 기획자는 계절분산·방문객 유치 목표가 강한 축제형 템플릿에서 세 역할 중 가장 높은 점수를 받는다", () => {
+    const template = getTemplateById("FESTIVAL_EVENT");
+    const localGov = computeRoleFit(template, "LOCAL_GOV");
+    const travelAgency = computeRoleFit(template, "TRAVEL_AGENCY");
+    const festivalPlanner = computeRoleFit(template, "FESTIVAL_PLANNER");
+    expect(festivalPlanner.score).toBeGreaterThan(localGov.score);
+    expect(festivalPlanner.score).toBeGreaterThan(travelAgency.score);
+    expect(festivalPlanner.adjustment?.basis).toBe("CURATED");
   });
 
   it("역할에 따라 우위를 가지는 템플릿이 뒤바뀔 수 있다(청년 콘텐츠형: 여행사가 훨씬 유리)", () => {
@@ -76,6 +88,7 @@ describe("computeRoleFit — 역할별 목표 우선순위", () => {
   it("roleLabel은 한글 라벨을 반환한다", () => {
     expect(roleLabel("LOCAL_GOV")).toBe("지자체/관광재단");
     expect(roleLabel("TRAVEL_AGENCY")).toBe("여행사/DMC");
+    expect(roleLabel("FESTIVAL_PLANNER")).toBe("축제 기획자");
   });
 });
 
@@ -198,11 +211,25 @@ describe("computeThemeChecklistNotes / 체크리스트 헬퍼", () => {
     expect(computeNationalityChecklistNotes(undefined)).toEqual([]);
   });
 
-  it("역할별 체크리스트: 지자체와 여행사가 서로 다른 문구를 낸다", () => {
+  it("역할별 체크리스트: 지자체·여행사·축제 기획자가 서로 다른 문구를 낸다", () => {
     const localGov = computeRoleChecklistNotes("LOCAL_GOV");
     const travelAgency = computeRoleChecklistNotes("TRAVEL_AGENCY");
+    const festivalPlanner = computeRoleChecklistNotes("FESTIVAL_PLANNER");
     expect(localGov).not.toEqual(travelAgency);
+    expect(festivalPlanner).not.toEqual(localGov);
+    expect(festivalPlanner).not.toEqual(travelAgency);
+    expect(festivalPlanner.some((n) => n.includes("시간대") || n.includes("체류") || n.includes("운영"))).toBe(true);
     expect(computeRoleChecklistNotes(undefined)).toEqual([]);
+  });
+
+  it("역할별 KPI: 축제 기획자는 프로그램 운영 지표를 별도로 추가하며 다른 두 역할과 다르다", () => {
+    const localGov = computeRoleKpiNotes("LOCAL_GOV");
+    const travelAgency = computeRoleKpiNotes("TRAVEL_AGENCY");
+    const festivalPlanner = computeRoleKpiNotes("FESTIVAL_PLANNER");
+    expect(festivalPlanner).not.toEqual(localGov);
+    expect(festivalPlanner).not.toEqual(travelAgency);
+    expect(festivalPlanner.some((k) => k.name.includes("프로그램 운영"))).toBe(true);
+    expect(computeRoleKpiNotes(undefined)).toEqual([]);
   });
 });
 

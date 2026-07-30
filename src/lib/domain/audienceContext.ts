@@ -13,7 +13,7 @@ import type { StrategyTemplate } from "./strategyTemplates";
  *   반영하지 않고 안내만 추가하는 경우.
  */
 
-export type UserRoleCode = "TRAVEL_AGENCY" | "LOCAL_GOV";
+export type UserRoleCode = "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER";
 export type NationalityCode = "DOMESTIC" | "FOREIGN";
 
 export type ThemeCategory =
@@ -38,6 +38,7 @@ export interface ContextAdjustment {
 const ROLE_LABEL_KO: Record<UserRoleCode, string> = {
   TRAVEL_AGENCY: "여행사/DMC",
   LOCAL_GOV: "지자체/관광재단",
+  FESTIVAL_PLANNER: "축제 기획자",
 };
 
 export function roleLabel(role: UserRoleCode): string {
@@ -47,7 +48,7 @@ export function roleLabel(role: UserRoleCode): string {
 /** 값이 실제 지원되는 역할 코드인지 확인 후 반환한다. 레거시/누락 값은 undefined로 안전하게 처리한다
  * (이 조건이 없으면 역할 가중치를 아예 적용하지 않는다 — 12절 하위 호환). */
 export function normalizeRole(value: unknown): UserRoleCode | undefined {
-  return value === "TRAVEL_AGENCY" || value === "LOCAL_GOV" ? value : undefined;
+  return value === "TRAVEL_AGENCY" || value === "LOCAL_GOV" || value === "FESTIVAL_PLANNER" ? value : undefined;
 }
 
 export function normalizeNationality(value: unknown): NationalityCode | undefined {
@@ -65,9 +66,10 @@ export function normalizeThemeList(value: unknown): string[] {
 
 /**
  * 역할별 목표(primaryGoal/supportedGoals) 우선순위(CURATED, 0~100). 지자체는 지역경제·공공성·
- * 계절분산을, 여행사는 상품성·신규시장·재방문(판매 가능성)을 상대적으로 우선한다(마스터 문서 6절).
- * 실제 매출/방문객 데이터가 아니라 기획 우선순위이므로 근거 텍스트에는 항상 "역할 우선순위(기획 규칙)"
- * 임을 밝힌다.
+ * 계절분산을, 여행사는 상품성·신규시장·재방문(판매 가능성)을, 축제 기획자는 방문객 유치·비수기 분산·
+ * 브랜드 인지도 등 행사 자체의 흥행과 재방문(재참여)을 상대적으로 우선한다(마스터 문서 6절, 2026-07-30
+ * 축제 기획자 역할 추가). 실제 매출/방문객 데이터가 아니라 기획 우선순위이므로 근거 텍스트에는 항상
+ * "역할 우선순위(기획 규칙)" 임을 밝힌다.
  */
 const ROLE_GOAL_PRIORITY: Record<UserRoleCode, Record<string, number>> = {
   LOCAL_GOV: {
@@ -87,6 +89,15 @@ const ROLE_GOAL_PRIORITY: Record<UserRoleCode, Record<string, number>> = {
     GOAL_BRAND_IMAGE: 55,
     GOAL_LOCAL_ECONOMY: 45,
     GOAL_SEASONALITY_BALANCE: 45,
+  },
+  FESTIVAL_PLANNER: {
+    GOAL_SEASONALITY_BALANCE: 100,
+    GOAL_VISITOR_GROWTH: 95,
+    GOAL_BRAND_IMAGE: 80,
+    GOAL_REPEAT_VISIT: 70,
+    GOAL_NEW_MARKET: 60,
+    GOAL_STAY_SPEND_EXPANSION: 55,
+    GOAL_LOCAL_ECONOMY: 50,
   },
 };
 
@@ -267,12 +278,19 @@ export function computeNationalityChecklistNotes(nationality: NationalityCode | 
   return ["다국어 안내판/메뉴판 준비 여부 확인 필요(외국인 대상, 서비스 준비도 기준)"];
 }
 
-/** 역할별 실행 체크리스트 안내(CURATED) — 지자체는 정책 보고용 정량 근거를, 여행사는 판매 전환 관점을
- * 우선한다는 마스터 문서 6절 방향을 실행 단계 안내로 구체화한다. */
+/** 역할별 실행 체크리스트 안내(CURATED) — 지자체는 정책 보고용 정량 근거를, 여행사는 판매 전환 관점을,
+ * 축제 기획자는 프로그램 시간대 구성과 현장 운영(체류 유도·혼잡 관리)을 우선한다는 마스터 문서 6절
+ * 방향을 실행 단계 안내로 구체화한다(2026-07-30 축제 기획자 역할 추가). */
 export function computeRoleChecklistNotes(role: UserRoleCode | undefined): string[] {
   if (!role) return [];
   if (role === "LOCAL_GOV") {
     return ["정책 보고용 정량 지표(KPI) 수집 방법 사전 확정 필요"];
+  }
+  if (role === "FESTIVAL_PLANNER") {
+    return [
+      "프로그램별 시간대 배치와 체류 유도 동선 사전 확정 필요",
+      "현장 혼잡·운영 인력 배치 계획 사전 확정 필요",
+    ];
   }
   return ["예약/판매 채널(OTA 등) 연동 및 가격 정책 사전 확정 필요"];
 }
@@ -283,13 +301,19 @@ export interface KpiTemplate {
 }
 
 /** 역할별 KPI 관점 추가(CURATED) — 템플릿 고유 KPI는 그대로 두고, 지자체는 정책 성과 지표를, 여행사는
- * 판매 전환 지표를 하나씩 더한다. 같은 전략(templateId)이 서로 다른 시나리오의 1위로 뽑히더라도 역할이
- * 다르면 KPI 목록이 실제로 달라지도록 하기 위한 일반 규칙이다(특정 지역·시나리오 전용 분기가 아니다). */
+ * 판매 전환 지표를, 축제 기획자는 프로그램 운영·참여 지표를 하나씩 더한다. 같은 전략(templateId)이 서로
+ * 다른 시나리오의 1위로 뽑히더라도 역할이 다르면 KPI 목록이 실제로 달라지도록 하기 위한 일반 규칙이다
+ * (특정 지역·시나리오 전용 분기가 아니다, 2026-07-30 축제 기획자 역할 추가). */
 export function computeRoleKpiNotes(role: UserRoleCode | undefined): KpiTemplate[] {
   if (!role) return [];
   if (role === "LOCAL_GOV") {
     return [
       { name: "정책 성과 보고 지표", method: "체류시간·지역경제 파급효과 등 행정 보고용 지표 달성률을 분기별로 점검" },
+    ];
+  }
+  if (role === "FESTIVAL_PLANNER") {
+    return [
+      { name: "프로그램 운영 지표", method: "시간대별 프로그램 참여·체류 인원 집계 방법을 사전에 정하고 현장에서 측정" },
     ];
   }
   return [{ name: "상품 판매 전환율", method: "예약 채널별 문의 대비 실제 예약 완료 비율 추적" }];

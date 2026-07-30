@@ -11,7 +11,7 @@ import { labelForNationality } from "@/lib/validation/codes";
  * 라벨식 표기("데이터 근거: ...")만 붙인다 — 어색하거나 틀린 조사 조합을 만들지 않기 위함이다.
  */
 
-export type PromoUserRole = "TRAVEL_AGENCY" | "LOCAL_GOV";
+export type PromoUserRole = "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER";
 export type PromoNationality = "DOMESTIC" | "FOREIGN";
 
 export const PROMO_CONTENT_VERSION = "promo-content-v1";
@@ -39,6 +39,9 @@ export interface PromoPlanContext {
   sellingPoints: string[];
   course: CourseDay[];
   kpis: { name: string; method: string }[];
+  /** 축제 기획자 역할 콘텐츠(운영 체크리스트·위험요인)에만 쓰인다 — 저장된 실행안 값을 그대로 재사용한다. */
+  operationChecklist: string[];
+  risks: { risk: string; mitigation: string }[];
 }
 
 export interface BuildPromoContentInput {
@@ -90,7 +93,22 @@ export interface LocalGovPromo {
   expectedEffects: string[];
 }
 
-export type RolePromoContent = TravelAgencyPromo | LocalGovPromo;
+export interface FestivalPlannerPromo {
+  role: "FESTIVAL_PLANNER";
+  title: string;
+  /** 콘텐츠 구성 요약 — 대표 프로그램/방문지 위주. */
+  programHighlight: string;
+  /** 시간대별 프로그램 배치 — course의 기존 순서를 그대로 문장화한다(새 시간을 지어내지 않음). */
+  timeSlotPlan: string[];
+  /** 체류 유도 동선 힌트. */
+  retentionTip: string;
+  /** 저장된 실행안의 운영 체크리스트를 그대로 재사용한다(새 항목을 만들지 않음). */
+  operationChecklist: string[];
+  /** 저장된 실행안의 위험요인·대응안을 한 줄로 합쳐 재사용한다. */
+  risks: string[];
+}
+
+export type RolePromoContent = TravelAgencyPromo | LocalGovPromo | FestivalPlannerPromo;
 
 export interface PromoEvidenceReference {
   metricCode: string;
@@ -371,6 +389,42 @@ function buildLocalGovPromo(
   };
 }
 
+/** course의 기존 순서(day → order)를 그대로 따라가며 시간대·방문지를 한 줄로 문장화한다 — 새 시간대나
+ * 프로그램명을 지어내지 않고 이미 저장된 course 항목만 그대로 옮긴다. */
+function buildTimeSlotProgramLines(course: CourseDay[], maxCount: number): string[] {
+  const lines: string[] = [];
+  for (const day of course) {
+    for (const item of day.items) {
+      if (!isNonEmptyString(item.poiName)) continue;
+      lines.push(`${day.dayIndex}일차 ${item.timeSlot} — ${item.poiName}`);
+      if (lines.length >= maxCount) return lines;
+    }
+  }
+  return lines;
+}
+
+function buildFestivalPlannerPromo(
+  input: BuildPromoContentInput,
+  highlightNames: string[],
+): FestivalPlannerPromo {
+  const { strategy, plan } = input;
+  return {
+    role: "FESTIVAL_PLANNER",
+    title: `${strategy.name} 프로그램 운영 자료`,
+    programHighlight:
+      highlightNames.length > 0
+        ? `${highlightNames.join(", ")} 등을 중심으로 프로그램을 구성합니다.`
+        : "세부 프로그램 구성은 실행안 코스를 참고해 주세요.",
+    timeSlotPlan: buildTimeSlotProgramLines(plan.course, 6),
+    retentionTip:
+      highlightNames.length > 1
+        ? `${highlightNames[0]}에서 ${highlightNames[highlightNames.length - 1]}(으)로 이어지는 동선으로 체류 시간을 유도할 수 있습니다.`
+        : "체류 유도 동선은 실행안 코스 순서를 참고해 주세요.",
+    operationChecklist: plan.operationChecklist,
+    risks: plan.risks.map((r) => `${r.risk} — ${r.mitigation}`),
+  };
+}
+
 export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
   const highlights = extractCourseHighlights(input.plan.course, 4);
   const highlightNames = highlights.map((h) => h.poiName);
@@ -381,7 +435,9 @@ export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
   const roleContent: RolePromoContent =
     input.project.role === "TRAVEL_AGENCY"
       ? buildTravelAgencyPromo(input, highlightNames)
-      : buildLocalGovPromo(input, highlightNames, evidenceRefs);
+      : input.project.role === "FESTIVAL_PLANNER"
+        ? buildFestivalPlannerPromo(input, highlightNames)
+        : buildLocalGovPromo(input, highlightNames, evidenceRefs);
 
   return {
     version: PROMO_CONTENT_VERSION,

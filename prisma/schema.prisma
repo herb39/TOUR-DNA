@@ -20,6 +20,7 @@ enum RegionLevel {
 enum UserRole {
   TRAVEL_AGENCY // 여행사/DMC
   LOCAL_GOV // 지자체/관광재단
+  FESTIVAL_PLANNER // 축제 기획자(2026-07-30 역할별 결과 차별화 보완)
 }
 
 enum Nationality {

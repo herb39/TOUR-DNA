@@ -39,6 +39,8 @@ function samplePromoContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY
         },
       ],
       kpis: [{ name: "kpi", method: "method" }],
+      operationChecklist: ["체크1"],
+      risks: [{ risk: "위험1", mitigation: "대응1" }],
     },
     evidences: [],
   });

@@ -9,9 +9,9 @@ import {
   parseHashtagsInput,
 } from "@/lib/domain/promoContentFormat";
 import { buildPromoContent } from "@/lib/domain/promoContent";
-import type { LocalGovPromo, PromoContent, TravelAgencyPromo } from "@/lib/domain/promoContent";
+import type { FestivalPlannerPromo, LocalGovPromo, PromoContent, TravelAgencyPromo } from "@/lib/domain/promoContent";
 
-function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY"): PromoContent {
+function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER" = "TRAVEL_AGENCY"): PromoContent {
   return buildPromoContent({
     project: { role, regionName: "강릉시", nationality: "DOMESTIC", travelYear: 2026, travelMonth: 9, preferredThemes: ["미식"] },
     strategy: { name: "로컬미식·시장 연계형" },
@@ -29,6 +29,8 @@ function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY"): P
         },
       ],
       kpis: [{ name: "kpi", method: "method" }],
+      operationChecklist: ["체크1"],
+      risks: [{ risk: "위험1", mitigation: "대응1" }],
     },
     evidences: [],
   });
@@ -110,6 +112,24 @@ describe("formatRoleContentForCopy", () => {
     expect(result).toContain("기대 효과");
     expect(result).toContain("- 효과1");
   });
+
+  it("FESTIVAL_PLANNER — 콘텐츠 구성/시간대/체류 유도/운영 체크리스트/위험요인이 모두 포함된다", () => {
+    const roleContent: FestivalPlannerPromo = {
+      role: "FESTIVAL_PLANNER",
+      title: "제목",
+      programHighlight: "콘텐츠 구성 요약",
+      timeSlotPlan: ["1일차 10:00 — 경포대"],
+      retentionTip: "체류 유도 힌트",
+      operationChecklist: ["체크1"],
+      risks: ["위험1"],
+    };
+    const result = formatRoleContentForCopy(roleContent);
+    expect(result).toContain("콘텐츠 구성: 콘텐츠 구성 요약");
+    expect(result).toContain("- 1일차 10:00 — 경포대");
+    expect(result).toContain("체류 유도: 체류 유도 힌트");
+    expect(result).toContain("- 체크1");
+    expect(result).toContain("- 위험1");
+  });
 });
 
 describe("formatFullPromoContentForCopy", () => {
@@ -129,6 +149,12 @@ describe("formatFullPromoContentForCopy", () => {
     const content = sampleContent("LOCAL_GOV");
     const result = formatFullPromoContentForCopy(content);
     expect(result).toContain("[보도자료]");
+  });
+
+  it("FESTIVAL_PLANNER 역할이면 마지막 섹션 라벨이 '프로그램 운영 자료'다", () => {
+    const content = sampleContent("FESTIVAL_PLANNER");
+    const result = formatFullPromoContentForCopy(content);
+    expect(result).toContain("[프로그램 운영 자료]");
   });
 
   it("입력 객체를 mutate하지 않는다", () => {

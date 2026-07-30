@@ -59,6 +59,8 @@ function baseInput(overrides: Partial<BuildPromoContentInput> = {}): BuildPromoC
       sellingPoints: ["초당순두부 맛집 방문", "테라로사 커피 체험", "전통시장 먹거리 투어"],
       course: course(),
       kpis: [{ name: "1인당 평균 소비액", method: "카드매출 비교" }],
+      operationChecklist: ["정기 휴무일 재확인", "우천 대체 동선 확보"],
+      risks: [{ risk: "우천 시 야외 시장 매력도 저하", mitigation: "실내 대체 동선 준비" }],
     },
     evidences: [evidence()],
     ...overrides,
@@ -136,6 +138,29 @@ describe("buildPromoContent — 역할별 구조 차등", () => {
     expect(Object.keys(agency.roleContent).sort()).not.toEqual(Object.keys(gov.roleContent).sort());
     expect("sellingPoints" in agency.roleContent).toBe(true);
     expect("dataBasedEvidence" in gov.roleContent).toBe(true);
+  });
+
+  it("H. FESTIVAL_PLANNER는 콘텐츠 구성/시간대/체류 유도/운영 체크리스트/위험요인 구조를 생성하고, 저장된 실행안 값을 그대로 재사용한다", () => {
+    const input = baseInput();
+    const result = buildPromoContent({ ...input, project: { ...input.project, role: "FESTIVAL_PLANNER" } });
+    expect(result.roleContent.role).toBe("FESTIVAL_PLANNER");
+    if (result.roleContent.role === "FESTIVAL_PLANNER") {
+      expect(result.roleContent.programHighlight.length).toBeGreaterThan(0);
+      expect(result.roleContent.timeSlotPlan.length).toBeGreaterThan(0);
+      expect(result.roleContent.timeSlotPlan[0]).toContain("경포대");
+      expect(result.roleContent.retentionTip.length).toBeGreaterThan(0);
+      expect(result.roleContent.operationChecklist).toEqual(["정기 휴무일 재확인", "우천 대체 동선 확보"]);
+      expect(result.roleContent.risks).toEqual(["우천 시 야외 시장 매력도 저하 — 실내 대체 동선 준비"]);
+    }
+  });
+
+  it("I. 세 역할 모두 서로 다른 필드 구조를 가진다(단순 제목 교체가 아님)", () => {
+    const input = baseInput();
+    const agency = buildPromoContent({ ...input, project: { ...input.project, role: "TRAVEL_AGENCY" } });
+    const gov = buildPromoContent({ ...input, project: { ...input.project, role: "LOCAL_GOV" } });
+    const festival = buildPromoContent({ ...input, project: { ...input.project, role: "FESTIVAL_PLANNER" } });
+    const keySets = [agency, gov, festival].map((r) => Object.keys(r.roleContent).sort().join(","));
+    expect(new Set(keySets).size).toBe(3);
   });
 });
 

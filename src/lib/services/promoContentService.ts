@@ -46,6 +46,8 @@ const SELECTED_PLAN_SELECT = {
   sellingPoints: true,
   course: true,
   kpis: true,
+  operationChecklist: true,
+  risks: true,
   promoContent: true,
 } as const;
 

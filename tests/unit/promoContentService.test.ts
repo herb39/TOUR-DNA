@@ -36,6 +36,8 @@ function basePlanRow(promoContent: unknown = null) {
     sellingPoints: ["1", "2", "3"],
     course: { days: [{ dayIndex: 1, items: [{ order: 1, poiId: "p1", poiName: "경포대", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "이동" }], lodging: null }] },
     kpis: [{ name: "kpi", method: "method" }],
+    operationChecklist: ["체크1"],
+    risks: [{ risk: "위험1", mitigation: "대응1" }],
     promoContent,
   };
 }
@@ -68,6 +70,8 @@ function validPromoContent(): PromoContent {
       sellingPoints: ["1", "2", "3"],
       course: [{ dayIndex: 1, items: [{ order: 1, poiId: "p1", poiName: "경포대", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "이동" }], lodging: null }],
       kpis: [{ name: "kpi", method: "method" }],
+      operationChecklist: ["체크1"],
+      risks: [{ risk: "위험1", mitigation: "대응1" }],
     },
     evidences: [],
   });

@@ -3,6 +3,7 @@
 export const ROLE_OPTIONS = [
   { code: "TRAVEL_AGENCY", label: "여행사/DMC" },
   { code: "LOCAL_GOV", label: "지자체/관광재단" },
+  { code: "FESTIVAL_PLANNER", label: "축제 기획자" },
 ] as const;
 
 export const NATIONALITY_OPTIONS = [

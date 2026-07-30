@@ -111,6 +111,8 @@ export interface PromoContentSourcePlan {
   sellingPoints: unknown;
   course: unknown;
   kpis: unknown;
+  operationChecklist: unknown;
+  risks: unknown;
 }
 
 function toStringArray(value: unknown): string[] {
@@ -133,6 +135,17 @@ function isKpiLike(value: unknown): value is { name: string; method: string } {
 function toKpiList(value: unknown): { name: string; method: string }[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isKpiLike);
+}
+
+function isRiskLike(value: unknown): value is { risk: string; mitigation: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const rec = value as Record<string, unknown>;
+  return typeof rec.risk === "string" && typeof rec.mitigation === "string";
+}
+
+function toRiskList(value: unknown): { risk: string; mitigation: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRiskLike);
 }
 
 export function buildPromoContentInputFromProjectData(data: {
@@ -159,6 +172,8 @@ export function buildPromoContentInputFromProjectData(data: {
       sellingPoints: toStringArray(data.plan.sellingPoints),
       course: toCourseDays(data.plan.course),
       kpis: toKpiList(data.plan.kpis),
+      operationChecklist: toStringArray(data.plan.operationChecklist),
+      risks: toRiskList(data.plan.risks),
     },
     evidences: data.evidenceRows.map(mapEvidenceToEvidenceItem).filter((e): e is EvidenceItem => e !== null),
   };

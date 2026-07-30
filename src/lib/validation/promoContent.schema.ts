@@ -54,13 +54,23 @@ const localGovPromoSchema = z.object({
   expectedEffects: z.array(z.string()),
 });
 
+const festivalPlannerPromoSchema = z.object({
+  role: z.literal("FESTIVAL_PLANNER"),
+  title: z.string(),
+  programHighlight: z.string(),
+  timeSlotPlan: z.array(z.string()),
+  retentionTip: z.string(),
+  operationChecklist: z.array(z.string()),
+  risks: z.array(z.string()),
+});
+
 const promoContentSchema = z.object({
   version: z.literal(PROMO_CONTENT_VERSION),
   proposalSummary: proposalSummarySchema,
   landing: landingSchema,
   instagram: instagramSchema,
   blog: blogSchema,
-  roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema]),
+  roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema, festivalPlannerPromoSchema]),
   evidenceReferences: z.array(promoEvidenceReferenceSchema),
   courseHighlights: z.array(promoCourseHighlightSchema),
 });

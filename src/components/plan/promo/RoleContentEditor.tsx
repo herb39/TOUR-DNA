@@ -149,6 +149,61 @@ export function RoleContentEditor({ roleContent, onChange, onCopy, copied }: Pro
     );
   }
 
+  if (roleContent.role === "FESTIVAL_PLANNER") {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">프로그램 운영 자료</h3>
+          {copyButton}
+        </div>
+        <label htmlFor="promo-festival-title" className="mt-2 block text-xs font-medium text-slate-500">
+          제목
+        </label>
+        <input
+          id="promo-festival-title"
+          value={roleContent.title}
+          onChange={(e) => onChange({ ...roleContent, title: e.target.value })}
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+        />
+        <label htmlFor="promo-festival-program" className="mt-3 block text-xs font-medium text-slate-500">
+          콘텐츠 구성
+        </label>
+        <textarea
+          id="promo-festival-program"
+          rows={2}
+          value={roleContent.programHighlight}
+          onChange={(e) => onChange({ ...roleContent, programHighlight: e.target.value })}
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+        />
+        <label htmlFor="promo-festival-retention" className="mt-3 block text-xs font-medium text-slate-500">
+          체류 유도
+        </label>
+        <textarea
+          id="promo-festival-retention"
+          rows={2}
+          value={roleContent.retentionTip}
+          onChange={(e) => onChange({ ...roleContent, retentionTip: e.target.value })}
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+        />
+        <EditableStringList
+          label="시간대별 프로그램"
+          items={roleContent.timeSlotPlan}
+          onChange={(next) => onChange({ ...roleContent, timeSlotPlan: next })}
+        />
+        <EditableStringList
+          label="운영 체크리스트"
+          items={roleContent.operationChecklist}
+          onChange={(next) => onChange({ ...roleContent, operationChecklist: next })}
+        />
+        <EditableStringList
+          label="위험요인"
+          items={roleContent.risks}
+          onChange={(next) => onChange({ ...roleContent, risks: next })}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between gap-2">

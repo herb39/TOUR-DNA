@@ -290,6 +290,34 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                 </ul>
                 <p className="mt-0.5 text-xs text-slate-700">{promoContent.roleContent.itineraryHighlight}</p>
               </>
+            ) : promoContent.roleContent.role === "FESTIVAL_PLANNER" ? (
+              <>
+                <h3 className="text-xs font-semibold text-slate-700">프로그램 운영 자료</h3>
+                <p className="mt-1 text-xs font-medium text-slate-800">{promoContent.roleContent.title}</p>
+                <p className="mt-0.5 text-xs text-slate-700">콘텐츠 구성: {promoContent.roleContent.programHighlight}</p>
+                {promoContent.roleContent.timeSlotPlan.length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                    {promoContent.roleContent.timeSlotPlan.map((t, i) => (
+                      <li key={i}>{t}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="mt-0.5 text-xs text-slate-700">체류 유도: {promoContent.roleContent.retentionTip}</p>
+                {promoContent.roleContent.operationChecklist.length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                    {promoContent.roleContent.operationChecklist.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {promoContent.roleContent.risks.length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-slate-700">
+                    {promoContent.roleContent.risks.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
             ) : (
               <>
                 <h3 className="text-xs font-semibold text-slate-700">보도자료</h3>

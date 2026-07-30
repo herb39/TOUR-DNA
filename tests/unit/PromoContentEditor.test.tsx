@@ -18,7 +18,7 @@ import type { GetPromoContentResult } from "@/lib/services/promoContentService";
 
 const PROJECT_ID = "project-1";
 
-function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY"): PromoContent {
+function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER" = "TRAVEL_AGENCY"): PromoContent {
   return buildPromoContent({
     project: { role, regionName: "강릉시", nationality: "DOMESTIC", travelYear: 2026, travelMonth: 9, preferredThemes: ["미식"] },
     strategy: { name: "로컬미식·시장 연계형" },
@@ -36,6 +36,8 @@ function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY"): P
         },
       ],
       kpis: [{ name: "kpi", method: "method" }],
+      operationChecklist: ["체크1"],
+      risks: [{ risk: "위험1", mitigation: "대응1" }],
     },
     evidences: [],
   });
