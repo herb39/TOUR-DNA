@@ -226,14 +226,35 @@ describe("formatFullPromoContentForCopy — 역할별 channelPriority 순서를 
     }
   });
 
-  it("모든 지원 채널(ALL_PROMO_CHANNELS)이 전체 복사 결과에 정확히 한 번씩 라벨로 등장한다", () => {
+  it("모든 지원 채널(ALL_PROMO_CHANNELS)의 섹션 헤더가 전체 복사 결과에 정확히 한 번씩 등장한다", () => {
+    // 2026-08-02 보완: 이전에는 `result.split(label).length - 1`로 라벨 문자열의 등장 "횟수"를
+    // 셌다. 그런데 LOCAL_GOV(보도자료)의 roleContent.title 자체가 실제 언론 배포 관행에 따라
+    // "[보도자료] 강릉시 ... 추진"처럼 라벨과 같은 대괄호 문구로 시작한다(promoContent.ts
+    // buildLocalGovPromo) — 이는 채널이 중복 생성된 게 아니라 역할별 콘텐츠 "본문" 한 줄이 우연히
+    // 섹션 헤더와 같은 문자열을 포함하는 경우다. formatFullPromoContentForCopy는 각 섹션을
+    // `[label]\n본문` 형태로 만들어 헤더가 항상 "그 줄 전체와 정확히 일치하는 한 줄"이라는 포맷
+    // 계약을 갖는다(promoContentFormat.ts channelSection/formatFullPromoContentForCopy 참고) —
+    // 반면 title 안에 포함된 라벨 문구는 그 줄 전체와 일치하지 않는다(뒤에 추가 텍스트가 이어짐).
+    // 그래서 부분 문자열 카운트 대신 "라벨과 정확히 일치하는 줄"의 개수만 센다 — 실제로 같은 채널이
+    // 두 번 생성되는 회귀가 생기면 헤더 줄도 그대로 두 번 나타나므로 이 테스트는 여전히 감지한다.
     const content = sampleContent("LOCAL_GOV");
     const result = formatFullPromoContentForCopy(content);
+    const lines = result.split("\n");
     for (const channel of ALL_PROMO_CHANNELS) {
       const label = channelLabel(content, channel);
-      const occurrences = result.split(label).length - 1;
-      expect(occurrences).toBe(1);
+      const headerLineCount = lines.filter((line) => line === label).length;
+      expect(headerLineCount).toBe(1);
     }
+  });
+
+  it("역할별 콘텐츠 본문에 섹션 헤더와 같은 문구가 포함돼도(LOCAL_GOV의 '[보도자료]' 접두사 등) 중복 블록으로 오인하지 않는다", () => {
+    const content = sampleContent("LOCAL_GOV");
+    const result = formatFullPromoContentForCopy(content);
+    // roleContent.title 자체에 라벨과 같은 문구가 포함돼 부분 문자열로는 2회 등장하지만(의도된
+    // 동작), 실제 섹션 헤더 줄은 여전히 정확히 1개뿐이어야 한다.
+    const govLabel = channelLabel(content, "roleContent");
+    expect(result.split(govLabel).length - 1).toBeGreaterThanOrEqual(2);
+    expect(result.split("\n").filter((line) => line === govLabel)).toHaveLength(1);
   });
 
   it("외국인 대상(FOREIGN)이면 전체 복사 결과 끝에 번역 안내가 포함된다", () => {
