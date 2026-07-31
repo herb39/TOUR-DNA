@@ -1,8 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { buildPromoContent } from "@/lib/domain/promoContent";
+import { buildPromoContent, computeChannelPriority, type PromoUserRole } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";
-import { parsePromoContent } from "@/lib/validation/promoContent.schema";
+import { parsePromoContent, parsePromoContentForSave } from "@/lib/validation/promoContent.schema";
 import { buildPromoContentInputFromProjectData, toPromoContentJson } from "./promoContentAdapter";
 
 /**
@@ -181,20 +181,24 @@ export async function getPromoContentForProject(projectId: string): Promise<GetP
 }
 
 /**
- * 사용자가 편집한 홍보자료를 저장한다. content는 항상 unknown으로 취급하고, 검증을 통과한 값만 그대로
- * (재생성·정규화 없이) 저장한다. 검증 실패 시 DB를 건드리지 않는다.
+ * 사용자가 편집한 홍보자료를 저장한다. content는 항상 unknown으로 취급하고, 검증(엄격 스키마)을
+ * 통과한 값만 그대로(재생성·정규화 없이) 저장한다. 검증 실패 시 DB를 건드리지 않는다.
+ *
+ * `channelPriority`는 클라이언트가 보낸 값을 신뢰하지 않는다(2026-08-01 보완) — 형식이 유효한 순열
+ * 이더라도, 순서 조작으로 실제 역할과 다른 채널 우선순위를 저장하려는 시도를 막기 위해 저장 직전
+ * 실제 프로젝트 역할(project.role)로 서버가 다시 계산한 값으로 항상 덮어쓴다.
  */
 export async function savePromoContentForProject(projectId: string, content: unknown): Promise<SavePromoContentResult> {
-  const parsed = parsePromoContent(content);
+  const parsed = parsePromoContentForSave(content);
   if (!parsed.ok) {
     return { ok: false, code: "invalidContent", message: parsed.message };
   }
 
-  let project: { selectedPlan: { id: string } | null } | null;
+  let project: { role: PromoUserRole; selectedPlan: { id: string } | null } | null;
   try {
     project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { selectedPlan: { select: { id: true } } },
+      select: { role: true, selectedPlan: { select: { id: true } } },
     });
   } catch (error) {
     logInternalError("save:loadProject", error);
@@ -204,7 +208,12 @@ export async function savePromoContentForProject(projectId: string, content: unk
   if (!project) return { ok: false, code: "notFound", message: "프로젝트를 찾을 수 없습니다." };
   if (!project.selectedPlan) return { ok: false, code: "noPlan", message: "실행안이 아직 생성되지 않았습니다." };
 
-  const jsonValue = toPromoContentJson(parsed.value);
+  const contentToSave: PromoContent = {
+    ...parsed.value,
+    channelPriority: computeChannelPriority(project.role),
+  };
+
+  const jsonValue = toPromoContentJson(contentToSave);
   try {
     await prisma.selectedPlan.update({ where: { projectId }, data: { promoContent: jsonValue } });
   } catch (error) {
@@ -212,5 +221,5 @@ export async function savePromoContentForProject(projectId: string, content: unk
     return { ok: false, code: "internalError", message: "홍보자료 저장 중 오류가 발생했습니다." };
   }
 
-  return { ok: true, content: parsed.value };
+  return { ok: true, content: contentToSave };
 }

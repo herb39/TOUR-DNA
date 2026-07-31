@@ -83,8 +83,8 @@ describe("buildPromoContent — 결정론과 순수성", () => {
   });
 });
 
-describe("buildPromoContent — 확정 홍보자료 5종", () => {
-  it("C. 5종(제안서 요약/랜딩/인스타그램/블로그/역할별 자료)이 모두 생성된다", () => {
+describe("buildPromoContent — 확정 홍보자료 6종(2026-08-01: 카드뉴스 채널 추가로 5종→6종)", () => {
+  it("C. 6종(제안서 요약/랜딩/인스타그램/블로그/카드뉴스/역할별 자료)이 모두 생성된다", () => {
     const result = buildPromoContent(baseInput());
     expect(result.version).toBe(PROMO_CONTENT_VERSION);
     expect(result.proposalSummary.sentences).toHaveLength(3);
@@ -93,6 +93,7 @@ describe("buildPromoContent — 확정 홍보자료 5종", () => {
     expect(result.instagram.caption.length).toBeGreaterThan(0);
     expect(result.blog.title.length).toBeGreaterThan(0);
     expect(result.blog.body.length).toBeGreaterThan(0);
+    expect(result.cardNews.slides.length).toBeGreaterThan(0);
     expect(result.roleContent).toBeDefined();
   });
 

@@ -7,7 +7,7 @@ import { StrategyCard, type StrategyCardData } from "@/components/strategy/Strat
 import { EvidenceTable, type EvidenceRow } from "@/components/evidence/EvidenceTable";
 import { MapOrFallback, type MapPoi } from "@/components/map/MapOrFallback";
 import { selectStrategyAction } from "./actions";
-import { AXIS_LABEL_KO, type DnaAxisKey } from "@/lib/domain/types";
+import { AXIS_LABEL_KO, type DataProvenance, type DnaAxisKey } from "@/lib/domain/types";
 import {
   labelForAgeGroup,
   labelForBudgetLevel,
@@ -39,7 +39,7 @@ function toEvidenceRow(e: {
   sourceCode: string;
   collectedAt: Date;
   appliedRule: string;
-  provenance?: string | null;
+  provenance?: DataProvenance | null;
 }): EvidenceRow {
   return e;
 }

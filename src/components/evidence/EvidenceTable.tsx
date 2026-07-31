@@ -1,3 +1,4 @@
+import type { DataProvenance } from "@/lib/domain/types";
 import { formatBaseYm, formatDateTime, metricLabel, provenanceLabel, sourceLabel } from "@/lib/format";
 
 export interface EvidenceRow {
@@ -11,8 +12,16 @@ export interface EvidenceRow {
   sourceCode: string;
   collectedAt: Date | string;
   appliedRule: string;
-  /** 값이 없거나(레거시) 호출부가 넘기지 않으면 근거 수준 열을 생략한다(기존 호출부 회귀 방지). */
-  provenance?: string | null;
+  /** 값이 없거나(레거시) 호출부가 넘기지 않으면 근거 수준 열을 생략한다(기존 호출부 회귀 방지).
+   * `null`은 "판정 정보 없음"(레거시), `undefined`는 "이 호출부가 애초에 근거 수준을 넘기지 않음" —
+   * 열 표시 여부는 undefined 기준으로만 판단하고, 실제 라벨 구분은 provenanceLabel()이 담당한다. */
+  provenance?: DataProvenance | null;
+}
+
+/** 사용자가 주의 깊게 봐야 하는 근거 수준(추정값/근거 없음/판정 정보 없음)만 강조한다 — 확인된 실제
+ * 데이터(LIVE_API/CACHED_API/CURATED)는 강조하지 않는다(2026-08-01, MISSING이 강조되지 않던 문제 수정). */
+function isProvenanceCautionLevel(provenance: DataProvenance | null | undefined): boolean {
+  return provenance === "ESTIMATED" || provenance === "MISSING" || provenance === null || provenance === undefined;
 }
 
 export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
@@ -51,13 +60,7 @@ export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
               <td className="py-1.5 pr-3">{e.appliedRule}</td>
               {showProvenance ? (
                 <td className="py-1.5 pr-3">
-                  <span
-                    className={
-                      e.provenance === "ESTIMATED" || !e.provenance
-                        ? "text-amber-700"
-                        : "text-slate-700"
-                    }
-                  >
+                  <span className={isProvenanceCautionLevel(e.provenance) ? "text-amber-700" : "text-slate-700"}>
                     {provenanceLabel(e.provenance)}
                   </span>
                 </td>

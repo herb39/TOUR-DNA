@@ -22,7 +22,7 @@ import {
   getPromoContentForProject,
   savePromoContentForProject,
 } from "@/lib/services/promoContentService";
-import { buildPromoContent } from "@/lib/domain/promoContent";
+import { buildPromoContent, computeChannelPriority } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";
 
 const PROJECT_ID = "project-gangneung";
@@ -212,17 +212,42 @@ describe("savePromoContentForProject", () => {
     expect(result).toEqual({ ok: false, code: "noPlan", message: expect.any(String) });
   });
 
-  it("검증 통과한 편집 입력은 재생성 없이 그대로 저장된다", async () => {
+  it("검증 통과한 편집 입력은 재생성 없이 그대로 저장된다(channelPriority는 프로젝트 역할 기준으로 항상 재계산됨)", async () => {
     const content = validPromoContent();
     const edited: PromoContent = { ...content, landing: { ...content.landing, title: "사용자가 직접 수정한 제목" } };
-    projectFindUnique.mockResolvedValue({ selectedPlan: { id: "plan-1" } });
+    projectFindUnique.mockResolvedValue({ role: "TRAVEL_AGENCY", selectedPlan: { id: "plan-1" } });
     selectedPlanUpdate.mockResolvedValue({});
 
     const result = await savePromoContentForProject(PROJECT_ID, JSON.parse(JSON.stringify(edited)));
-    expect(result).toEqual({ ok: true, content: edited });
+    expect(result).toEqual({ ok: true, content: { ...edited, channelPriority: computeChannelPriority("TRAVEL_AGENCY") } });
     expect(selectedPlanUpdate).toHaveBeenCalledTimes(1);
     const call = selectedPlanUpdate.mock.calls[0][0];
     expect(call.where).toEqual({ projectId: PROJECT_ID });
     expect(call.data.promoContent.landing.title).toBe("사용자가 직접 수정한 제목");
+  });
+
+  it("잘못된 channelPriority(순열이 아님)를 보낸 편집 입력은 저장을 거부한다", async () => {
+    const content = validPromoContent();
+    const tampered = { ...content, channelPriority: ["proposalSummary", "landing"] };
+    const result = await savePromoContentForProject(PROJECT_ID, JSON.parse(JSON.stringify(tampered)));
+    expect(result).toEqual({ ok: false, code: "invalidContent", message: expect.any(String) });
+    expect(selectedPlanUpdate).not.toHaveBeenCalled();
+  });
+
+  it("클라이언트가 다른 역할 기준 channelPriority로 순서를 조작해 보내도, 저장 시 실제 프로젝트 역할(LOCAL_GOV) 기준으로 서버가 다시 계산한 값으로 덮어써 저장한다", async () => {
+    const content = validPromoContent(); // TRAVEL_AGENCY 기준으로 생성됨
+    const travelAgencyOrder = content.channelPriority;
+    projectFindUnique.mockResolvedValue({ role: "LOCAL_GOV", selectedPlan: { id: "plan-1" } });
+    selectedPlanUpdate.mockResolvedValue({});
+
+    const result = await savePromoContentForProject(PROJECT_ID, JSON.parse(JSON.stringify(content)));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const expectedOrder = computeChannelPriority("LOCAL_GOV");
+      expect(result.content.channelPriority).toEqual(expectedOrder);
+      expect(result.content.channelPriority).not.toEqual(travelAgencyOrder);
+    }
+    const call = selectedPlanUpdate.mock.calls[0][0];
+    expect(call.data.promoContent.channelPriority).toEqual(computeChannelPriority("LOCAL_GOV"));
   });
 });

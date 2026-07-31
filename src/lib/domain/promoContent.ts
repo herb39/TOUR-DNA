@@ -141,18 +141,31 @@ export interface CardNewsContent {
   slides: CardNewsSlide[];
 }
 
-export type PromoChannel = "proposalSummary" | "landing" | "instagram" | "blog" | "cardNews" | "roleContent";
+/** 지원하는 홍보자료 채널 전체 목록(2026-08-01, 검증 보완) — 채널 타입(`PromoChannel`)과 기본 순서
+ * (`DEFAULT_CHANNEL_PRIORITY`), 스키마 검증(`promoContent.schema.ts`)이 모두 이 배열 하나에서
+ * 파생된다 — 채널 이름을 여러 곳에 중복 하드코딩하지 않는다. 현재 6개 채널. */
+export const ALL_PROMO_CHANNELS = ["proposalSummary", "landing", "instagram", "blog", "cardNews", "roleContent"] as const;
+
+export type PromoChannel = (typeof ALL_PROMO_CHANNELS)[number];
 
 /** cardNews/channelPriority/translationNotice 도입(2026-07-31) 이전에 저장된 홍보자료를 안전하게
  * 채우기 위한 기본값 — `promoContent.schema.ts`의 하위 호환 처리에서만 사용한다. */
-export const DEFAULT_CHANNEL_PRIORITY: PromoChannel[] = [
-  "proposalSummary",
-  "landing",
-  "instagram",
-  "blog",
-  "cardNews",
-  "roleContent",
-];
+export const DEFAULT_CHANNEL_PRIORITY: PromoChannel[] = [...ALL_PROMO_CHANNELS];
+
+/** `channelPriority`가 지원 채널 전체를 정확히 한 번씩만 포함하는 순열인지 확인한다(2026-08-01) —
+ * 빈 배열/중복/일부 누락/순서 조작으로 일부 채널을 숨기는 값을 모두 걸러낸다. `promoContent.schema.ts`의
+ * 저장 검증과 레거시 파싱 복구 로직이 이 함수 하나만 재사용한다(중복 정의 방지). */
+export function isValidChannelPriority(value: unknown): value is PromoChannel[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length !== ALL_PROMO_CHANNELS.length) return false;
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string" || !(ALL_PROMO_CHANNELS as readonly string[]).includes(item)) return false;
+    if (seen.has(item)) return false;
+    seen.add(item);
+  }
+  return true;
+}
 
 export interface PromoContent {
   version: string;
@@ -477,7 +490,7 @@ function buildCardNews(input: BuildPromoContentInput, highlights: PromoCourseHig
 /** 역할별 홍보자료 채널 확인 우선순위(CURATED, 마스터 문서 6절) — 채널 자체를 숨기지 않고 표시 순서만
  * 안내한다. 지자체는 보도자료·제안서, 축제 기획자는 SNS·카드뉴스, 여행사는 상품 소개문·SNS·블로그를
  * 우선한다. */
-function computeChannelPriority(role: PromoUserRole): PromoChannel[] {
+export function computeChannelPriority(role: PromoUserRole): PromoChannel[] {
   if (role === "LOCAL_GOV") {
     return ["roleContent", "proposalSummary", "landing", "blog", "cardNews", "instagram"];
   }

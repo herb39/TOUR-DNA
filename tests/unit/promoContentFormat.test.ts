@@ -1,19 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   formatBlogForCopy,
+  formatCardNewsForCopy,
   formatFullPromoContentForCopy,
   formatInstagramForCopy,
   formatLandingForCopy,
   formatProposalSummaryForCopy,
   formatRoleContentForCopy,
   parseHashtagsInput,
+  roleContentSectionLabel,
 } from "@/lib/domain/promoContentFormat";
-import { buildPromoContent } from "@/lib/domain/promoContent";
-import type { FestivalPlannerPromo, LocalGovPromo, PromoContent, TravelAgencyPromo } from "@/lib/domain/promoContent";
+import { ALL_PROMO_CHANNELS, buildPromoContent } from "@/lib/domain/promoContent";
+import type {
+  FestivalPlannerPromo,
+  LocalGovPromo,
+  PromoContent,
+  PromoUserRole,
+  TravelAgencyPromo,
+} from "@/lib/domain/promoContent";
 
-function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER" = "TRAVEL_AGENCY"): PromoContent {
+function sampleContent(
+  role: PromoUserRole = "TRAVEL_AGENCY",
+  nationality: "DOMESTIC" | "FOREIGN" = "DOMESTIC",
+): PromoContent {
   return buildPromoContent({
-    project: { role, regionName: "강릉시", nationality: "DOMESTIC", travelYear: 2026, travelMonth: 9, preferredThemes: ["미식"] },
+    project: { role, regionName: "강릉시", nationality, travelYear: 2026, travelMonth: 9, preferredThemes: ["미식"] },
     strategy: { name: "로컬미식·시장 연계형" },
     plan: {
       productName: "강릉 미식 코스",
@@ -34,6 +45,20 @@ function sampleContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER" 
     },
     evidences: [],
   });
+}
+
+/** 채널 키 → 전체 복사 결과에 실제로 등장하는 라벨(promoContentFormat.ts의 channelSection과 동일한
+ * 매핑이어야 한다 — 다른 매핑을 쓰면 이 테스트가 무의미해진다). */
+function channelLabel(content: PromoContent, channel: (typeof ALL_PROMO_CHANNELS)[number]): string {
+  if (channel === "roleContent") return `[${roleContentSectionLabel(content.roleContent.role)}]`;
+  const LABELS: Record<Exclude<(typeof ALL_PROMO_CHANNELS)[number], "roleContent">, string> = {
+    proposalSummary: "[제안서 요약]",
+    landing: "[랜딩페이지]",
+    instagram: "[Instagram]",
+    blog: "[블로그]",
+    cardNews: "[카드뉴스]",
+  };
+  return LABELS[channel];
 }
 
 describe("formatProposalSummaryForCopy", () => {
@@ -61,6 +86,13 @@ describe("formatInstagramForCopy", () => {
 
   it("해시태그가 없으면 캡션만 반환한다(빈 섹션 생략)", () => {
     expect(formatInstagramForCopy({ caption: "캡션", hashtags: [] })).toBe("캡션");
+  });
+});
+
+describe("formatCardNewsForCopy", () => {
+  it("슬라이드를 번호와 함께 제목/본문 순으로 결합한다", () => {
+    const result = formatCardNewsForCopy({ slides: [{ title: "표지", body: "요약" }, { title: "장소", body: "설명" }] });
+    expect(result).toBe("1. 표지\n요약\n\n2. 장소\n설명");
   });
 });
 
@@ -132,26 +164,100 @@ describe("formatRoleContentForCopy", () => {
   });
 });
 
-describe("formatFullPromoContentForCopy", () => {
-  it("화면 표시 순서(제안서→랜딩→Instagram→블로그→역할별)와 동일한 순서로 결합한다", () => {
-    const content = sampleContent("TRAVEL_AGENCY");
-    const result = formatFullPromoContentForCopy(content);
-    const order = ["[제안서 요약]", "[랜딩페이지]", "[Instagram]", "[블로그]", "[여행상품 홍보자료]"];
-    let lastIndex = -1;
-    for (const label of order) {
-      const idx = result.indexOf(label);
-      expect(idx).toBeGreaterThan(lastIndex);
-      lastIndex = idx;
+describe("formatFullPromoContentForCopy — 역할별 channelPriority 순서를 그대로 따른다(2026-08-01 보완)", () => {
+  it("전체 복사 결과는 항상 content.channelPriority 순서와 정확히 일치한다(하드코딩된 순서가 아니라 실제 값을 검증)", () => {
+    for (const role of ["TRAVEL_AGENCY", "LOCAL_GOV", "FESTIVAL_PLANNER"] as const) {
+      const content = sampleContent(role);
+      const result = formatFullPromoContentForCopy(content);
+      const indices = content.channelPriority.map((channel) => result.indexOf(channelLabel(content, channel)));
+      for (const idx of indices) expect(idx).toBeGreaterThanOrEqual(0);
+      const sorted = [...indices].sort((a, b) => a - b);
+      expect(indices).toEqual(sorted);
     }
   });
 
-  it("LOCAL_GOV 역할이면 마지막 섹션 라벨이 '보도자료'다", () => {
+  it("지자체·관광재단 담당자는 보도자료(roleContent)·제안서 요약이 SNS·카드뉴스보다 먼저 나온다", () => {
+    const content = sampleContent("LOCAL_GOV");
+    const result = formatFullPromoContentForCopy(content);
+    const govIdx = result.indexOf("[보도자료]");
+    const proposalIdx = result.indexOf("[제안서 요약]");
+    const instagramIdx = result.indexOf("[Instagram]");
+    const cardNewsIdx = result.indexOf("[카드뉴스]");
+    expect(govIdx).toBeGreaterThanOrEqual(0);
+    expect(govIdx).toBeLessThan(instagramIdx);
+    expect(govIdx).toBeLessThan(cardNewsIdx);
+    expect(proposalIdx).toBeLessThan(instagramIdx);
+    expect(proposalIdx).toBeLessThan(cardNewsIdx);
+  });
+
+  it("축제·행사 기획자는 SNS(Instagram)·카드뉴스가 보도자료류보다 먼저 나온다", () => {
+    const content = sampleContent("FESTIVAL_PLANNER");
+    const result = formatFullPromoContentForCopy(content);
+    const instagramIdx = result.indexOf("[Instagram]");
+    const cardNewsIdx = result.indexOf("[카드뉴스]");
+    const proposalIdx = result.indexOf("[제안서 요약]");
+    const landingIdx = result.indexOf("[랜딩페이지]");
+    expect(instagramIdx).toBeGreaterThanOrEqual(0);
+    expect(instagramIdx).toBeLessThan(proposalIdx);
+    expect(instagramIdx).toBeLessThan(landingIdx);
+    expect(cardNewsIdx).toBeLessThan(proposalIdx);
+    expect(cardNewsIdx).toBeLessThan(landingIdx);
+  });
+
+  it("여행사·관광상품 기획자는 상품 소개문(roleContent)·SNS·블로그가 제안서 요약보다 먼저 나온다", () => {
+    const content = sampleContent("TRAVEL_AGENCY");
+    const result = formatFullPromoContentForCopy(content);
+    const agencyIdx = result.indexOf("[여행상품 홍보자료]");
+    const instagramIdx = result.indexOf("[Instagram]");
+    const blogIdx = result.indexOf("[블로그]");
+    const proposalIdx = result.indexOf("[제안서 요약]");
+    expect(agencyIdx).toBeGreaterThanOrEqual(0);
+    expect(agencyIdx).toBeLessThan(proposalIdx);
+    expect(instagramIdx).toBeLessThan(proposalIdx);
+    expect(blogIdx).toBeLessThan(proposalIdx);
+  });
+
+  it("카드뉴스 슬라이드 내용이 전체 복사 결과에 포함된다", () => {
+    const content = sampleContent("TRAVEL_AGENCY");
+    const result = formatFullPromoContentForCopy(content);
+    expect(content.cardNews.slides.length).toBeGreaterThan(0);
+    for (const slide of content.cardNews.slides) {
+      expect(result).toContain(slide.title);
+    }
+  });
+
+  it("모든 지원 채널(ALL_PROMO_CHANNELS)이 전체 복사 결과에 정확히 한 번씩 라벨로 등장한다", () => {
+    const content = sampleContent("LOCAL_GOV");
+    const result = formatFullPromoContentForCopy(content);
+    for (const channel of ALL_PROMO_CHANNELS) {
+      const label = channelLabel(content, channel);
+      const occurrences = result.split(label).length - 1;
+      expect(occurrences).toBe(1);
+    }
+  });
+
+  it("외국인 대상(FOREIGN)이면 전체 복사 결과 끝에 번역 안내가 포함된다", () => {
+    const content = sampleContent("TRAVEL_AGENCY", "FOREIGN");
+    expect(content.translationNotice).not.toBeNull();
+    const result = formatFullPromoContentForCopy(content);
+    expect(result).toContain("[안내]");
+    expect(result).toContain(content.translationNotice as string);
+  });
+
+  it("내국인 대상(DOMESTIC)이면 번역 안내를 붙이지 않는다", () => {
+    const content = sampleContent("TRAVEL_AGENCY", "DOMESTIC");
+    expect(content.translationNotice).toBeNull();
+    const result = formatFullPromoContentForCopy(content);
+    expect(result).not.toContain("[안내]");
+  });
+
+  it("LOCAL_GOV 역할이면 역할별 섹션 라벨이 '보도자료'다", () => {
     const content = sampleContent("LOCAL_GOV");
     const result = formatFullPromoContentForCopy(content);
     expect(result).toContain("[보도자료]");
   });
 
-  it("FESTIVAL_PLANNER 역할이면 마지막 섹션 라벨이 '프로그램 운영 자료'다", () => {
+  it("FESTIVAL_PLANNER 역할이면 역할별 섹션 라벨이 '프로그램 운영 자료'다", () => {
     const content = sampleContent("FESTIVAL_PLANNER");
     const result = formatFullPromoContentForCopy(content);
     expect(result).toContain("[프로그램 운영 자료]");
