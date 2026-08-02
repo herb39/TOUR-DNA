@@ -1,13 +1,15 @@
-# 구현 상태 (2026-07-30 갱신 — GitHub 반영 상태 최신화)
+# 구현 상태 (2026-08-01 갱신 — Production 마이그레이션 적용 + 실사용 검증 반영)
 
 > 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C+보완·문서 갱신·Phase 4, 2026-07-27
 > P0-2(대표 시나리오 3개), 2026-07-29 사용자 화면 데이터 신뢰도 1차 개선, 2026-07-29~30 역할 적합도·
-> 관광 지표 요약 2차 개선 순으로 갱신. **2026-07-30 기준 `git status`/`git log`로 직접 확인한 결과,
-> 이 문서가 다루는 커밋은 모두 `origin/main`에 push되어 있다**(과거 버전이 "이번 P0-2 작업은 로컬
-> 커밋만 있고 아직 push되지 않았다"고 적었던 것은 이후 push로 해소됨 — 아래 각 항목의 "GitHub 반영"
-> 표기는 이 사실을 반영한다). 다만 GitHub push 여부와 DB migration 적용·실제 운영 배포 여부는 서로
-> 다른 확인이며, "DONE"이라고 적은 항목이라도 **로컬 구현 완료**를 뜻할 뿐 DB 적용·배포·실제 브라우저
-> 검증 완료를 의미하지 않는다(각 항목에서 이를 구분해 표기한다).
+> 관광 지표 요약 2차 개선, 2026-07-31 전략 3안 구조적 차별화(Phase 4-보완), **2026-08-01 Production
+> DB migration 적용 + Vercel 배포 실사용 검증(P0-3/P0-4 완료)** 순으로 갱신. 맨 아래 새 섹션
+> "Production 실사용 검증 및 대표 시나리오 완성(2026-08-01)"에 이번 라운드의 상세 내역이 있다.
+> **2026-08-01 기준 실제 확인한 결과, 이 문서가 다루는 커밋은 모두 `origin/main`에 push되어 있고,
+> 원격 Neon production DB에도 모든 migration이 적용되어 있으며, Vercel Production
+> (`https://tour-dna.lib.lc`, 커밋 `afba7e93`)에서 홍보자료 생성을 포함한 전체 사용자 흐름이 실제
+> Chromium(Playwright)으로 검증됐다** — 과거 버전이 "DB 적용·배포·브라우저 검증 미완료"로 적어뒀던
+> 항목들은 이 갱신으로 해소됐다(각 항목에서 구분 표기).
 > 상태값: `NOT_STARTED` / `BLOCKED` / `IN_PROGRESS` / `DONE(로컬)` / `DONE(배포)`.
 > 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
@@ -112,29 +114,37 @@
 - Prisma 스키마(컬럼/모델), DB 마이그레이션, POI/코스 추천 로직, DNA 5축 공식, 전략 순위 결정 로직은
   전혀 건드리지 않았다.
 
-## 다음 작업 순서 (P0, 2026-07-27 갱신 — P0-2 대표 시나리오 3개 로컬 구현 완료 반영)
+## 다음 작업 순서 (P0, 2026-08-01 갱신 — P0-3/P0-4 완료 반영)
 
-Phase 4(P0-1, `origin/main`에 push 완료)에 이어 대표 시나리오 3개(P0-2)도 로컬 구현·테스트를 마쳤다.
-지금부터는 다음 순서로 진행한다.
+Phase 4(P0-1)·대표 시나리오 3개(P0-2)에 이어 DB migration 적용(P0-3)·원격 배포 및 실사용 검증(P0-4)까지
+모두 완료했다.
 
 1. **P0-1. Phase 4 구현 — 완료(로컬+원격)** — 아래 "Phase 4" 절 참고. 역할·국적·테마·여행월을 전략 점수
    (`roleFit`/`targetFit`/`feasibilityFit`/`seasonFit`)·추천 근거·실행안 체크리스트·위험요인·KPI 관점에
    실제로 반영했다. 지역 객관적 DNA(`demandFit`/`supplyFit`)는 그대로 유지해 조건별 해석과 분리했다.
    `origin/main`에 이미 push됐다(`68f8ed9`/`9ca0084`).
-2. **P0-2. 대표 시나리오 3개 완성 — 완료(로컬)** — 아래 "대표 시나리오(P0-2)" 절 참고. 강릉/경주/제천
-   3개 프리셋을 `/projects/new` 입력폼에 추가해, 카드를 고르면 지역·역할·국적·테마·여행월(및 나머지
-   필수 입력값)이 채워지고 기존 분석 파이프라인을 그대로 통과한다. 프리셋은 입력값 묶음일 뿐 결과를
-   저장하거나 하드코딩하지 않는다 — 실제로 계산한 DNA·전략 점수·순위·근거·KPI·체크리스트·위험요인이
-   세 시나리오마다 다르다는 것을 `contestScenarios.test.ts`로 확인했다. 이후 `origin/main`에 push
-   완료(2026-07-30 `git log` 기준 확인).
-3. **P0-3. DB migration 적용 및 통합 검증** — P0-2 이후 진행. 적용 대상 Neon DB가 개발용인지
-   운영용인지부터 확인하고, 미적용 migration(`20260726000000_add_selected_plan_promo_content` 포함)을
-   적용하기 전 백업·영향 범위를 확인한다. 적용 후 실제 DB·브라우저로 홍보자료 생성·편집·저장·재조회,
-   새로고침 유지, 재생성 취소/승인, 개별/전체 복사, 여행사·지자체 역할 화면, 모바일 레이아웃, 인쇄
-   미리보기, Phase 4 조건별 결과 차이, 강릉·경주·제천 대표 시나리오 3개, 기존 실행안 화면 회귀를
-   검증한다.
-4. **P0-4. 원격 반영 및 배포** — 통합 검증 후 커밋 범위를 확인하고 push, Vercel 빌드 확인, 운영
-   환경변수·운영 DB migration 상태 확인, 배포 URL smoke test까지 진행한다.
+2. **P0-2. 대표 시나리오 3개 완성 — 완료(로컬+원격+브라우저 검증)** — 아래 "대표 시나리오(P0-2)" 절
+   참고. 강릉/경주/제천 3개 프리셋을 `/projects/new` 입력폼에 추가해, 카드를 고르면 지역·역할·국적·
+   테마·여행월(및 나머지 필수 입력값)이 채워지고 기존 분석 파이프라인을 그대로 통과한다. 프리셋은
+   입력값 묶음일 뿐 결과를 저장하거나 하드코딩하지 않는다 — 실제로 계산한 DNA·전략 점수·순위·근거·
+   KPI·체크리스트·위험요인이 세 시나리오마다 다르다는 것을 `contestScenarios.test.ts`로,
+   **2026-08-01에는 실제 Production(`https://tour-dna.lib.lc`)에서 Playwright 실 브라우저로도 세
+   지역 결과가 실질적으로 차별화됨을 확인**했다(상세는 맨 아래 새 섹션 참고).
+3. **P0-3. DB migration 적용 및 통합 검증 — 완료(2026-08-01)** — 대상 Neon DB(project "TOUR DNA",
+   production 브랜치)가 Vercel Production이 실제로 쓰는 DB임을 `vercel link` + 환경변수 참조로 확인한
+   뒤, 미적용 상태였던 `20260731000000_add_strategy_differentiation_fields`를 `npm run db:migrate`로
+   적용했다(`prisma migrate status`로 적용 전/후 대조, 신규 컬럼 5종 `information_schema.columns`로
+   존재 확인). `20260726000000_add_selected_plan_promo_content`를 포함한 나머지 8개 migration은 이미
+   그 이전에 적용되어 있었음을 함께 확인했다 — **현재 `prisma migrate status` 기준 9개 migration 전부
+   적용 완료(pending 없음)**. 적용 후 실제 Production 브라우저(Playwright Chromium)로 홍보자료
+   생성·재생성·채널 순서/중복 방지·전체 복사·새로고침/재접속 유지·모바일 레이아웃·역할별(여행사/지자체)
+   화면·강릉/경주/제천 대표 시나리오 3개·지도 렌더링까지 전부 검증했다(상세는 맨 아래 새 섹션).
+4. **P0-4. 원격 반영 및 배포 — 완료** — 커밋 `afba7e9359f369102b5e741929fdbf22dd39cf2b`까지
+   `origin/main`에 push 완료, Vercel이 해당 커밋으로 자동 배포해 Production(`tour-dna.lib.lc`)이
+   Ready 상태임을 `vercel inspect`로 확인. 운영 환경변수(`DATABASE_URL`/`NEXT_PUBLIC_KAKAO_MAP_KEY`
+   등)는 이미 정상 설정돼 있어 이번 라운드에서 변경하지 않았다. 배포 URL smoke test(프로젝트 생성→
+   분석→전략 선택→실행안→홍보자료→전체 복사→새로고침→재접속)를 Playwright로 실행해 4xx/5xx·콘솔
+   오류·Vercel Runtime 오류 없음을 확인했다.
 
 아래 "요약 테이블"의 우선순위 열은 이 순서를 반영해 갱신했다.
 
@@ -351,7 +361,7 @@ Phase 4(P0-1, `origin/main`에 push 완료)에 이어 대표 시나리오 3개(P
 | 배열 정렬 후 해시 | DONE | [analysisKey.ts:3-14](../src/lib/domain/analysisKey.ts#L3-L14) `sortDeep`이 객체 키를 정렬(단, 배열 요소 자체의 순서는 정렬하지 않음 — `preferredThemes` 등 배열의 원소 순서가 바뀌면 키가 달라질 수 있어 "의미상 순서 없는 배열은 정렬 후 해시"라는 요구를 완전히 충족하지 못함) |
 | 같은 입력/데이터 → 같은 결과 테스트 | 부분 DONE | `analysisKey.test.ts`(4), `strategy.test.ts`(12)에 결정론 테스트 존재. 단 위 두 결함 때문에 "동일 데이터=동일 dataVersion" 전제 자체가 깨져 있어 테스트가 결함을 못 잡고 있을 가능성 있음(재검토 필요) |
 
-## Phase 4-보완. 역할별 맞춤 분석·결과물 차별화 완성 — `DONE(로컬, 2026-07-31, migration 미적용)`
+## Phase 4-보완. 역할별 맞춤 분석·결과물 차별화 완성 — `DONE(로컬+원격+배포, migration 2026-08-01 적용 완료)`
 
 Phase 4(역할·국적·테마·여행월의 점수/체크리스트 반영)는 이미 완료돼 있었다. 이번 보완은 "전략 3안이
 제목·설명만 다르고 구조는 동일하다"는 남은 문제와, 공통 분석 컨텍스트 부재, 근거 수준 미표시, 홍보자료
@@ -362,8 +372,13 @@ Phase 4(역할·국적·테마·여행월의 점수/체크리스트 반영)는 �
   `executionDifficulty`(실행 난이도)/`expectedEffect`(기대 효과) 5개 필드를 7개 템플릿 전부에 추가.
   `targetDescriptionTemplate`(핵심 대상)/`kpiTemplates`(핵심 KPI)/`riskTemplates`(주요 위험)는
   이미 있었으므로 요청한 8개 항목을 모두 충족. `StrategyResult`(Prisma)에 동일 5개 nullable 컬럼
-  추가(`add_strategy_differentiation_fields` migration, **미적용** — 배포 전 `prisma migrate deploy`
-  필요). 기존 레코드는 null → 화면에서 "재분석 필요"로 안내(roleFit과 동일한 패턴).
+  추가(`20260731000000_add_strategy_differentiation_fields` migration, **2026-08-01 Production
+  Neon DB에 적용 완료** — `npm run db:migrate` 실행 후 `prisma migrate status`/컬럼 존재로 확인).
+  이 migration 이전에 생성된 `StrategyResult` 레코드(예: 기존 데모 프로젝트 "충청북도 12월 소규모
+  여행 기획", "경상북도 10월 소규모 여행 기획" 등)는 여전히 null이라 화면에서 "재분석 필요"로
+  안내되며, 이 앱에는 **기존 프로젝트를 다시 분석하는 기능 자체가 없어**(Phase 6 참고) 해당 값을
+  채우려면 동일 입력값으로 새 프로젝트를 만드는 것 외 방법이 없다 — 2026-08-01에 제천/경주 신규
+  프로젝트를 만들어 이 5개 필드가 실제로 채워지는 것을 확인했다(맨 아래 새 섹션 참고).
 - **공통 AnalysisContext**: [audienceContext.ts](../src/lib/domain/audienceContext.ts)에
   `AnalysisContext`/`buildAnalysisContext()` 도입, [analyzeProject.ts](../src/lib/services/analyzeProject.ts)가
   이를 통해 role/nationality/travelMonth/테마를 한 번만 정규화해 전략 계산에 넘긴다.
@@ -443,18 +458,18 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 3건(카드 표시, 프리셋 적용, 적용 후 재수정 가능), `planBuilder.test.ts`에 추가한 `buildKpis` 컨텍스트
 1건.
 
-## Phase 5. 다채널 홍보 초안 — `DONE(로컬)` — 원격/DB/배포는 별도 확인 필요
+## Phase 5. 다채널 홍보 초안 — `DONE(로컬+원격+DB+배포+브라우저 검증)` (2026-08-01 최종 확인)
 
 4개 커밋으로 순차 구현했다. 상태를 아래처럼 명확히 구분한다.
 
 | 구분 | 상태 |
 |---|---|
 | 로컬 코드 구현 | 완료 |
-| 로컬 자동 테스트 | 완료(신규 89개: 5-A 21 + 5-B 30 + 5-C 27 + 보완 11) |
-| GitHub `origin/main` 반영 | **미완료** — 4개 커밋 전부 로컬 `main`에만 있음 |
-| DB migration 적용 | **미완료** — `20260726000000_add_selected_plan_promo_content` 미적용(`prisma migrate status`로 확인, 원격 Neon DB 대상) |
-| 실제 브라우저 통합 검증 | **미완료** — 위 migration이 적용된 DB가 없어 수행 불가 |
-| 운영 배포 반영 | **미완료** |
+| 로컬 자동 테스트 | 완료(89개: 5-A 21 + 5-B 30 + 5-C 27 + 보완 11, 이후 채널 우선순위/카드뉴스 등 보완분 별도) |
+| GitHub `origin/main` 반영 | **완료** — 4개 커밋 모두 `origin/main`에 push 확인 |
+| DB migration 적용 | **완료** — `20260726000000_add_selected_plan_promo_content`가 `prisma migrate status` 기준 Production Neon DB에 이미 적용되어 있음을 2026-08-01에 확인(9개 migration 중 pending 없음) |
+| 실제 브라우저 통합 검증 | **완료(2026-08-01)** — Production(`tour-dna.lib.lc`)에서 Playwright Chromium으로 홍보자료 생성·재생성·역할별(여행사/지자체) 채널 순서·중복 헤더 없음·전체 복사(클립보드)·새로고침/재접속 유지·모바일 레이아웃까지 실제 요청/응답과 DOM을 함께 확인 |
+| 운영 배포 반영 | **완료** — Vercel Production이 해당 커밋들을 포함해 배포됨(`vercel inspect`로 Ready 상태 확인) |
 
 - **5-A** (`5b8d872 feat: add deterministic promo content builder`) — `src/lib/domain/promoContent.ts`의
   `buildPromoContent()`: 저장된 Project/SelectedPlan/Evidence만 입력받는 결정론적 순수 함수. 제안서
@@ -480,7 +495,8 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 - **알려진 설계 트레이드오프**: `promoContent.ts`/`promoContentFormat.ts`가 `@/lib/format`,
   `@/lib/validation/codes`를 import한다 — 다른 domain 계층 파일은 domain 밖을 전혀 import하지 않는
   기존 관례에서 벗어난 의도적 예외(기존 라벨·포맷터 재사용 지시를 따르기 위함).
-- **다음 확인 필요**: 위 표의 미완료 4개 항목. 상세 순서는 이 문서 상단 "다음 작업 순서(P0)"의 P0-3/P0-4.
+- **완료 확인**: 위 표의 4개 항목 모두 2026-08-01에 완료 확인됐다. 상세 근거는 이 문서 상단 "다음
+  작업 순서(P0)"의 P0-3/P0-4와 맨 아래 "Production 실사용 검증" 섹션 참고.
 
 ## Phase 6. 조건 수정 및 안전한 재분석 — `NOT_STARTED`
 
@@ -525,21 +541,23 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 - `CourseMap.tsx`는 Haversine 직선거리 기반 Polyline만 그린다. `RouteProvider`, `KAKAO_NAVI`, `directions` 등 실제 경로 API 연동 코드 없음(전체 검색 0건).
 - 무료 쿼터 조건 자체가 아직 확인되지 않았음 — `docs/route-api-status.md` 참고, Phase 12는 그 문서의 선검증 완료 전까지 `BLOCKED`로 둔다.
 
-## 요약 테이블 (2026-07-27 갱신 — P0-2 대표 시나리오 3개 로컬 완료 반영)
+## 요약 테이블 (2026-08-01 갱신 — P0-3/P0-4 완료, Production 실사용 검증 반영)
 
 > 2026-07-23 버전은 지정과제 7번 직결 항목과 심사 노출도를 최우선 기준으로 삼아 Phase 5를 P0-2로
-> 두었다. Phase 5, 이어서 Phase 4, 이어서 대표 시나리오 3개(P0-2)가 로컬 구현·테스트를 마쳤다.
-> 우선순위 열의 "P0-1~P0-4"는 이 문서 상단 "다음 작업 순서" 절과 동일한 시퀀스를 가리킨다(Phase
-> 번호와 P0 순번은 1:1 대응이 아니다 — 시나리오·DB 적용·배포는 특정 Phase 번호가 없는 작업이다).
+> 두었다. Phase 5, 이어서 Phase 4, 대표 시나리오 3개(P0-2), DB migration 적용(P0-3), 원격 배포(P0-4)
+> 순으로 전부 완료했다. 우선순위 열의 "P0-1~P0-4"는 이 문서 상단 "다음 작업 순서" 절과 동일한
+> 시퀀스를 가리킨다(Phase 번호와 P0 순번은 1:1 대응이 아니다 — 시나리오·DB 적용·배포는 특정 Phase
+> 번호가 없는 작업이다).
 
-| Phase | 상태 | 우선순위(재조정 2026-07-27) |
+| Phase | 상태 | 우선순위(재조정 2026-08-01) |
 |---|---|---|
 | 1. Provenance 모델 + 실제 snapshot 저장 | **DONE**(1-A~1-E 전부 완료, 배포 반영됨) | 완료 |
-| 5. 다채널 홍보 초안 | **DONE(로컬)** — 원격은 반영됐으나(push 완료) DB 적용·배포 미완료(위 Phase 5 절 참고) | 로컬+원격 완료, P0-3/P0-4에서 DB 적용·배포 진행 |
-| 4. role/nationality/테마/여행월 반영 | **DONE(로컬+원격)** — push 완료, DB 적용 대상 스키마 변경 없음(위 Phase 4 절 참고) | 완료 |
-| (신규) 대표 시나리오 3개 차별화 + E2E | **DONE(로컬)** — 원격 반영·실제 브라우저 검증 미완료(위 "대표 시나리오 3개" 절 참고). E2E 확장은 미착수(단위 테스트로 대체 검증) | 로컬 완료, P0-3/P0-4에서 원격 반영·브라우저 검증 진행 |
-| (신규) DB migration 적용 + 통합 검증(Phase 5 포함) | NOT_STARTED | **P0-3** |
-| (신규) 원격 반영(push) + 배포 | NOT_STARTED | **P0-4** |
+| 5. 다채널 홍보 초안 | **DONE(로컬+원격+DB+배포+브라우저 검증)** — 2026-08-01 전체 완료(위 Phase 5 절 참고) | 완료 |
+| 4. role/nationality/테마/여행월 반영 | **DONE(로컬+원격+배포)** | 완료 |
+| 4-보완. 전략 3안 구조적 차별화(coreProblem 등 5필드) | **DONE(로컬+원격+DB+배포)** — migration 2026-08-01 적용 완료 | 완료 |
+| (신규) 대표 시나리오 3개 차별화 + Production 브라우저 검증 | **DONE** — 2026-08-01 Production에서 Playwright로 강릉/제천/경주 3개 지역 DNA·전략·홍보자료 차별화 실검증 완료(맨 아래 섹션 참고) | 완료 |
+| (신규) DB migration 적용 + 통합 검증(Phase 5 포함) | **DONE(2026-08-01)** | 완료 |
+| (신규) 원격 반영(push) + 배포 | **DONE** | 완료 |
 | 8. 프로젝트별 비밀번호 접근 보호(축소 구현, 사이트 게이트 컷오버 제외) | **DONE(로컬+원격)** | 완료 |
 | 2. 최소 갱신 구조(축소 구현) | NOT_STARTED | P1-6 |
 | 11. 빌드/CI 정비 | NOT_STARTED | P1-7 |
@@ -550,11 +568,12 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 | 7. 코호트/행정범위 설명 | IN_PROGRESS(부분) | P1 이후(표시만 남은 작업이라 낮은 리스크로 아무 때나 끼워넣기 가능) |
 | 9. 무료 운영비 가드 | NOT_STARTED | 전 Phase 횡단 적용(외부 API를 새로 호출하는 모든 구현 단위에 동시 적용) |
 
-단위 테스트는 `tests/unit/*` 27개 파일에 389개(2026-07-27, 이 문서 갱신 시점에 직접 재실행해 확인 —
-과거 실행 결과를 인용한 것이 아니다), E2E는 `e2e/core-flow.spec.ts` 8개(이번 문서 갱신에서는 재실행하지
-않음, 대표 시나리오용 E2E 확장도 하지 않음 — 핵심 화면 흐름 자체는 변경이 없어 마지막 통과 상태가 그대로
-유효하다고 판단하지만, 대표 시나리오 카드의 실제 브라우저 동작은 별도로 검증이 필요하다). `npm run
-typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인했다.
+단위 테스트는 2026-08-01 기준 `tests/unit/*` 46개 파일에 637개(이 문서 갱신 시점에 `npx vitest run`으로
+직접 재실행해 확인). `npm run typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인했다.
+E2E(`e2e/core-flow.spec.ts` 8개)는 이번 라운드에서 재실행하지 않았으나, 그 대신 **Production 배포
+자체를 Playwright로 직접 조작하는 실사용 검증**(맨 아래 새 섹션)을 수행해 핵심 화면 흐름의 실제 동작을
+확인했다 — 로컬 jsdom 기반 단위테스트로는 확인할 수 없는 hydration·Server Action 네트워크 호출·
+카카오맵 SDK 로드까지 포함한다.
 
 ## Phase 2 축소 검토 결과
 
@@ -587,3 +606,77 @@ typecheck`/`npm run lint`/`npm run build`도 같은 시점에 통과를 확인�
 신뢰성 문제(Phase 1)가 이미 근거 패널에 직접 노출되므로 `/admin/ops`가 없어도 감점 요인이 되지 않는다.
 따라서 P2로 내린다 — 단, Phase 1의 provenance 필드가 생기면 이후 `/admin/ops` 구현 비용은 오히려
 줄어든다(표시할 상태값이 이미 존재하므로).
+
+## Production 실사용 검증 및 대표 시나리오 완성 (2026-08-01)
+
+이전 세션들이 "로컬 구현 완료, 원격/DB/배포 별도 확인 필요"로 남겨뒀던 항목들을 실제 Production
+환경(`https://tour-dna.lib.lc`, Neon `TOUR DNA` production 브랜치)에서 순서대로 검증하고 마무리했다.
+코드 변경은 최소한(테스트 파일 2건, 아래 참고)이었고 대부분은 **검증·조사** 작업이다.
+
+### 1) 운영 DB migration 적용
+
+- `vercel link`로 로컬 저장소를 실제 Vercel 프로젝트(`prj_Ly8P5hB1ab9FjnS29OrG8Zoc82Db`)에 연결해
+  Production이 쓰는 DB가 Neon `TOUR DNA` 프로젝트의 production 브랜치(`neondb`)임을 확인(Sensitive
+  환경변수라 `DATABASE_URL` 값 자체는 조회 불가 — 호스트/DB명 일치만으로 확인).
+- `npx prisma migrate status`로 9개 migration 중 `20260731000000_add_strategy_differentiation_fields`
+  1건만 미적용임을 확인 → SQL이 전부 nullable 컬럼 추가(파괴적 변경 없음)임을 검토한 뒤
+  `npm run db:migrate`로 적용 → 재조회로 전체 적용 확인, `information_schema.columns`로 신규 컬럼
+  5종(`coreProblem`/`coreResource`/`stayStyle`/`executionDifficulty`/`expectedEffect`) 존재를 직접
+  확인했다. `seed`/`migrate reset`/`db push`는 실행하지 않았다.
+
+### 2) 테스트 파일 2건 수정(제품 코드 변경 아님) — 커밋 `afba7e9`
+
+- `tests/unit/promoContentSchema.test.ts`: `npm run typecheck` 오류 2건을, `PromoContent`에서 특정
+  필드가 "없는" 레거시 입력을 표현하기 위해 타입 단언 대신 구조분해(`Omit<T,K>`) 헬퍼로 교체해 해결.
+- `tests/unit/promoContentFormat.test.ts`: "채널 헤더가 정확히 한 번씩 등장" 테스트가 부분 문자열
+  카운트 방식이라, LOCAL_GOV 역할의 보도자료 제목이 실제 언론 배포 관행대로 "[보도자료] ..."로
+  시작하는 것(의도된 동작)을 오탐으로 잘못 판정하고 있었다 — 줄 단위 정확 일치 카운트로 교체하고
+  회귀 테스트를 추가했다. **제품 코드(`promoContentFormat.ts` 등)는 결함이 아니었으므로 수정하지
+  않았다.**
+
+### 3) Production 대표 시나리오(강릉) 종단 검증
+
+강릉 프로젝트(지자체/관광재단, 10월, 2박3일)를 신규 생성해 프로젝트 생성 → 분석 → DNA 5축/근거 →
+전략 3안(차별화 필드 포함) → 전략 선택 → 실행안(POI/코스/식사·숙박 슬롯/체크리스트/KPI) → 새로고침·
+재접속까지 전부 정상 동작을 확인했다. 다만 이 1차 검증(Browser pane 자동화 도구 사용)에서 "홍보자료
+생성" 버튼 클릭 시 서버 요청이 전혀 발생하지 않고 카카오맵도 로드되지 않는 것처럼 보여 결함으로
+잠정 보고했었다.
+
+### 4) "홍보자료 생성 무반응" 재조사 — 오탐으로 최종 확정
+
+후속 조사에서 이 증상을 로컬 production build(`next build && next start`)로도 그대로 재현했으나,
+**독립적인 Playwright(실제 헤드리스 Chromium)로 같은 페이지를 열자 정상 동작**했다(React hydration
+완료, 버튼 클릭 시 Server Action이 정확히 1회 호출, 카카오맵 SDK 정상 로드). 두 환경의 결정적 차이는
+`document.hidden` 값 — 문제가 재현된 환경은 항상 `document.hidden === true`(배경/비활성 탭 상태)였고,
+정상 동작한 Playwright 세션은 `document.hidden === false`였다. 탭이 화면에 표시되지 않는 상태에서는
+React가 해당 서브트리를 hydration하지 못해 `onClick` 기반 기능(홍보자료 생성 버튼, 지도 로딩
+`useEffect`)이 전혀 실행되지 않았던 것 — **애플리케이션 결함이 아니라 이번 세션에서 쓴 Browser
+자동화 도구(Browser pane)의 탭 가시성 한계였다.** 이후 독립 Playwright로 Production URL을 직접 열어
+홍보자료 생성(요청 1회)·역할별 채널 순서·전체 복사(중복 헤더 없음)·새로고침/재접속 유지·모바일
+레이아웃까지 전부 정상임을 재확인했고, Vercel Runtime 로그로도 해당 시간대에 4xx/5xx·Prisma 오류가
+전혀 없음을 교차 확인했다. **교훈**: 이 앱(또는 유사한 App Router + Suspense 스트리밍 앱)을 헤드리스
+브라우저 자동화로 검증할 때는 `document.hidden`이 `false`인지 먼저 확인할 것 — 배경 탭 상태에서는
+정상 기능도 무반응처럼 보일 수 있다.
+
+### 5) 대표 시나리오 3개(강릉/제천/경주) 실질 차별화 검증
+
+기존 시연 프로젝트("충청북도 12월 소규모 여행 기획", "경상북도 10월 소규모 여행 기획")로 비교한 결과,
+DNA 5축·전략 제목/순위·입력 조건은 3개 지역 모두 뚜렷이 달랐으나, **두 프로젝트 모두 2026-07-31
+migration 이전에 분석되어 전략 차별화 필드(coreProblem 등 5종)가 전부 null("재분석 필요")**임을
+발견했다. 이 앱에는 기존 프로젝트를 재분석하는 기능이 전혀 없음을 코드 전수 검색으로 확인했고(Phase 6
+참고), 동일 입력값으로 신규 프로젝트를 하나씩 생성해(원본은 그대로 둠) migration 적용 이후 분석
+파이프라인을 태우자 5개 필드가 실제 값으로 채워지고, 홍보자료 채널 순서도 역할별로(여행사=
+`roleContent→instagram→blog→landing→cardNews→proposalSummary`, 지자체=
+`roleContent→proposalSummary→landing→blog→cardNews→instagram`) 정확히 `computeChannelPriority()`
+규칙대로 나오는 것을 Production에서 실증했다.
+
+### 6) 남은 항목(정직하게 기록)
+
+- **Phase 6(조건 수정 및 안전한 재분석)은 여전히 `NOT_STARTED`** — 이번 조사로 그 부재가 실사용
+  시나리오에서 실제로 불편을 야기함을 재확인했다(기존 프로젝트의 신규 필드를 채우려면 새 프로젝트를
+  만들어야 함). 우선순위 재검토 권장.
+- 기존 데모/시연 프로젝트(대전·양양·통영·제주 등 다수) 중 2026-07-31 이전에 분석된 것들은 여전히
+  전략 차별화 필드가 비어 있다 — 실제로 그 값을 보여주는 시연을 원하면 위와 같이 신규 프로젝트를
+  만들어야 한다.
+- 원격 카카오맵·홍보자료 검증에 사용한 Playwright 스크립트는 1회성 조사 도구였으며 저장소에 커밋하지
+  않고 검증 후 삭제했다(재현이 필요하면 이 섹션의 절차를 참고해 다시 작성할 것).

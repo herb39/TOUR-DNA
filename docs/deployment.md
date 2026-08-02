@@ -75,14 +75,20 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
   항상 401이어야 한다)
 - `npm run build`가 로컬에서 통과했는지, Vercel 빌드 로그에 오류가 없는지 확인
 
-## 8. Phase 5(홍보자료) 배포 시 주의사항 (2026-07-26)
+## 8. Phase 5(홍보자료) 배포 — 완료(2026-08-01)
+
+> 아래는 배포 당시(2026-07-26) 작성한 원래 절차이며, 참고용으로 그대로 남긴다. **2026-08-01 기준
+> 이 절차는 전부 완료됐다**: `20260726000000_add_selected_plan_promo_content`를 포함한 9개 migration
+> 전부가 Production Neon DB에 적용되어 있고(`prisma migrate status`로 확인, pending 없음), Vercel
+> Production(`tour-dna.lib.lc`)에도 관련 커밋이 반영되어 있다. 실제 브라우저(Playwright Chromium)로
+> 홍보자료 생성 → 편집(역할별 채널) → 저장 → 새로고침 → 재생성(확인 다이얼로그 포함) → 전체 복사
+> (클립보드) → 재접속까지 전부 검증했고, Vercel Runtime 로그로 4xx/5xx·Prisma 오류가 없음을 함께
+> 확인했다. 상세 검증 내역은 [docs/implementation-status.md](implementation-status.md)의 "Production
+> 실사용 검증 및 대표 시나리오 완성(2026-08-01)" 절 참고.
 
 로컬 `main`에는 홍보자료 생성·편집·저장 기능(Phase 5-A~5-C + 보완, 커밋 `5b8d872`/`fc5e8f8`/`7460365`/
-`a264db6`)이 이미 구현·테스트되어 있지만, 이 문서 작성 시점 기준으로 **아직 `origin/main`에 push되지
-않았고, 해당 기능이 쓰는 `SelectedPlan.promoContent` 컬럼도 원격 Neon DB에 적용되지 않았다**
-(`npx prisma migrate status`로 확인 가능, 읽기 전용 명령이라 언제든 안전하게 재확인할 수 있다).
-
-이 기능을 배포할 때는 Phase 1 때와 동일한 원칙을 따른다(additive migration이므로 순서만 지키면 안전):
+`a264db6`)이 구현·테스트되어 있었고(원본 작성 시점 아직 push/DB 적용 전), 이후 다음 절차로 배포했다
+(additive migration이므로 순서만 지키면 안전):
 
 1. 대상 Neon DB가 개발용인지 운영용인지 먼저 확인한다.
 2. `npm run db:migrate`(`prisma migrate deploy`)로 `20260726000000_add_selected_plan_promo_content`를
@@ -90,5 +96,13 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 3. migration 적용을 확인한 뒤에 해당 커밋이 반영된 배포가 나가도록 한다(반대 순서로 배포부터 하면,
    새 코드가 아직 없는 컬럼을 조회/저장하려다 런타임에 실패한다 — Phase 1 배포 점검과 동일한 위험 패턴).
 4. 배포 후 실제 브라우저에서 홍보자료 생성 → 편집 → 저장 → 새로고침 → 재생성 → 복사 → 인쇄까지
-   한 번은 수동으로 확인한다(이 기능은 로컬 자동 테스트만 거쳤고 실제 DB·브라우저 검증은 아직
-   수행된 적이 없다).
+   한 번은 수동으로 확인한다.
+
+같은 원칙으로 이후 `20260731000000_add_strategy_differentiation_fields`(Phase 4-보완, 전략 3안
+차별화 필드 5종)도 2026-08-01에 동일 절차로 적용·검증했다.
+
+**참고(자동화 도구 사용 시 주의)**: 이 배포 검증 과정에서, 무인 브라우저 자동화 도구의 탭이
+`document.hidden === true`(배경/비활성) 상태이면 React가 페이지를 hydration하지 못해 "홍보자료 생성"
+버튼 등 `onClick` 기반 기능이 전혀 반응하지 않는 것처럼 보이는 현상을 발견했다 — 실제 앱 결함이
+아니라 도구 쪽 문제였다(독립된 Playwright로 `document.hidden === false`인 상태에서 열자 정상 동작).
+향후 자동화 검증 시 이 값을 먼저 확인할 것.

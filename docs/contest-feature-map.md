@@ -12,16 +12,23 @@
 > 여부만 가리키며, 이제는 최신 사실과 다르다 — 실제 운영 배포(Vercel)·DB migration 적용 여부는 이
 > 갱신에서 별도로 조회하지 않았으므로 각 항목의 관련 서술은 그대로 두었다(GitHub 반영과 운영 배포는
 > 서로 다른 확인이다).
+>
+> **2026-08-01 갱신**: 남아 있던 "DB migration 미적용/배포 미반영" 서술을 실제로 해소했다 — Neon
+> Production DB에 관련 migration을 전부 적용하고, Vercel Production(`tour-dna.lib.lc`)에서 Playwright
+> 실 브라우저로 홍보자료·역할별 채별화·대표 시나리오 3개까지 검증을 완료했다. 아래 표의 "다채널
+> 마케팅 콘텐츠"·"여행사·지자체 실무자 대상" 행을 이 사실대로 갱신했다. 상세는
+> [docs/implementation-status.md](implementation-status.md)의 "Production 실사용 검증 및 대표
+> 시나리오 완성(2026-08-01)" 절 참고.
 
 ## 1. 지정과제 문구 → 화면/기능 → 사용 API → 테스트 → 시연 시나리오
 
 | 지정과제 요구 | 현재 화면/기능 | 사용 API/데이터 | 테스트 | 시연 시나리오 | 상태 |
 |---|---|---|---|---|---|
-| 여행사·지자체 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV) 입력, 저장·표시, 분석 화면 요약에도 노출, 대표 시나리오 카드 3개로 역할별 입력 재현 가능 | 없음(입력값 + 기획 규칙) | `audienceContext.test.ts`(27), `strategy.test.ts` 역할 관련 3건, `contestScenarios.test.ts`(24) | 강릉(여행사)/경주(지자체) 대표 시나리오 카드로 로컬에서 재현 가능(실제 브라우저 검증은 아직) | **구현됨(2026-07-26 Phase 4, 2026-07-27 대표 시나리오, 로컬)** — `role`이 [audienceContext.ts](../src/lib/domain/audienceContext.ts)의 역할별 목표 우선순위 테이블을 거쳐 [strategy.ts](../src/lib/domain/strategy.ts)의 `roleFit`(전략 점수 구성요소)과 추천 근거 문구, `planBuilder.ts`의 실행 체크리스트·KPI에 실제로 반영된다. 배포 URL에는 아직 미반영(push 전) |
+| 여행사·지자체 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV) 입력, 저장·표시, 분석 화면 요약에도 노출, 대표 시나리오 카드 3개로 역할별 입력 재현 가능 | 없음(입력값 + 기획 규칙) | `audienceContext.test.ts`(27), `strategy.test.ts` 역할 관련 3건, `contestScenarios.test.ts`(24) | 강릉(여행사)/경주(지자체) 대표 시나리오 카드 — 2026-08-01 Production 브라우저(Playwright)로 실제 재현·검증 완료 | **구현됨 + 배포 완료(2026-08-01 Production 검증)** — `role`이 [audienceContext.ts](../src/lib/domain/audienceContext.ts)의 역할별 목표 우선순위 테이블을 거쳐 [strategy.ts](../src/lib/domain/strategy.ts)의 `roleFit`(전략 점수 구성요소)과 추천 근거 문구, `planBuilder.ts`의 실행 체크리스트·KPI에 실제로 반영된다. 배포 URL(`tour-dna.lib.lc`)에서 실제 브라우저로 확인 완료 |
 | 타깃·지역·기간·콘셉트 조건 입력 | `/projects/new` 폼 7개 지역, 여행월, 연령/동반유형/목적/기간/예산/이동수단/그룹규모/선호·제외테마/메모, 상단 대표 시나리오 카드 3개(강릉/경주/제천)로 원클릭 프리셋 | `ProjectInput` 테이블 | `project-input-schema.test.ts`(6), `ProjectInputForm.test.tsx`(6), `audienceContext.test.ts`(27), `contestScenarios.test.ts`(24) | 입력→분석 E2E 1건(대표 시나리오 카드 자체는 단위 테스트로 검증, E2E 미확장) | **구현됨(2026-07-26 Phase 4로 국적·테마 반영 추가, 2026-07-27 대표 시나리오 카드 추가)** — `nationality`(FOREIGN/DOMESTIC)는 `feasibilityFit`(운영 적합도)에 템플릿별 CURATED 서비스 준비도로 반영, `preferredThemes`/`excludedThemes`는 내부 카테고리 분류([strategy.ts](../src/lib/domain/strategy.ts) `targetFit`)로 반영된다. `memo`는 여전히 저장만 되고 산출물에 미반영(자유 서술 메모라 구조화 반영 대상이 아님) |
 | 데이터 기반 관광 수요·관광지 분석 | `/projects/[id]/analysis` DNA 5축 레이더, 근거 보기 패널 | `AreaTarDemDsService`(체류/소비), `AreaTarResDemService`(서비스수요), `AreaTarDivService`(다양성), `KorService2`(POI) — [public-api-status.md](public-api-status.md) | `dna.test.ts`(9), `strategy.test.ts`(12) | 데모 프로젝트 열람 E2E | **핵심 구현됨, 신뢰성 결함 있음** — `isSnapshotFallback: false`가 [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23)과 [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45)에 하드코딩되어, fixture/추정값도 `LIVE`로 표시될 수 있음(provenance 필드 자체가 schema에 없음) |
 | 맞춤형 상품 운영 초안 | `/projects/[id]/plan` 코스/체류시간/체크리스트/위험/KPI 편집, 카카오맵 동선 | POI(TourAPI), 카카오맵 JS SDK | `planBuilder.test.ts`(11), `PlanEditor.test.tsx`(10), `CourseMap.test.tsx`(5) | 전략선택→실행안 편집→인쇄 E2E | **구현됨** — 이동시간은 Haversine 직선거리 추정(도로 경로 아님), 실행 가능성 경고 포함 |
-| 다채널 마케팅 콘텐츠 | `/projects/[id]/plan`의 "홍보자료" 섹션(제안서 요약/랜딩/Instagram/블로그/역할별 자료 생성·편집·복사), 인쇄 화면 출력 | 없음(저장된 실행안/Evidence만 재사용, LLM·외부 API 미사용) | `promoContent.test.ts`(21), `promoContentAdapter.test.ts`(14), `promoContentService.test.ts`(16), `PromoContentEditor.test.tsx`(16+11), `PrintPage.test.tsx`(6) | 아직 없음(P0-2에서 대표 시나리오에 포함 예정) | **로컬 구현 완료(2026-07-26), 배포 미반영** — 관련 커밋 4개(`5b8d872`/`fc5e8f8`/`7460365`/`a264db6`)가 `origin/main`에 push되지 않았고, `SelectedPlan.promoContent` migration도 원격 DB에 미적용이라 **현재 배포 URL에서는 확인할 수 없다.** 상세: [docs/implementation-status.md](implementation-status.md)의 Phase 5 절 |
+| 다채널 마케팅 콘텐츠 | `/projects/[id]/plan`의 "홍보자료" 섹션(제안서 요약/랜딩/Instagram/블로그/카드뉴스/역할별 자료 생성·편집·복사, 채널 우선순위 역할별 정렬), 인쇄 화면 출력 | 없음(저장된 실행안/Evidence만 재사용, LLM·외부 API 미사용) | `promoContent.test.ts`(21), `promoContentAdapter.test.ts`(14), `promoContentService.test.ts`(16), `PromoContentEditor.test.tsx`(16+11), `PrintPage.test.tsx`(6), `promoContentFormat.test.ts`, `promoContentSchema.test.ts` | 2026-08-01 Production 브라우저(Playwright)로 홍보자료 생성→역할별 채널 순서→전체 복사→새로고침/재접속 유지까지 검증 완료 | **구현·배포·검증 완료(2026-08-01)** — 관련 커밋이 `origin/main`에 push되어 있고, `SelectedPlan.promoContent`·`StrategyResult` 차별화 필드 migration 모두 원격 Production Neon DB에 적용 완료. **배포 URL(`tour-dna.lib.lc`)에서 실제로 확인 가능.** 상세: [docs/implementation-status.md](implementation-status.md)의 "Production 실사용 검증 및 대표 시나리오 완성(2026-08-01)" 절 |
 | 빠른 상품화 | 입력→분석→전략선택→실행안→인쇄 흐름 | — | E2E 1건(전체 흐름) | 전체 흐름 E2E | **구현됨** — 단, "조건 수정 후 안전한 재분석"(Phase 6)이 없어 조건이 틀렸을 때 새 프로젝트를 다시 만들어야 함 |
 
 ## 2. LIVE/CACHED/CURATED/ESTIMATED/MISSING 구분과 화면 표시
