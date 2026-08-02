@@ -759,3 +759,118 @@ README 로드맵("기회 발굴 — 계절·타깃·공급 격차 기반 사업 
   강릉·경주는 로컬 seed에 POI fixture가 없어(제천만 있음) 단위테스트에서 공급 격차형/타깃·테마
   격차형까지 실증하지 못했다 — Production 실 데이터로는 확인함(위 검증 항목 참고).
 - **아직 하지 않은 것**: 이 문서 갱신 시점 기준 커밋·push·배포는 하지 않았다(별도 작업 지시 대기).
+
+## 유사지역 비교 — `DONE(로컬+원격+배포, 2026-08-02~03)`
+
+README 로드맵("유사지역 비교 — DNA 5축·POI 구성이 가장 비슷한 지원 지역과 비교")을 구현했다.
+분석·인쇄 화면에서 DNA 5축 바로 다음에 표시되며, 저장하지 않고 매 렌더링 시점에 순수 함수로
+계산한다(Prisma 스키마 변경 없음).
+
+- **선정 기준 4가지**(`src/lib/domain/regionSimilarity.ts`): 행정단위(같은 SIGUNGU 레벨, 자기 자신
+  제외) · DNA 5축 거리(공유 축 RMS 거리, DNA 점수 산식 자체는 불변) · 관광 자원 구성(POI 카테고리
+  비중 벡터 거리, 두 지역 중 한 곳이라도 POI가 0건이면 반영하지 않음) · 데이터 완전성(공유 축이
+  3개 미만이면 후보에서 제외).
+- **결합 거리**: DNA 거리 60% + POI 구성 거리 40%(관광 자원 데이터가 없으면 DNA 거리만 사용),
+  최대 3곳 채택.
+- **기준월 투명성 보완(2026-08-02)**: `RegionComparisonAnalysis.comparisonBaseYm`을 항상 반환하고,
+  비교 지역 중 하나라도 다른 기준월을 쓰면 `mixedBaseYm`/`baseYmNote`로 숨기지 않고 어떤 지역이
+  어떤 기준월을 썼는지 전부 나열한다. `resolveAnalysisBaseYmMismatchNote()`가 프로젝트 자체의 분석
+  기준월과 비교 기준월이 다르면(또는 분석에 기준월 정보 자체가 없으면) 안내 문구를 만들어 분석·인쇄
+  화면이 동일하게 표시한다.
+- **화면 반영**: `/projects/[id]/analysis`의 DNA 5축 섹션 바로 다음에 "유사지역 비교" 섹션
+  (`RegionComparisonCard.tsx`, CURATED 규칙 배지 + "현재 지원 지역 데이터 기준 비교" 캡션 + 기준월
+  표시). 인쇄 화면에는 지역명·상대 위치·강점/취약점 요약만 압축 반영.
+- **테스트**: `tests/unit/regionSimilarity.test.ts`(20개 — 기본 동작/자기 자신 제외/데이터 부족 처리/
+  벤치마킹·고유 강점 판정/기준월 동일·상이·혼합 3종), `tests/unit/contestScenarios.test.ts`에 강릉/
+  경주/제천 실제 fixture 기반 차별화 테스트 5개 추가(세 지역 모두 유사지역 확보, 자기 자신 제외,
+  세 지역의 유사지역 조합이 서로 다름, 결정론성, POI fixture 없는 지역의 관광 자원 구성 비교 생략).
+- **검증**: `npx prisma migrate deploy`는 이 기능에서 실행하지 않음(Prisma 변경 없음). Production
+  (`tour-dna.lib.lc`)에서 강릉/경주/제천 기존 프로젝트로 자기 자신 제외·지역별 조합 차별화(강릉→
+  경주/대전/제주, 경주→강릉/대전/제주, 제천→경주/통영/양양)·분석·인쇄 화면 완전 일치(순서까지
+  동일)·모바일 375px 가로 스크롤 없음·콘솔/4xx/5xx/런타임 오류 없음을 확인했다.
+- **전체 검증**: `npx vitest run` 700/700 통과, `npm run typecheck`/`npm run lint`/`npm run build`
+  전부 통과. 커밋 `c2cc0d7`, `git push origin main` 완료, Vercel Production 배포 Ready 확인.
+- **남은 한계**: 현재 지원 지역이 7곳뿐이라 비교 폭이 제한적이다(전국 확장은 의도적으로 이번 범위에서
+  제외). `fetchMetricCohort`가 baseYm을 정확히 일치시켜 조회하므로, 오늘 기준 실제로 지역마다 다른
+  기준월이 나오는 경우는 없다 — `mixedBaseYm` 관련 로직은 방어적 코드이며 단위 테스트로만 검증됐다.
+
+## 사업 사전검증 리포트 — `DONE(로컬+테스트, 2026-08-03)`
+
+README 로드맵("사업 사전검증 — 추진 권고·보완사항·위험·데이터 신뢰도")을 구현했다. 실행안·인쇄
+화면에 표시되며, 새 지표를 계산하지 않고 이미 계산·저장된 DNA 5축·POI 공급 부족 판정·이동 경고·
+유사지역 비교·위험·대응안만 조합하는 결정론적 규칙(CURATED)이다(Prisma 스키마 변경 없음).
+
+- **4가지 게이팅 신호**(`src/lib/domain/preLaunchValidation.ts`):
+  1. 데이터 신뢰도 — **DNA 5축 각 축을 구성하는 Evidence의 provenance(LIVE_API/CACHED_API/CURATED/
+     ESTIMATED/null)를 직접 본다**(2026-08-03 보완, 아래 "데이터 신뢰도 판정 정책 보완" 참고).
+  2. POI 공급 충분성 — `poiFitService.ts`의 shortage 판정 재사용(지역 데이터 자체 부족이면 BLOCKER,
+     적합 기준 미달로 일부만 제외됐으면 CAUTION).
+  3. 이동 현실성 — `planBuilder.ts`가 이미 코스 생성 시 기록해 둔 `CourseDay.notices`(장거리 이동으로
+     제외된 장소 안내) 개수(3건 이상이면 BLOCKER, 1~2건이면 CAUTION) — 재계산 없이 저장된 값만 읽는다.
+  4. 지역 차별성 — 유사지역 비교의 `uniqueStrengthNote` 존재 여부(비교 지역이 0곳이면 UNKNOWN).
+- **추진 권고 판정 원칙(단일 평균 점수를 쓰지 않음)**: 4개 신호 중 하나라도 BLOCKER면 나머지가
+  전부 좋아도 무조건 "보완 후 재검토"다(치명적 조건 우선). BLOCKER는 없지만 CAUTION/UNKNOWN이
+  하나라도 있으면 "조건부 권장". 4개 신호가 전부 OK일 때만 "권장".
+- **근거 부족 처리**: 비교 지역이 0곳이거나 코스 자체가 비어 있으면(실행안 없는 프로젝트에 준하는
+  상태) 해당 신호를 억지로 OK/CAUTION으로 만들지 않고 UNKNOWN("확인 필요")으로 남긴다 — UNKNOWN이
+  있으면 전체 판정도 "권장"으로 지어내지 않고 최소 "조건부 권장"으로 낮춘다.
+- **화면 반영**: `/projects/[id]/plan`에 "사업 사전검증 리포트" 섹션(`PreLaunchValidationSection.tsx`,
+  선택 전략 섹션과 실행안 편집기 사이) 추가 — 추진 권고 배지, 4개 신호 카드, 주요 위험(SelectedPlan.
+  risks 재사용), 필수 보완사항, 판정 기준·한계 문구. 인쇄 화면에는 지면 제약상 배지·판단 이유·4개
+  신호 한 줄 요약·필수 보완사항만 압축 반영(관광사업 기회 3안 섹션과 선택 전략 섹션 사이).
+- **테스트**: `tests/unit/preLaunchValidation.test.ts`(32개 — 기본 동작/치명적 조건 우선 원칙 3종/
+  경미한 문제는 조건부 권장까지만 낮춤 4종/근거 부족은 확인 필요로 표시 3종/`classifyAxisProvenance`
+  단위 테스트 9종/provenance 조합별 데이터 신뢰도 통합 테스트 8종), `tests/unit/contestScenarios.test.ts`에
+  강릉/경주/제천 실제 fixture 기반 차별화 테스트 4개 추가(리포트 정상 생성, POI fixture 유무에 따른
+  POI 공급 충분성 신호 차이, 종합 판단 이유 차별화, 결정론성).
+- **전체 검증**: `npx vitest run` 736/736 통과, `npm run typecheck`/`npm run lint`/`npm run build`
+  전부 통과.
+
+### 데이터 신뢰도 판정 정책 보완 — `DONE(로컬+테스트, 2026-08-03)`
+
+**기존 실제 판정과의 모순**: 최초 구현은 `AnalysisResult`의 축 상태(`AxisStatus`: LIVE/SNAPSHOT/
+MISSING)만 보고 "SNAPSHOT이면 CAUTION"으로 뭉뚱그렸다. 그런데 `AxisStatus`는 `dna.ts`의
+`combineAxisStatus()`가 "이 축의 Evidence 중 하나라도 `isSnapshotFallback`이면 SNAPSHOT"으로만
+판정한 결과라, "사람이 검수한 CURATED 데이터라 SNAPSHOT"인 경우와 "근거가 아예 추정값(ESTIMATED)인
+경우"를 구분하지 못했다. 실제로 강릉 Production 프로젝트가 "조건부 권장"으로 나온 원인을 근거
+테이블(`EvidenceTable`)에서 직접 확인한 결과, 수요(Demand) 축의 지표 4개 중 3개(`관광 서비스 수요`,
+`방문자수`, `방문자수 증감률`)는 `실시간 API`(LIVE_API)였고, 단 하나(`관광자원 수요`,
+`touResDemIxVal`)만 `추정값`(ESTIMATED)이었다 — 그런데 최초 구현의 판정 이유 문구는
+"1개 축은 최근 확보 데이터/추정값을 사용했습니다"라고만 표시해, 마치 그 축 전체가 부실한 것처럼
+보이게 했다. 화면(`EvidenceTable.tsx`)은 이미 `isProvenanceCautionLevel()`로 "ESTIMATED/MISSING/null
+만 주의 대상, LIVE_API/CACHED_API/CURATED는 확인된 실제 데이터"라는 더 정교한 기준을 쓰고 있었는데,
+사전검증 리포트는 이 화면 기준과 다른(더 거친) 자체 기준을 썼다는 것이 근본 모순이었다.
+
+**최종 provenance 정책**(`src/lib/domain/preLaunchValidation.ts`의 `classifyAxisProvenance()`) —
+`EvidenceTable.tsx`의 `isProvenanceCautionLevel()`과 완전히 동일한 기준을 재사용한다:
+- `LIVE_API`/`CACHED_API`/`CURATED` → **TRUSTED**(확인된 실제 데이터). `CACHED_API`(과거 성공 응답
+  재사용)·`CURATED`(사람이 검수)는 "지금 이 순간 실시간"은 아니지만 근거 없는 추정값과 다르므로,
+  단순히 "LIVE가 아니다"라는 이유만으로 캐턴션(CAUTION)으로 낮추지 않는다.
+- `ESTIMATED` → **ESTIMATED**(추정값). 실측이 아니라 계산/추정으로 채운 값이라 CAUTION 대상이다.
+- `null`(레거시 미분류) 또는 문자 그대로의 `"MISSING"` provenance 값 → **UNCLASSIFIED**(출처 판정
+  정보 없음) — ESTIMATED와는 다른 사유이므로 판정 문구에서 별도로 구분한다.
+- 이 축에 Evidence 자체가 없음(빈 배열) → **MISSING**(축 자체가 없음) — "값은 있지만 추정값"인
+  ESTIMATED와 "값 자체가 없음"인 MISSING을 절대 같은 문구로 섞지 않는다.
+- 축 하나에 여러 Evidence가 섞여 있으면 그중 가장 신뢰도가 낮은 근거가 그 축 전체의 등급을
+  결정한다("약한 고리" 원칙, 기존 `combineAxisStatus`와 동일한 보수적 태도).
+- `CACHED_API`가 포함된 축은 등급(OK/CAUTION/BLOCKER)은 낮추지 않되, "재사용된 이전 API 응답을
+  포함한다"는 노후도 참고 문구를 판정 이유에 **별도로** 덧붙인다 — 게이팅에는 영향을 주지 않는
+  순수 정보성 신호로 처리했다(요구사항의 "데이터 기준월 노후도에 따른 CAUTION"을, 이미 존재하는
+  `CACHED_API` provenance 개념으로 구현했다).
+- 판정 이유 문구는 항상 "어떤 축이 어떤 provenance 때문에" 그 등급이 됐는지 구체적으로 적는다(예:
+  "수요(Demand)(추정값(ESTIMATED) 근거 포함)").
+- **게이팅 임계값(MISSING 2개 이상 BLOCKER 등)과 다른 3개 신호(POI/이동/지역)는 전혀 건드리지
+  않았다** — 데이터 신뢰도 신호의 "무엇을 근거로 등급을 매기는가"만 axis-status 기반에서
+  provenance 기반으로 교체했다.
+
+**강릉 Production 판정 변화 여부**: **변화 없음.** 데이터 신뢰도는 여전히 CAUTION(수요 축의
+`touResDemIxVal` 지표가 ESTIMATED이기 때문), POI 공급 충분성도 여전히 CAUTION(적합 기준 미달로
+일부 제외, 지역 데이터 자체는 충분)이라 종합 판정은 이전과 동일하게 "조건부 권장"이다 — 달라진
+것은 판정 이유 문구가 "1개 축은 최근 확보 데이터/추정값을 사용했습니다"에서 "수요(Demand)
+(추정값(ESTIMATED) 근거 포함)"로 더 정확해진 것뿐이다. 실행안·인쇄 화면 양쪽에서 동일하게 확인했다.
+- **남은 한계**: 이 리포트는 "이동 현실성" 신호를 위해 실제 코스 빌더(`buildDraftCourse`)까지
+  재현하는 통합 테스트는 만들지 않았다(단위 테스트에서 travelNoticeCount를 직접 주입해 로직만
+  검증). "기회 3안"은 이 리포트의 게이팅 신호로 직접 쓰지 않는다(작업 지시의 8개 출력 항목에
+  포함되지 않아 정보성 참고로만 남겨둠). 위험 판정(BLOCKER 임계값 3건, MISSING 2개 등)은 모두
+  CURATED 기획 규칙이며 실제 운영 데이터로 재검증이 필요하다.
+- **아직 하지 않은 것**: 이 문서 갱신 시점 기준 커밋·push·배포는 하지 않았다(별도 작업 지시 대기).

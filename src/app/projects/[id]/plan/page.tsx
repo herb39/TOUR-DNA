@@ -7,6 +7,13 @@ import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
 import type { DurationCode } from "@/lib/domain/strategy";
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { PromoContentEditor } from "@/components/plan/PromoContentEditor";
+import { DNA_AXES, type DataProvenance } from "@/lib/domain/types";
+import { computeRegionSimilarityComparisons } from "@/lib/domain/regionSimilarity";
+import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
+import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { summarizeEvidenceBaseYms } from "@/lib/format";
+import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
+import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +96,38 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미
+  // 계산된 값만 조합한다(새 지표 없음, DNA·전략 점수 공식 변경 없음). 유사지역 비교는 분석·인쇄 화면과
+  // 같은 baseYm(이 분석의 evidence에 실제로 저장된 기준월)으로 계산해 화면 간 결과가 일치하게 한다.
+  let preLaunchValidation: ReturnType<typeof computePreLaunchValidation> | null = null;
+  if (project.analysisResult && project.input) {
+    const analysisResult = project.analysisResult;
+    const baseYm = summarizeEvidenceBaseYms(analysisResult.evidences).primary ?? DEFAULT_BASE_YM;
+    const regionProfiles = await fetchRegionComparisonProfiles(baseYm);
+    const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
+    const regionComparisonAnalysis = targetRegionProfile
+      ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
+      : null;
+
+    const travelNoticeCount = planData.course.days.reduce((sum, d) => sum + (d.notices?.length ?? 0), 0);
+
+    preLaunchValidation = computePreLaunchValidation({
+      axisScores: DNA_AXES.map((axis) => ({
+        axis,
+        score: analysisResult[`${axis}Score` as const] as number | null,
+        evidenceProvenances: analysisResult.evidences
+          .filter((e) => e.axis === axis)
+          .map((e) => e.provenance as DataProvenance | null),
+      })),
+      poiShortage: poiFitSummary?.shortage ?? null,
+      travelNoticeCount,
+      totalCourseDays: planData.course.days.length,
+      regionComparisonCount: regionComparisonAnalysis?.comparisons.length ?? 0,
+      regionUniqueStrengthNote: regionComparisonAnalysis?.uniqueStrengthNote ?? null,
+      riskMitigations: planData.risks,
+    });
+  }
+
   return (
     <>
       <SiteHeader />
@@ -122,6 +161,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               </div>
             </dl>
           </section>
+        ) : null}
+        {preLaunchValidation ? (
+          <div className="mt-4">
+            <PreLaunchValidationSection report={preLaunchValidation} />
+          </div>
         ) : null}
         <div className="mt-6">
           <PlanEditor

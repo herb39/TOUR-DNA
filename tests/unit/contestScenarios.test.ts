@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { computeDna } from "@/lib/domain/dna";
-import { computeStrategies, type PoiLike, type ProjectInputForScoring } from "@/lib/domain/strategy";
+import {
+  computeStrategies,
+  NON_LODGING_POI_TARGET_BY_DURATION,
+  MEAL_RESERVE_TARGET_BY_DURATION,
+  type PoiLike,
+  type ProjectInputForScoring,
+} from "@/lib/domain/strategy";
 import { buildKpis, buildOperationChecklist, buildRisks, type AudiencePlanContext } from "@/lib/domain/planBuilder";
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { computeRegionSimilarityComparisons, type RegionAxisProfile } from "@/lib/domain/regionSimilarity";
+import { computePreLaunchValidation, type PoiShortageLike } from "@/lib/domain/preLaunchValidation";
 import { MODEL_VERSION } from "@/lib/domain/constants";
 import { DNA_AXES, METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
@@ -553,5 +560,89 @@ describe("유사지역 비교 — 강릉/경주/제천 실질적 차별화", () 
     for (const c of [...gangneungResult.comparisons, ...gyeongjuResult.comparisons]) {
       expect(c.poiCompositionNote).toContain("반영하지 못했습니다");
     }
+  });
+});
+
+/**
+ * 사업 사전검증 리포트(2026-08-03) — 강릉/경주/제천 대표 시나리오의 실제 fixture 데이터(DNA·POI·유사
+ * 지역 비교·위험)를 그대로 조합해, 세 지역의 사전검증 판정이 실질적으로 달라지는지 확인한다. 코스
+ * 빌더(buildDraftCourse)까지는 이 통합 테스트에서 재현하지 않는다 — 이동 현실성(travelNoticeCount)
+ * 신호 자체의 로직 검증은 tests/unit/preLaunchValidation.test.ts가 전담한다. 이 테스트는 DNA·POI
+ * 공급·유사지역 비교·위험이라는 이미 실제로 검증된 신호들이 지역마다 다른 사전검증 결론으로 이어지는지
+ * 확인하는 데 집중한다.
+ */
+function poiShortageFor(s: RepresentativeScenario): PoiShortageLike | null {
+  const poiCategoryLists = poisByCategoryFor(s.sigunguCode) as Partial<Record<PoiCategoryCode, PoiLike[]>>;
+  const nonLodgingCount = (Object.entries(poiCategoryLists) as [PoiCategoryCode, PoiLike[]][])
+    .filter(([category]) => category !== "LODGING")
+    .reduce((sum, [, list]) => sum + list.length, 0);
+  const target = NON_LODGING_POI_TARGET_BY_DURATION[s.duration] + MEAL_RESERVE_TARGET_BY_DURATION[s.duration];
+  if (nonLodgingCount >= target) return null;
+  return {
+    dataInsufficient: nonLodgingCount === 0,
+    message: `목표(${target}곳)보다 ${target - nonLodgingCount}곳 적게 구성되었습니다.`,
+    suggestion: "공공데이터 동기화 범위를 넓히거나 큐레이션 데이터를 추가해야 합니다.",
+  };
+}
+
+function preLaunchValidationFor(s: RepresentativeScenario) {
+  const dna = computeDna(dnaInputFor(s.sigunguCode));
+  const comparison = comparisonsFor(s);
+  const { strategies } = runScenario(s);
+  const risks = buildRisks(strategies[0].templateId, audienceContextOf(s));
+
+  return computePreLaunchValidation({
+    axisScores: DNA_AXES.map((axis) => ({
+      axis,
+      score: dna[axis].score,
+      evidenceProvenances: dna[axis].evidence.map((e) => e.provenance),
+    })),
+    poiShortage: poiShortageFor(s),
+    travelNoticeCount: 0,
+    totalCourseDays: 1,
+    regionComparisonCount: comparison?.comparisons.length ?? 0,
+    regionUniqueStrengthNote: comparison?.uniqueStrengthNote ?? null,
+    riskMitigations: risks,
+  });
+}
+
+describe("사업 사전검증 리포트 — 강릉/경주/제천 실질적 차별화", () => {
+  it("세 지역 모두 리포트가 정상 생성된다(추진 권고·판단 이유·4개 신호·판정 기준 모두 존재)", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const result = preLaunchValidationFor(s);
+      expect(result.recommendationLabel.length).toBeGreaterThan(0);
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.criteria.length).toBeGreaterThan(0);
+      for (const signal of [
+        result.dataReliability,
+        result.poiSupplySufficiency,
+        result.travelFeasibility,
+        result.regionalDifferentiation,
+      ]) {
+        expect(["OK", "CAUTION", "BLOCKER", "UNKNOWN"]).toContain(signal.status);
+        expect(signal.detail.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("강릉·경주(로컬 POI fixture 없음)와 제천(로컬 POI fixture 있음)은 POI 공급 충분성 신호가 다르다", () => {
+    const gangneungResult = preLaunchValidationFor(gangneung);
+    const gyeongjuResult = preLaunchValidationFor(gyeongju);
+    const jecheonResult = preLaunchValidationFor(jecheon);
+
+    expect(gangneungResult.poiSupplySufficiency.status).toBe("BLOCKER");
+    expect(gyeongjuResult.poiSupplySufficiency.status).toBe("BLOCKER");
+    expect(jecheonResult.poiSupplySufficiency.status).not.toBe("BLOCKER");
+  });
+
+  it("세 지역의 종합 판단 이유가 서로 다르다(하드코딩 없이 실제 신호 조합으로 달라짐)", () => {
+    const reasons = [gangneung, gyeongju, jecheon].map((s) => preLaunchValidationFor(s).reason);
+    expect(new Set(reasons).size).toBeGreaterThan(1);
+  });
+
+  it("동일 입력으로 반복 계산해도 완전히 동일한 결과다(결정론성)", () => {
+    const first = preLaunchValidationFor(gangneung);
+    const second = preLaunchValidationFor(gangneung);
+    expect(first).toEqual(second);
   });
 });

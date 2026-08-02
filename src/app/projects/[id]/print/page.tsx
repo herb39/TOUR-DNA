@@ -18,12 +18,13 @@ import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
 import type { DurationCode } from "@/lib/domain/strategy";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
-import { DNA_AXES } from "@/lib/domain/types";
+import { DNA_AXES, type DataProvenance } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 import { computeRegionSimilarityComparisons, resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
 import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   // 렌더링 시점에 매번 계산 — 전략 점수·선택 로직은 건드리지 않는다).
   let poiFits: Record<string, PoiFitResult> | undefined;
   let poiShortageMessage: string | null = null;
+  let poiShortage: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>>["shortage"] = null;
   if (selectedStrategy && project.input) {
     const poiIds = course.days.flatMap((d) => [
       ...d.items.map((i) => i.poiId),
@@ -126,14 +128,38 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         duration: project.input.duration as DurationCode,
       });
       poiFits = summary.fitsByPoiId;
+      poiShortage = summary.shortage;
       poiShortageMessage = summary.shortage
         ? `${summary.shortage.message} ${summary.shortage.suggestion}`
         : null;
     } catch {
       poiFits = undefined;
+      poiShortage = null;
       poiShortageMessage = null;
     }
   }
+
+  // 사업 사전검증 리포트(2026-08-03) — 분석 화면에서 이미 계산한 DNA·유사지역 비교와 위에서 계산한
+  // POI 공급·이동 경고를 조합한다(새 지표 없음). 실행안 화면과 완전히 동일한 규칙 함수를 재사용해
+  // 분석·인쇄·실행안 세 화면이 같은 입력이면 같은 결론을 내도록 한다.
+  const preLaunchValidation =
+    project.input && regionComparisonAnalysis
+      ? computePreLaunchValidation({
+          axisScores: DNA_AXES.map((axis) => ({
+            axis,
+            score: analysisResult[`${axis}Score` as const] as number | null,
+            evidenceProvenances: analysisResult.evidences
+              .filter((e) => e.axis === axis)
+              .map((e) => e.provenance as DataProvenance | null),
+          })),
+          poiShortage,
+          travelNoticeCount: course.days.reduce((sum, d) => sum + (d.notices?.length ?? 0), 0),
+          totalCourseDays: course.days.length,
+          regionComparisonCount: regionComparisonAnalysis.comparisons.length,
+          regionUniqueStrengthNote: regionComparisonAnalysis.uniqueStrengthNote,
+          riskMitigations: plan.risks as { risk: string; mitigation: string }[],
+        })
+      : null;
 
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
@@ -220,6 +246,38 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {preLaunchValidation ? (
+        <section className="mt-4 border-t border-slate-300 pt-3">
+          <h2 className="text-sm font-semibold">
+            사업 사전검증 리포트{" "}
+            <span className="text-[10px] font-normal text-slate-400">
+              (CURATED 규칙 · {preLaunchValidation.ruleVersion})
+            </span>
+          </h2>
+          <p className="mt-1 text-xs font-bold text-slate-900">
+            추진 권고: {preLaunchValidation.recommendationLabel}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-600">{preLaunchValidation.reason}</p>
+          <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
+            <li>데이터 신뢰도 — {preLaunchValidation.dataReliability.detail}</li>
+            <li>POI 공급 충분성 — {preLaunchValidation.poiSupplySufficiency.detail}</li>
+            <li>이동 현실성 — {preLaunchValidation.travelFeasibility.detail}</li>
+            <li>지역 차별성 — {preLaunchValidation.regionalDifferentiation.detail}</li>
+          </ul>
+          {preLaunchValidation.requiredImprovements.length > 0 ? (
+            <div className="mt-1.5">
+              <p className="text-[11px] font-semibold text-slate-700">필수 보완사항</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-slate-600">
+                {preLaunchValidation.requiredImprovements.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <p className="mt-1.5 text-[10px] text-slate-400">{preLaunchValidation.criteria}</p>
         </section>
       ) : null}
 
