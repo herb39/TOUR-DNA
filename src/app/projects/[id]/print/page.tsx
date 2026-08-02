@@ -17,6 +17,10 @@ import { parsePromoContent } from "@/lib/validation/promoContent.schema";
 import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
 import type { DurationCode } from "@/lib/domain/strategy";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
+import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
+import { DNA_AXES } from "@/lib/domain/types";
+import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
+import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +50,39 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     stay: findEvidence(METRIC_CODES.STAY),
     spend: findEvidence(METRIC_CODES.SPEND),
   });
+
+  // 관광사업 기회 3안 요약(2026-08-02) — 분석 화면과 같은 순수 함수를 그대로 재사용한다(저장하지
+  // 않고 인쇄 시점에 다시 계산). 인쇄 화면은 지면 제약상 제목·문제·방향만 요약해서 보여준다(최소 범위).
+  // 공급 격차 판정용 POI 카테고리별 개수는 분석 화면과 마찬가지로 분석 시점 스냅샷을 우선 사용해,
+  // 같은 분석 결과라면 분석 화면과 인쇄 화면이 항상 같은 입력으로 계산되게 한다(재현성 보완,
+  // 2026-08-02). 스냅샷이 없는 레거시 분석 결과만 예외적으로 현재 DB를 조회한다.
+  const storedPoiCategorySummary = analysisResult.poiCategorySummary as Partial<
+    Record<PoiCategoryCode, number>
+  > | null;
+  const poiCountByCategory =
+    storedPoiCategorySummary ??
+    (project.input
+      ? (Object.fromEntries(
+          Object.entries(await fetchPoisByCategory(project.region.code)).map(([category, pois]) => [
+            category,
+            pois?.length ?? 0,
+          ]),
+        ) as Partial<Record<PoiCategoryCode, number>>)
+      : {});
+  const opportunityAnalysis = project.input
+    ? computeBusinessOpportunities({
+        regionName: project.region.name,
+        axisScores: DNA_AXES.map((axis) => ({
+          axis,
+          score: analysisResult[`${axis}Score` as const] as number | null,
+          status: analysisResult[`${axis}Status` as const] as "LIVE" | "SNAPSHOT" | "MISSING",
+        })),
+        role: project.role,
+        travelMonth: project.travelMonth,
+        preferredThemes: (project.input.preferredThemes as string[] | undefined) ?? [],
+        poiCountByCategory,
+      })
+    : null;
 
   // 저장된 promoContent가 없으면(DB NULL) 섹션 자체를 만들지 않는다. 값이 있어도 Phase 5-B와 동일한
   // 검증 경계(parsePromoContent)를 통과하지 못하면 잘못된 데이터를 그대로 출력하지 않고 조용히 생략한다.
@@ -118,6 +155,26 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </div>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {opportunityAnalysis && opportunityAnalysis.items.length > 0 ? (
+        <section className="mt-4">
+          <h2 className="text-sm font-semibold">
+            관광사업 기회 3안(요약){" "}
+            <span className="text-[10px] font-normal text-slate-400">
+              (CURATED 규칙 · {opportunityAnalysis.ruleVersion})
+            </span>
+          </h2>
+          <ul className="mt-1 space-y-1.5">
+            {opportunityAnalysis.items.map((o) => (
+              <li key={o.category} className="rounded border border-slate-200 p-2 text-xs">
+                <p className="font-semibold text-slate-900">{o.title}</p>
+                <p className="mt-0.5 text-slate-600">{o.problem}</p>
+                <p className="mt-0.5 text-slate-500">사업 방향: {o.direction}</p>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 

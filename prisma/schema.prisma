@@ -340,6 +340,13 @@ model AnalysisResult {
   opportunities Json // string[] (길이 2)
   cautions      Json // string[] (길이 1)
 
+  // 분석 시점의 지역 전체 POI 카테고리별 개수 스냅샷(Partial<Record<PoiCategoryCode, number>>).
+  // 관광사업 기회 3안의 SUPPLY_GAP/TARGET_THEME_GAP 판정 근거를 "분석 당시" 값으로 고정하기 위해
+  // 2026-08-02에 추가했다 — POI 동기화로 최신 공급량이 바뀌어도 이미 저장된 분석 결과는 이 스냅샷을
+  // 그대로 사용해 임의로 바뀌지 않는다. 이 컬럼 추가 이전에 만들어진 레거시 행은 null이며, 화면에서는
+  // 그 경우에만 현재 DB를 조회하는 기존 방식으로 대체한다.
+  poiCategorySummary Json?
+
   analysisKey  String // hash(sortedInput + dataVersion + modelVersion)
   dataVersion  String // 사용된 NormalizedMetric/DataSnapshot 조합의 버전 식별자
   modelVersion String // 예: tour-dna-v1.0.0

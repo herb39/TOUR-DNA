@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { computeDna } from "@/lib/domain/dna";
 import { computeStrategies, type PoiLike, type ProjectInputForScoring } from "@/lib/domain/strategy";
 import { buildKpis, buildOperationChecklist, buildRisks, type AudiencePlanContext } from "@/lib/domain/planBuilder";
+import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { MODEL_VERSION } from "@/lib/domain/constants";
-import { METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
+import { DNA_AXES, METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { METRIC_FIXTURES, type MetricFixture } from "@/lib/fixtures/metrics";
 import { POI_SEED } from "@/lib/fixtures/pois";
@@ -393,5 +394,89 @@ describe("대표 시나리오 — 실제 결과 차별화(하드코딩 없이 �
     const wellnessWith = withWellness.find((s) => s.templateId === "NATURE_WELLNESS")!;
     const wellnessWithout = withoutTheme.find((s) => s.templateId === "NATURE_WELLNESS")!;
     expect(wellnessWith.scoreBreakdown.targetFit).toBeGreaterThan(wellnessWithout.scoreBreakdown.targetFit);
+  });
+});
+
+/**
+ * 관광사업 기회 3안(Phase, 2026-08-02) — 강릉/경주/제천 대표 시나리오의 실제 fixture 데이터(위에서
+ * 이미 검증한 dnaInputFor/poisByCategoryFor)를 그대로 재사용해, 세 지역의 기회 3안이 실질적으로
+ * 달라지는지 확인한다. 어떤 값도 새로 지어내지 않는다.
+ */
+function opportunitiesFor(s: RepresentativeScenario) {
+  const dna = computeDna(dnaInputFor(s.sigunguCode));
+  const poiCategoryLists = poisByCategoryFor(s.sigunguCode) as Partial<Record<PoiCategoryCode, PoiLike[]>>;
+  const poiCountByCategory = Object.fromEntries(
+    (Object.entries(poiCategoryLists) as [PoiCategoryCode, PoiLike[]][]).map(([category, list]) => [
+      category,
+      list.length,
+    ]),
+  ) as Partial<Record<PoiCategoryCode, number>>;
+
+  return computeBusinessOpportunities({
+    regionName: s.regionLabel,
+    axisScores: DNA_AXES.map((axis) => ({ axis, score: dna[axis].score, status: dna[axis].status })),
+    role: s.role,
+    travelMonth: s.travelMonth,
+    preferredThemes: s.preferredThemes,
+    poiCountByCategory,
+  });
+}
+
+describe("관광사업 기회 3안 — 강릉/경주/제천 실질적 차별화", () => {
+  it("세 지역 모두 최소 1개 이상 근거 있는 기회를 도출한다(DNA·여행월 데이터가 있으므로)", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const result = opportunitiesFor(s);
+      expect(result.items.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("세 지역의 기회 제목 집합이 서로 다르다(문제·타깃·자원이 실질적으로 다르게 생성됨)", () => {
+    const gangneungTitles = opportunitiesFor(gangneung).items.map((i) => i.title);
+    const gyeongjuTitles = opportunitiesFor(gyeongju).items.map((i) => i.title);
+    const jecheonTitles = opportunitiesFor(jecheon).items.map((i) => i.title);
+
+    expect(gangneungTitles).not.toEqual(gyeongjuTitles);
+    expect(gangneungTitles).not.toEqual(jecheonTitles);
+    expect(gyeongjuTitles).not.toEqual(jecheonTitles);
+  });
+
+  it("전략 3안(computeStrategies)과 기회 3안(computeBusinessOpportunities)의 제목이 겹치지 않는다", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const { strategies } = runScenario(s);
+      const opportunities = opportunitiesFor(s);
+      const strategyNames = new Set(strategies.map((st) => st.name));
+      for (const item of opportunities.items) {
+        expect(strategyNames.has(item.title)).toBe(false);
+      }
+    }
+  });
+
+  it("여행월 분류(강릉 8월=비수기, 경주 10월=성수기)가 각 지역의 계절 격차형 제목에 정확히 반영된다", () => {
+    // 이전에는 "강릉과 경주의 제목이 다르다"는 지역 간 불일치만 확인했으나, 강릉·경주는 역할도 함께
+    // 다르므로(여행사 vs 지자체) 제목 차이가 여행월 때문인지 역할 때문인지 이 비교만으로는 구분할 수
+    // 없었다. 대신 각 지역이 "자기 자신의" 여행월 분류(비수기/성수기)를 정확히 반영하는지 개별
+    // 검증한다 — 역할 차이는 아래 사업 방향 테스트가 별도로 검증한다.
+    const gangneungSeason = opportunitiesFor(gangneung).items.find((i) => i.category === "SEASONALITY_GAP");
+    const gyeongjuSeason = opportunitiesFor(gyeongju).items.find((i) => i.category === "SEASONALITY_GAP");
+    expect(gangneungSeason).toBeTruthy();
+    expect(gyeongjuSeason).toBeTruthy();
+    expect(gangneungSeason!.title).toBe("비수기 수요 분산 기회"); // 8월 = 비수기(OFF_PEAK_MONTHS)
+    expect(gyeongjuSeason!.title).toBe("성수기 수용력 활용 기회"); // 10월 = 성수기
+  });
+
+  it("역할이 다르면(강릉=여행사, 경주=지자체) 계절 격차형 기회의 사업 방향·타깃 문구가 달라진다", () => {
+    const gangneungSeason = opportunitiesFor(gangneung).items.find((i) => i.category === "SEASONALITY_GAP");
+    const gyeongjuSeason = opportunitiesFor(gyeongju).items.find((i) => i.category === "SEASONALITY_GAP");
+    expect(gangneungSeason!.direction).not.toBe(gyeongjuSeason!.direction);
+    expect(gangneungSeason!.targetAudience).not.toBe(gyeongjuSeason!.targetAudience);
+  });
+
+  it("근거가 부족한 유형(POI fixture가 없는 강릉·경주의 공급 격차형)은 지어내지 않고 생략한다", () => {
+    // contestScenarios.test.ts 상단 주석대로 강릉·경주는 로컬 POI fixture가 없다(제천만 있음) —
+    // 이 경우 SUPPLY_GAP/TARGET_THEME_GAP을 억지로 만들지 않아야 한다.
+    const gangneungResult = opportunitiesFor(gangneung);
+    const gyeongjuResult = opportunitiesFor(gyeongju);
+    expect(gangneungResult.items.some((i) => i.category === "SUPPLY_GAP")).toBe(false);
+    expect(gyeongjuResult.items.some((i) => i.category === "SUPPLY_GAP")).toBe(false);
   });
 });

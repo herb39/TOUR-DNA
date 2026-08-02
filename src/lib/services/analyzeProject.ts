@@ -14,6 +14,7 @@ import {
   type TransportCode,
 } from "@/lib/domain/strategy";
 import { buildAnalysisContext } from "@/lib/domain/audienceContext";
+import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import type { DnaResult, EvidenceItem } from "@/lib/domain/types";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
@@ -67,6 +68,9 @@ export interface ComputedProjectAnalysis {
   dataVersion: string;
   analysisKey: string;
   strategies: StrategyComputationResult[];
+  /** 분석 시점의 지역 전체 POI 카테고리별 개수 스냅샷 — 관광사업 기회 3안(SUPPLY_GAP/TARGET_THEME_GAP)의
+   * 재현성을 위해 AnalysisResult.poiCategorySummary로 그대로 저장된다(2026-08-02). */
+  poiCategorySummary: Partial<Record<PoiCategoryCode, number>>;
 }
 
 /**
@@ -83,6 +87,9 @@ export async function computeProjectAnalysis(input: AnalysisComputeInput): Promi
   const dataVersion = computeDataVersion(dnaInput);
 
   const poisByCategory = await fetchPoisByCategory(input.regionCode);
+  const poiCategorySummary = Object.fromEntries(
+    Object.entries(poisByCategory).map(([category, pois]) => [category, pois?.length ?? 0]),
+  ) as Partial<Record<PoiCategoryCode, number>>;
 
   // 프로젝트 조건(역할·국적·테마·월·지역)을 파이프라인 전체가 공유하는 단일 컨텍스트로 정규화한다
   // (2026-07-31, 역할별 맞춤 분석 완성) — DNA 분석/전략 계산/실행안/홍보자료가 모두 이 컨텍스트가
@@ -119,7 +126,7 @@ export async function computeProjectAnalysis(input: AnalysisComputeInput): Promi
     modelVersion: MODEL_VERSION,
   });
 
-  return { dna, dataVersion, analysisKey, strategies };
+  return { dna, dataVersion, analysisKey, strategies, poiCategorySummary };
 }
 
 /**
@@ -134,7 +141,7 @@ export async function persistProjectAnalysis(
   projectId: string,
   computed: ComputedProjectAnalysis,
 ): Promise<string> {
-  const { dna, dataVersion, analysisKey, strategies } = computed;
+  const { dna, dataVersion, analysisKey, strategies, poiCategorySummary } = computed;
 
   await client.analysisResult.deleteMany({ where: { projectId } });
 
@@ -156,6 +163,7 @@ export async function persistProjectAnalysis(
       strengths: dna.strengths,
       opportunities: dna.opportunities,
       cautions: dna.cautions,
+      poiCategorySummary,
       analysisKey,
       dataVersion,
       modelVersion: MODEL_VERSION,

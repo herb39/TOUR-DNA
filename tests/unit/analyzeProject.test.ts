@@ -87,6 +87,54 @@ describe("computeProjectAnalysis — DB에 아무것도 쓰지 않는다", () =>
   });
 });
 
+describe("poiCategorySummary — 관광사업 기회 3안 재현성 보완(2026-08-02)", () => {
+  it("computeProjectAnalysis는 fetchPoisByCategory 조회 결과를 카테고리별 개수로 요약해 반환한다", async () => {
+    fetchPoisByCategory.mockResolvedValue({
+      FOOD: [
+        { id: "1", name: "식당1" },
+        { id: "2", name: "식당2" },
+      ],
+      ATTRACTION: [{ id: "3", name: "명소1" }],
+    });
+
+    const result = await computeProjectAnalysis(minimalComputeInput());
+
+    expect(result.poiCategorySummary).toEqual({ FOOD: 2, ATTRACTION: 1 });
+  });
+
+  it("재현성 위험 재현: POI 동기화로 최신 조회 결과가 바뀌어도, 이미 계산해 저장한 스냅샷 값 자체는 그대로다", async () => {
+    // 과거 분석 시점 — 당시 지역에 FOOD 5건이 있었다고 가정.
+    fetchPoisByCategory.mockResolvedValue({
+      FOOD: Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, name: `식당${i}` })),
+    });
+    const pastComputed = await computeProjectAnalysis(minimalComputeInput());
+    expect(pastComputed.poiCategorySummary).toEqual({ FOOD: 5 });
+
+    // persist 시점에 넘긴 스냅샷은 이 객체 그대로 저장된다(아래 create 호출 검증).
+    const txAnalysisResult = { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn() };
+    txAnalysisResult.create.mockResolvedValue({ id: "analysis-past" });
+    const fakeTx = {
+      analysisResult: txAnalysisResult,
+      evidence: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+      strategyResult: { create: vi.fn(), update: vi.fn() },
+    };
+    await persistProjectAnalysis(fakeTx as unknown as Parameters<typeof persistProjectAnalysis>[0], "proj-1", pastComputed);
+    const persistedSummary = txAnalysisResult.create.mock.calls[0][0].data.poiCategorySummary;
+    expect(persistedSummary).toEqual({ FOOD: 5 });
+
+    // 이후 POI 동기화로 지역에 FOOD가 1건만 남았다고 가정 — 새로 조회하면 값이 달라진다(위험 재현).
+    fetchPoisByCategory.mockResolvedValue({ FOOD: [{ id: "f0", name: "식당0" }] });
+    const freshLiveQuery = await computeProjectAnalysis(minimalComputeInput());
+    expect(freshLiveQuery.poiCategorySummary).toEqual({ FOOD: 1 });
+
+    // 하지만 과거에 저장된 스냅샷(persistedSummary)은 이 변화와 무관하게 그대로다 — 화면이
+    // analysisResult.poiCategorySummary(저장된 값)를 읽는 한, 과거 프로젝트의 기회 결과는
+    // 최신 POI 상태가 아니라 분석 당시 값으로 고정된다.
+    expect(persistedSummary).toEqual({ FOOD: 5 });
+    expect(persistedSummary).not.toEqual(freshLiveQuery.poiCategorySummary);
+  });
+});
+
 describe("persistProjectAnalysis — 인자로 받은 client만 사용한다(전역 prisma 직접 접근 금지)", () => {
   it("트랜잭션 클라이언트를 넘기면 그 클라이언트의 메서드만 호출되고 전역 prisma는 전혀 건드리지 않는다", async () => {
     const txAnalysisResult = { deleteMany: vi.fn().mockResolvedValue({ count: 1 }), create: vi.fn() };

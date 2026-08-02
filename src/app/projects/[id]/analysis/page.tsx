@@ -23,6 +23,10 @@ import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/fo
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
+import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
+import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
+import { OpportunityCard } from "@/components/opportunity/OpportunityCard";
+import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +154,29 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     lat: p.lat,
     lng: p.lng,
   }));
+
+  // 관광사업 기회 3안(2026-08-02, DNA 진단과 전략 3안 사이에 표시) — 전략처럼 저장하지 않고 매 렌더링
+  // 시점에 순수 함수로 다시 계산한다. 단, 공급 격차(SUPPLY_GAP/TARGET_THEME_GAP) 판정의 입력인 지역
+  // POI 카테고리별 개수는 분석 시점에 AnalysisResult.poiCategorySummary로 저장해둔 스냅샷을 우선
+  // 사용한다 — 이후 POI 동기화로 최신 공급량이 바뀌어도 이미 만들어진 분석 결과가 임의로 바뀌지
+  // 않도록 고정하기 위함이다(재현성 보완, 2026-08-02). 이 컬럼 도입 이전에 생성된 레거시 분석 결과는
+  // 스냅샷이 없으므로(null) 그 경우에만 예외적으로 현재 DB를 조회하는 기존 방식으로 대체한다.
+  const poiCountByCategory = (analysisResult.poiCategorySummary as Partial<Record<PoiCategoryCode, number>> | null) ??
+    Object.fromEntries(
+      Object.entries(await fetchPoisByCategory(project.region.code)).map(([category, pois]) => [
+        category,
+        pois?.length ?? 0,
+      ]),
+    ) as Partial<Record<PoiCategoryCode, number>>;
+  const usingLivePoiFallback = analysisResult.poiCategorySummary === null;
+  const opportunityAnalysis = computeBusinessOpportunities({
+    regionName: project.region.name,
+    axisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score, status: a.status })),
+    role: project.role,
+    travelMonth: project.travelMonth,
+    preferredThemes: (input.preferredThemes as string[] | undefined) ?? [],
+    poiCountByCategory,
+  });
 
   return (
     <>
@@ -331,6 +358,43 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               ))}
             </ul>
           </div>
+        </section>
+
+        <section className="mt-8">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-900">관광사업 기회 3안</h2>
+            <span
+              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              title="공공데이터 상대 비교와 사람이 정한 기획 규칙(CURATED)으로 도출한 가설이며, 통계·머신러닝 예측치가 아닙니다."
+            >
+              CURATED 규칙 · {opportunityAnalysis.ruleVersion}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            지역의 취약점·강점, 여행 시기, 타깃·테마, 관광지 공급을 조합해 지금 검토할 가치가 있는 사업
+            기회를 근거와 함께 제시합니다. 아래 전략 3안과 달리 선택·저장하지 않으며, 실제 사업성은
+            별도 검증이 필요합니다.
+          </p>
+          {usingLivePoiFallback ? (
+            <p className="mt-1 text-xs text-slate-400">
+              ※ 이 분석은 공급 격차 스냅샷 도입 이전에 생성돼 현재 시점의 지역 POI 공급량을 대신
+              사용합니다 — 이후 POI 자료가 갱신되면 이 기회 결과도 함께 바뀔 수 있습니다.
+            </p>
+          ) : null}
+          {opportunityAnalysis.items.length > 0 ? (
+            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              {opportunityAnalysis.items.map((o, i) => (
+                <OpportunityCard key={o.category} opportunity={o} rank={i + 1} />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+              현재 확보된 데이터(여행월·선호 테마·지역 POI)로는 근거 있는 사업 기회를 도출하지 못했습니다.
+            </div>
+          )}
+          {opportunityAnalysis.note ? (
+            <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
+          ) : null}
         </section>
 
         <section className="mt-8">
