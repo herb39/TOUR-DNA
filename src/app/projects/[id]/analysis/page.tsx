@@ -163,6 +163,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               {project.region.name} · {project.travelYear}년 {project.travelMonth}월 ·{" "}
               {labelForRole(project.role)}
             </p>
+            <Link
+              href={`/projects/${project.id}/edit`}
+              className="mt-2 inline-block text-xs text-slate-500 underline hover:text-slate-900"
+            >
+              조건 수정
+            </Link>
           </div>
           <div className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
             <p>
