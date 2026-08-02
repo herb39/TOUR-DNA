@@ -21,6 +21,9 @@ import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { DNA_AXES } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
+import { computeRegionSimilarityComparisons, resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
+import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
+import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +53,21 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     stay: findEvidence(METRIC_CODES.STAY),
     spend: findEvidence(METRIC_CODES.SPEND),
   });
+
+  // 유사지역 비교 요약(2026-08-02) — 분석 화면과 같은 baseYm(이 분석의 evidence에 실제로 저장된
+  // 기준월)로 다시 계산해, 분석·인쇄 화면이 같은 입력으로 계산되게 한다. 인쇄 화면은 지면 제약상
+  // 지역명·상대 위치·강점·취약점 요약만 표시한다(최소 범위).
+  const analysisOwnBaseYm = baseYmSummary.primary;
+  const regionComparisonBaseYm = analysisOwnBaseYm ?? DEFAULT_BASE_YM;
+  const regionProfiles = await fetchRegionComparisonProfiles(regionComparisonBaseYm);
+  const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
+  const regionComparisonAnalysis = targetRegionProfile
+    ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
+    : null;
+  // 분석 화면과 동일한 함수로 기준월 불일치 안내를 만든다(분석·인쇄 화면 안내 일치, 2026-08-02).
+  const analysisBaseYmMismatchNote = regionComparisonAnalysis
+    ? resolveAnalysisBaseYmMismatchNote(analysisOwnBaseYm, regionComparisonAnalysis.comparisonBaseYm)
+    : null;
 
   // 관광사업 기회 3안 요약(2026-08-02) — 분석 화면과 같은 순수 함수를 그대로 재사용한다(저장하지
   // 않고 인쇄 시점에 다시 계산). 인쇄 화면은 지면 제약상 제목·문제·방향만 요약해서 보여준다(최소 범위).
@@ -155,6 +173,33 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </div>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {regionComparisonAnalysis && regionComparisonAnalysis.comparisons.length > 0 ? (
+        <section className="mt-4">
+          <h2 className="text-sm font-semibold">
+            유사지역 비교(요약){" "}
+            <span className="text-[10px] font-normal text-slate-400">
+              (CURATED 규칙 · {regionComparisonAnalysis.ruleVersion} · 현재 지원 지역 데이터 기준,
+              기준월 {regionComparisonAnalysis.comparisonBaseYm})
+            </span>
+          </h2>
+          {analysisBaseYmMismatchNote ? (
+            <p className="mt-1 text-[10px] text-amber-700">{analysisBaseYmMismatchNote}</p>
+          ) : null}
+          {regionComparisonAnalysis.baseYmNote ? (
+            <p className="mt-1 text-[10px] text-amber-700">{regionComparisonAnalysis.baseYmNote}</p>
+          ) : null}
+          <ul className="mt-1 space-y-1.5">
+            {regionComparisonAnalysis.comparisons.map((c) => (
+              <li key={c.regionCode} className="rounded border border-slate-200 p-2 text-xs">
+                <p className="font-semibold text-slate-900">{c.regionName}</p>
+                <p className="mt-0.5 text-slate-600">{c.relativePosition}</p>
+                <p className="mt-0.5 text-slate-500">{c.strengthWeaknessSummary}</p>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 

@@ -24,6 +24,12 @@ vi.mock("@/lib/services/fetchPoisByCategory", () => ({
   fetchPoisByCategory: vi.fn().mockResolvedValue({}),
 }));
 
+// 유사지역 비교(2026-08-02)도 같은 이유로 모킹한다 — 빈 배열을 반환하면 print/page.tsx가 대상 지역
+// 프로필을 찾지 못해 이 섹션을 조용히 생략한다(홍보자료 출력 로직 검증과 무관).
+vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
+  fetchRegionComparisonProfiles: vi.fn().mockResolvedValue([]),
+}));
+
 import PrintPage from "@/app/projects/[id]/print/page";
 import { buildPromoContent } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";

@@ -27,6 +27,14 @@ import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { OpportunityCard } from "@/components/opportunity/OpportunityCard";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
+import {
+  computeRegionSimilarityComparisons,
+  resolveAnalysisBaseYmMismatchNote,
+  REGION_SIMILARITY_RULE_VERSION,
+} from "@/lib/domain/regionSimilarity";
+import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
+import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCard";
+import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +131,32 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     list.push(toEvidenceRow(e));
     axisEvidenceByAxis.set(e.axis ?? "", list);
   }
+
+  // 유사지역 비교(2026-08-02, DNA 5축 바로 다음에 표시) — 이 분석의 근거에 실제로 저장된 기준월과
+  // 동일한 baseYm으로 지원 지역 전체의 DNA·POI 구성을 다시 계산한다(같은 baseYm이어야 min-max 코호트가
+  // 일치해 점수가 서로 비교 가능함). DNA 5축 산식(dna.ts)은 그대로 재사용하며 전혀 바꾸지 않는다.
+  const analysisOwnBaseYm = baseYmSummary.primary;
+  const regionComparisonBaseYm = analysisOwnBaseYm ?? DEFAULT_BASE_YM;
+  const regionProfiles = await fetchRegionComparisonProfiles(regionComparisonBaseYm);
+  const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
+  const regionComparisonAnalysis = targetRegionProfile
+    ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
+    : {
+        targetRegionName: project.region.name,
+        comparisonBaseYm: regionComparisonBaseYm,
+        mixedBaseYm: false,
+        baseYmNote: null,
+        comparisons: [],
+        uniqueStrengthNote: null,
+        note: "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.",
+        ruleVersion: REGION_SIMILARITY_RULE_VERSION,
+      };
+  // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
+  // 정보가 없어 대체값을 쓴 경우) 숨기지 않고 안내한다 — 분석·인쇄 화면이 이 함수를 동일하게 호출한다.
+  const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
+    analysisOwnBaseYm,
+    regionComparisonAnalysis.comparisonBaseYm,
+  );
 
   const strategyCardsData: StrategyCardData[] = analysisResult.strategyResults.map((s) => ({
     id: s.id,
@@ -331,6 +365,51 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="mt-8">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-900">유사지역 비교</h2>
+            <span
+              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              title="공공데이터 상대 비교와 사람이 정한 기획 규칙(CURATED)으로 도출한 참고 정보이며, 통계·머신러닝 예측치가 아닙니다."
+            >
+              CURATED 규칙 · {regionComparisonAnalysis.ruleVersion}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            현재 지원 지역 데이터 기준 비교입니다(조회 시점 최신 데이터, 기준월 {regionComparisonAnalysis.comparisonBaseYm}) —
+            DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교해, 이 지역의 점수가 상대적으로 어떤
+            의미인지 보여줍니다.
+          </p>
+          {analysisBaseYmMismatchNote ? (
+            <p className="mt-1 text-xs text-amber-700">{analysisBaseYmMismatchNote}</p>
+          ) : null}
+          {regionComparisonAnalysis.baseYmNote ? (
+            <p className="mt-1 text-xs text-amber-700">{regionComparisonAnalysis.baseYmNote}</p>
+          ) : null}
+          {regionComparisonAnalysis.comparisons.length > 0 ? (
+            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              {regionComparisonAnalysis.comparisons.map((c, i) => (
+                <RegionComparisonCard
+                  key={c.regionCode}
+                  comparison={c}
+                  rank={i + 1}
+                  comparisonBaseYm={regionComparisonAnalysis.comparisonBaseYm}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+              현재 확보된 데이터로는 근거 있는 유사지역 비교를 만들지 못했습니다.
+            </div>
+          )}
+          {regionComparisonAnalysis.uniqueStrengthNote ? (
+            <p className="mt-2 text-xs text-slate-600">{regionComparisonAnalysis.uniqueStrengthNote}</p>
+          ) : null}
+          {regionComparisonAnalysis.note ? (
+            <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
+          ) : null}
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">

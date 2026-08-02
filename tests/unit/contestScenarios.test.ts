@@ -3,6 +3,7 @@ import { computeDna } from "@/lib/domain/dna";
 import { computeStrategies, type PoiLike, type ProjectInputForScoring } from "@/lib/domain/strategy";
 import { buildKpis, buildOperationChecklist, buildRisks, type AudiencePlanContext } from "@/lib/domain/planBuilder";
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
+import { computeRegionSimilarityComparisons, type RegionAxisProfile } from "@/lib/domain/regionSimilarity";
 import { MODEL_VERSION } from "@/lib/domain/constants";
 import { DNA_AXES, METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
@@ -478,5 +479,79 @@ describe("관광사업 기회 3안 — 강릉/경주/제천 실질적 차별화"
     const gyeongjuResult = opportunitiesFor(gyeongju);
     expect(gangneungResult.items.some((i) => i.category === "SUPPLY_GAP")).toBe(false);
     expect(gyeongjuResult.items.some((i) => i.category === "SUPPLY_GAP")).toBe(false);
+  });
+});
+
+/**
+ * 유사지역 비교(2026-08-02) — 실제 fixture 코호트(COHORT_REGION_CODES, 7개 지역 전체)로 강릉·경주·
+ * 제천 각각의 유사지역 비교 결과를 계산해 실질적으로 달라지는지 확인한다. 어떤 값도 새로 지어내지
+ * 않는다(dnaInputFor/poisByCategoryFor를 그대로 재사용).
+ */
+function regionProfileFor(regionCode: string): RegionAxisProfile {
+  const dna = computeDna(dnaInputFor(regionCode));
+  const name = REGION_SEED.find((r) => r.code === regionCode)?.name ?? regionCode;
+  const poiCategoryLists = poisByCategoryFor(regionCode) as Partial<Record<PoiCategoryCode, PoiLike[]>>;
+  const poiCountByCategory = Object.fromEntries(
+    (Object.entries(poiCategoryLists) as [PoiCategoryCode, PoiLike[]][]).map(([category, list]) => [
+      category,
+      list.length,
+    ]),
+  ) as Partial<Record<PoiCategoryCode, number>>;
+
+  return {
+    code: regionCode,
+    name,
+    baseYm: BASE_YM,
+    axisScores: Object.fromEntries(
+      DNA_AXES.map((axis) => [axis, { score: dna[axis].score, status: dna[axis].status }]),
+    ) as RegionAxisProfile["axisScores"],
+    poiCountByCategory,
+  };
+}
+
+const ALL_COHORT_PROFILES = COHORT_REGION_CODES.map(regionProfileFor);
+
+function comparisonsFor(s: RepresentativeScenario) {
+  const target = ALL_COHORT_PROFILES.find((p) => p.code === s.sigunguCode)!;
+  return computeRegionSimilarityComparisons(target, ALL_COHORT_PROFILES);
+}
+
+describe("유사지역 비교 — 강릉/경주/제천 실질적 차별화", () => {
+  it("세 지역 모두 최소 1곳 이상의 유사지역을 찾는다(7개 지역 코호트가 있으므로)", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const result = comparisonsFor(s);
+      expect(result.comparisons.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("자기 자신은 비교 결과에 포함되지 않는다", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const result = comparisonsFor(s);
+      expect(result.comparisons.some((c) => c.regionCode === s.sigunguCode)).toBe(false);
+    }
+  });
+
+  it("세 지역의 유사지역 목록(비교 대상 지역 코드 순서)이 서로 다르다", () => {
+    const gangneungPeers = comparisonsFor(gangneung).comparisons.map((c) => c.regionCode);
+    const gyeongjuPeers = comparisonsFor(gyeongju).comparisons.map((c) => c.regionCode);
+    const jecheonPeers = comparisonsFor(jecheon).comparisons.map((c) => c.regionCode);
+
+    expect(gangneungPeers).not.toEqual(gyeongjuPeers);
+    expect(gangneungPeers).not.toEqual(jecheonPeers);
+    expect(gyeongjuPeers).not.toEqual(jecheonPeers);
+  });
+
+  it("동일 입력으로 반복 계산해도 완전히 동일한 결과다(결정론성)", () => {
+    const first = comparisonsFor(gangneung);
+    const second = comparisonsFor(gangneung);
+    expect(first).toEqual(second);
+  });
+
+  it("강릉·경주는 로컬 POI fixture가 없어 관광 자원 구성 비교를 만들지 않는다(지어내지 않음)", () => {
+    const gangneungResult = comparisonsFor(gangneung);
+    const gyeongjuResult = comparisonsFor(gyeongju);
+    for (const c of [...gangneungResult.comparisons, ...gyeongjuResult.comparisons]) {
+      expect(c.poiCompositionNote).toContain("반영하지 못했습니다");
+    }
   });
 });
