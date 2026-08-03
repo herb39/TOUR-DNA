@@ -91,7 +91,21 @@ function baseProject(promoContent: unknown) {
       promoContent,
     },
     analysisResult: {
-      strategyResults: [{ id: "strategy-1", name: "로컬미식·시장 연계형", totalScore: 82 }],
+      strategyResults: [
+        {
+          id: "strategy-1",
+          templateId: "LOCAL_FOOD_MARKET",
+          name: "로컬미식·시장 연계형",
+          totalScore: 82,
+          rank: 1,
+          coreProblem: null,
+          coreResource: null,
+          stayStyle: null,
+          executionDifficulty: null,
+          expectedEffect: null,
+          risks: ["위험1"],
+        },
+      ],
       evidences: [],
       modelVersion: "tour-dna-v1.0.0",
     },

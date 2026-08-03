@@ -4,6 +4,14 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { getProjectDetail } from "@/lib/services/projectQueries";
 import { DnaRadarChart, type DnaAxisChartDatum } from "@/components/charts/DnaRadarChart";
 import { StrategyCard, type StrategyCardData } from "@/components/strategy/StrategyCard";
+import { StrategyComparisonTable, type StrategyComparisonRow } from "@/components/strategy/StrategyComparisonTable";
+import { StrategyResourcePlanPanel } from "@/components/strategy/StrategyResourcePlanPanel";
+import {
+  buildStrategyBudgetItems,
+  buildStrategyComparisonRows,
+  buildStrategyPartners,
+  STRATEGY_RESOURCE_PLAN_RULE_VERSION,
+} from "@/lib/domain/strategyResourcePlan";
 import { EvidenceTable, type EvidenceRow } from "@/components/evidence/EvidenceTable";
 import { MapOrFallback, type MapPoi } from "@/components/map/MapOrFallback";
 import { selectStrategyAction } from "./actions";
@@ -176,6 +184,35 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     executionDifficulty: s.executionDifficulty as "LOW" | "MEDIUM" | "HIGH" | null,
     expectedEffect: s.expectedEffect,
   }));
+
+  // 전략 비교 표 + 예산 항목·협력 대상(2026-08-04) — templateId는 StrategyResult 도입 이래 항상 존재하는
+  // 필수 컬럼이라 레거시 분석 결과에도 예외 없이 계산 가능하다. coreProblem 등 5개 차별화 필드는
+  // 2026-07-31 마이그레이션 이전 레거시 분석에는 없을 수 있어(전부 null), buildStrategyComparisonRows가
+  // 인쇄 화면과 동일한 판정 로직으로 "이전 분석 결과" 안내를 붙인다(원인 조사: 2026-08-04).
+  const strategyComparisonRows: StrategyComparisonRow[] = buildStrategyComparisonRows(
+    analysisResult.strategyResults.map((s) => ({
+      id: s.id,
+      rank: s.rank,
+      name: s.name,
+      totalScore: s.totalScore,
+      templateId: s.templateId,
+      coreProblem: s.coreProblem,
+      coreResource: s.coreResource,
+      stayStyle: s.stayStyle,
+      executionDifficulty: s.executionDifficulty as "LOW" | "MEDIUM" | "HIGH" | null,
+      expectedEffect: s.expectedEffect,
+      risks: s.risks as string[],
+    })),
+  );
+  const strategyResourcePlans = new Map(
+    analysisResult.strategyResults.map((s) => [
+      s.id,
+      {
+        budgetItems: buildStrategyBudgetItems(s.templateId, project.role),
+        partners: buildStrategyPartners(s.templateId, project.role),
+      },
+    ]),
+  );
 
   const allPoiIds = Array.from(
     new Set(analysisResult.strategyResults.flatMap((s) => s.poiIds as string[])),
@@ -477,15 +514,38 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </section>
 
         <section className="mt-8">
-          <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
-          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
+            <span
+              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              title="사람이 정한 기획 규칙(CURATED)으로 도출한 참고 정보이며, 실제 사업비·매출 예측치가 아닙니다."
+            >
+              CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과·주요 위험·적합 역할을 한 화면에서
+            비교합니다. 각 항목의 세부 근거는 아래 전략 카드에서 확인할 수 있습니다.
+          </p>
+          <div className="mt-3">
+            <StrategyComparisonTable rows={strategyComparisonRows} />
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             {strategyCardsData.map((s) => (
-              <StrategyCard
-                key={s.id}
-                strategy={s}
-                isSelected={project.selectedStrategyResultId === s.id}
-                onSelect={selectStrategyAction.bind(null, project.id, s.id)}
-              />
+              <div key={s.id}>
+                <StrategyCard
+                  strategy={s}
+                  isSelected={project.selectedStrategyResultId === s.id}
+                  onSelect={selectStrategyAction.bind(null, project.id, s.id)}
+                />
+                {strategyResourcePlans.has(s.id) ? (
+                  <StrategyResourcePlanPanel
+                    budgetItems={strategyResourcePlans.get(s.id)!.budgetItems}
+                    partners={strategyResourcePlans.get(s.id)!.partners}
+                  />
+                ) : null}
+              </div>
             ))}
           </div>
         </section>

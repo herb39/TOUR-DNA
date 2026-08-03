@@ -27,6 +27,15 @@ import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
+import {
+  buildStrategyBudgetItems,
+  buildStrategyComparisonRows,
+  buildStrategyPartners,
+  describeMissingStrategyField,
+  EXECUTION_DIFFICULTY_LABEL_KO,
+  formatRoleFitRanking,
+  STRATEGY_RESOURCE_PLAN_RULE_VERSION,
+} from "@/lib/domain/strategyResourcePlan";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +182,34 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     ? findRelatedKpiNames(enrichedKpis, [preLaunchValidation.weakestAxis])
     : [];
 
+  // 선택 전략 예산 항목·협력 대상(2026-08-04) — 분석 화면과 동일한 순수 함수를 그대로 재사용한다
+  // (저장하지 않고 인쇄 시점에 다시 계산, 값은 항상 같다).
+  const selectedStrategyBudgetItems = selectedStrategy
+    ? buildStrategyBudgetItems(selectedStrategy.templateId, project.role)
+    : [];
+  const selectedStrategyPartners = selectedStrategy
+    ? buildStrategyPartners(selectedStrategy.templateId, project.role)
+    : [];
+
+  // 전략 3안 비교(A4 압축형, 2026-08-04) — 분석 화면(analysis/page.tsx)과 완전히 동일한
+  // buildStrategyComparisonRows()를 그대로 재사용해, 레거시 판정("이전 분석 결과" 안내)까지
+  // 두 화면이 항상 일치하게 한다.
+  const strategyComparisonRows = buildStrategyComparisonRows(
+    analysisResult.strategyResults.map((s) => ({
+      id: s.id,
+      rank: s.rank,
+      name: s.name,
+      totalScore: s.totalScore,
+      templateId: s.templateId,
+      coreProblem: s.coreProblem,
+      coreResource: s.coreResource,
+      stayStyle: s.stayStyle,
+      executionDifficulty: s.executionDifficulty as "LOW" | "MEDIUM" | "HIGH" | null,
+      expectedEffect: s.expectedEffect,
+      risks: s.risks as string[],
+    })),
+  );
+
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
       <div className="no-print mb-4">
@@ -307,6 +344,66 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         </section>
       ) : null}
 
+      {strategyComparisonRows.length > 0 ? (
+        <section className="mt-4 border-t border-slate-300 pt-3">
+          <h2 className="text-sm font-semibold">
+            전략 3안 비교{" "}
+            <span className="text-[10px] font-normal text-slate-400">
+              (CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION})
+            </span>
+          </h2>
+          <div className="mt-1.5 grid grid-cols-3 gap-2">
+            {strategyComparisonRows.map((row) => (
+              <div
+                key={row.id}
+                className={`rounded border p-1.5 text-[9px] leading-tight text-slate-700 ${
+                  row.id === plan.strategyResultId ? "border-slate-900" : "border-slate-200"
+                }`}
+              >
+                <p className="text-[10px] font-semibold text-slate-900">
+                  {row.rank}순위 · {row.name} ({row.totalScore}점)
+                  {row.id === plan.strategyResultId ? (
+                    <span className="ml-1 rounded bg-slate-900 px-1 py-0.5 text-[8px] font-medium text-white">
+                      선택됨
+                    </span>
+                  ) : null}
+                </p>
+                <p className="mt-1">
+                  <span className="font-medium text-slate-500">해결 문제 </span>
+                  {row.coreProblem ?? describeMissingStrategyField(row.dataAvailability)}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">활용 자원 </span>
+                  {row.coreResource ?? describeMissingStrategyField(row.dataAvailability)}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">체류 방식 </span>
+                  {row.stayStyle ?? describeMissingStrategyField(row.dataAvailability)}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">실행 난이도 </span>
+                  {row.executionDifficulty
+                    ? EXECUTION_DIFFICULTY_LABEL_KO[row.executionDifficulty]
+                    : describeMissingStrategyField(row.dataAvailability)}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">기대 효과 </span>
+                  {row.expectedEffect ?? describeMissingStrategyField(row.dataAvailability)}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">주요 위험 </span>
+                  {row.risks.join(" · ")}
+                </p>
+                <p className="mt-0.5">
+                  <span className="font-medium text-slate-500">적합 역할 </span>
+                  {formatRoleFitRanking(row.roleFitRanking)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {selectedStrategy ? (
         <section className="mt-4">
           <h2 className="text-sm font-semibold">
@@ -330,6 +427,36 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </p>
             );
           })()}
+
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700">
+                예상 예산 항목{" "}
+                <span className="text-[10px] font-normal text-slate-400">
+                  (CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION})
+                </span>
+              </h3>
+              <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600">
+                {selectedStrategyBudgetItems.map((item) => (
+                  <li key={item.category}>
+                    <span className="font-medium text-slate-700">{item.category}</span> — {item.description} (
+                    {item.amount})
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700">협력 대상</h3>
+              <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600">
+                {selectedStrategyPartners.map((partner) => (
+                  <li key={partner.category}>
+                    <span className="font-medium text-slate-700">{partner.category}</span> — {partner.name}(
+                    {partner.reason})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </section>
       ) : null}
 

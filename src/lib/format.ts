@@ -43,15 +43,22 @@ export function provenanceLabel(provenance: DataProvenance | null | undefined): 
   return DATA_PROVENANCE_LABEL_KO[provenance] ?? provenance;
 }
 
+/** 사용자에게 보여주는 모든 날짜·시간 표시가 공유하는 시간대(2026-08-04) — DB에는 항상 UTC로
+ * 저장하고(Prisma DateTime 컬럼, 값 변경 없음), 화면 표시에만 이 시간대를 명시해 서버 실행 환경(Vercel은
+ * 기본 UTC)이나 브라우저의 로컬 시간대에 좌우되지 않게 한다. */
+export const DISPLAY_TIME_ZONE = "Asia/Seoul";
+
 export function formatDateTime(date: Date | string | null | undefined): string {
   if (!date) return "-";
   const d = typeof date === "string" ? new Date(date) : date;
   return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: DISPLAY_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(d);
 }
 
