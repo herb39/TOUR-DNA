@@ -25,6 +25,8 @@ import { computeRegionSimilarityComparisons, resolveAnalysisBaseYmMismatchNote }
 import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
+import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
+import { AXIS_LABEL_KO } from "@/lib/domain/types";
 
 export const dynamic = "force-dynamic";
 
@@ -161,6 +163,16 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         })
       : null;
 
+  // KPI 연결 보강(2026-08-03) — planService.ts(ensureSelectedPlan)가 실행안 최초 생성 시점에 이미
+  // 계산해 저장한 값을 그대로 읽는다(다시 계산하지 않음 — 실행안·인쇄 화면이 항상 같은 값을 본다).
+  const enrichedKpis = plan.kpis as unknown as EnrichedKpi[];
+  const dataReliabilityRelatedKpis = preLaunchValidation
+    ? findRelatedKpiNames(enrichedKpis, preLaunchValidation.dataReliabilityFlaggedAxes)
+    : [];
+  const weakAxisRelatedKpis = preLaunchValidation?.weakestAxis
+    ? findRelatedKpiNames(enrichedKpis, [preLaunchValidation.weakestAxis])
+    : [];
+
   return (
     <div className="mx-auto max-w-[840px] px-8 py-8 text-slate-900">
       <div className="no-print mb-4">
@@ -277,6 +289,20 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </ul>
             </div>
           ) : null}
+          {dataReliabilityRelatedKpis.length > 0 ? (
+            <p className="mt-1 text-[10px] text-slate-500">
+              <span className="font-medium text-slate-600">데이터 신뢰도 보완 KPI: </span>
+              {dataReliabilityRelatedKpis.join(", ")}
+            </p>
+          ) : null}
+          {weakAxisRelatedKpis.length > 0 ? (
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              <span className="font-medium text-slate-600">
+                취약 축({AXIS_LABEL_KO[preLaunchValidation.weakestAxis!]}) 연결 KPI:{" "}
+              </span>
+              {weakAxisRelatedKpis.join(", ")}
+            </p>
+          ) : null}
           <p className="mt-1.5 text-[10px] text-slate-400">{preLaunchValidation.criteria}</p>
         </section>
       ) : null}
@@ -366,10 +392,20 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
       <section className="mt-4">
         <h2 className="text-sm font-semibold">KPI</h2>
-        <ul className="mt-1 space-y-0.5 text-xs text-slate-700">
-          {(plan.kpis as { name: string; method: string }[]).map((k, i) => (
+        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+          {enrichedKpis.map((k, i) => (
             <li key={i}>
-              {k.name} — {k.method}
+              <p>
+                {k.name} — {k.method}
+              </p>
+              {k.purpose ? (
+                <p className="text-[10px] text-slate-500">
+                  목적: {k.purpose} · 연결 축: {k.linkedAxis ? AXIS_LABEL_KO[k.linkedAxis] : "해당 없음"} · 연결 목표:{" "}
+                  {k.linkedGoalLabel ?? "미설정"} · 권장 시점: {k.recommendedTiming}
+                  <br />
+                  목표값 근거: {k.targetBasis}
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>

@@ -874,3 +874,59 @@ MISSING)만 보고 "SNAPSHOT이면 CAUTION"으로 뭉뚱그렸다. 그런데 `Ax
   포함되지 않아 정보성 참고로만 남겨둠). 위험 판정(BLOCKER 임계값 3건, MISSING 2개 등)은 모두
   CURATED 기획 규칙이며 실제 운영 데이터로 재검증이 필요하다.
 - **아직 하지 않은 것**: 이 문서 갱신 시점 기준 커밋·push·배포는 하지 않았다(별도 작업 지시 대기).
+
+## KPI 연결 강화 — `DONE(로컬+테스트, 2026-08-03~04)`
+
+README 로드맵("KPI 연결 강화 — 사업 목적과 취약지표에 연결된 측정 KPI")을 구현했다. 기존
+`buildKpis()`가 만드는 전략별 KPI 생성 로직·목록은 전혀 바꾸지 않고, `src/lib/domain/kpiLinking.ts`의
+`enrichKpis()`가 각 KPI에 측정 목적·연결된 DNA 축·연결된 사업 목표·권장 측정 시점·목표값 설정 근거를
+덧붙이기만 한다(Prisma 스키마 변경 없음 — `SelectedPlan.kpis`는 이미 `Json` 컬럼이라 필드 추가에
+마이그레이션이 필요 없었다).
+
+- **KPI-축 연결 방식(CURATED 수작업 매핑, 자동 추론 아님)**: `KPI_AXIS_LINK`라는 `Record<string,
+  DnaAxisKey|null>` 표에 `buildKpis()`가 실제로 생성하는 23개 KPI 이름(7개 전략 템플릿의
+  kpiTemplates + 역할별/국적별 KPI 메모)을 전부 나열해 축을 미리 지정해 둔다. 이름 기반 텍스트
+  분석이나 점수 기반 자동 추론은 전혀 하지 않는다 — 표에 없는 이름은 무조건 `linkedAxis: null`로
+  안전하게 처리한다.
+- **목표값은 절대 지어내지 않는다**: 연결된 축의 실제 점수(이미 계산된 analysisResult 값)를 "참고
+  맥락"으로만 보여주고(예: "이 지역 체류(Stay) 축 점수는 비교군 내 100점입니다"), 구체적 목표
+  수치는 축 유무·데이터 유무와 관계없이 항상 `KPI_TARGET_INSTITUTION_PLACEHOLDER`("기관 설정
+  필요")로 귀결한다.
+- **사전검증 리포트와의 연결**: `preLaunchValidation.ts`에 `dataReliabilityFlaggedAxes`(데이터
+  신뢰도 신호가 CAUTION/BLOCKER로 지목한 축)와 `weakestAxis`(DNA 5축 중 최저 점수 축)를 추가했다.
+  `kpiLinking.ts`의 `findRelatedKpiNames()`가 이 축들과 연결된 KPI 이름만 골라 "데이터 신뢰도 보완
+  KPI"/"취약 축 연결 KPI"로 실행안·인쇄 화면에 표시한다. 어떤 KPI도 해당 축과 연결돼 있지 않으면
+  빈 배열(억지로 연결을 만들지 않음).
+- **사용자가 직접 추가하는 KPI에 대한 중요한 제한사항(반드시 지켜야 할 사항)**: `PlanEditor.tsx`의
+  "새 KPI 이름"/"측정 방법" 입력으로 사용자가 직접 추가하는 KPI는 이 화면에 분석 결과
+  (`analysisResult`)가 없으므로 **항상 `linkedAxis: null` + "기관 설정 필요"로 고정된다.** 이후
+  프로젝트를 재분석(`/projects/[id]/edit`)해도 **이미 저장된 사용자 추가 KPI가 소급 적용되어 자동으로
+  축과 연결되는 일은 없다** — 재분석은 전략이 다시 계산될 때만 `ensureSelectedPlan()`이 완전히 새로운
+  KPI 목록(`buildKpis()` + `enrichKpis()`)으로 SelectedPlan 전체를 교체하는 것이지, 기존에 저장된
+  개별 KPI 항목을 축소·보강하는 기능이 아니기 때문이다(Phase 6 재분석 정책 그대로: 재분석 성공 시
+  기존 실행안이 통째로 새로 만들어진 것으로 교체됨). 사용자가 원하는 KPI에 축을 연결하고 싶다면
+  `KPI_AXIS_LINK` 표에 있는 기존 KPI 이름과 똑같이 입력하는 수밖에 없다 — 이 표를 넘어서는 이름
+  유사도 매칭이나 자동 추론은 의도적으로 구현하지 않았다(요구사항: "KPI 축 자동 추론 추가 금지").
+- **화면 반영**: `/projects/[id]/plan`의 KPI 섹션에 각 KPI마다 측정 목적/연결된 DNA 축/연결된 사업
+  목표/권장 측정 시점/목표값 설정 근거를 표시(`PlanEditor.tsx`). 인쇄 화면(`print/page.tsx`)에도
+  같은 5개 필드를 압축 표시. 사전검증 리포트 섹션(`PreLaunchValidationSection.tsx`)에는 "데이터
+  신뢰도 보완 KPI"/"취약 축 연결 KPI" 줄이 추가된다.
+- **테스트**: `tests/unit/kpiLinking.test.ts`(22개 — 기본 연결/권장 시점 유추/목표값 지어내지 않음/
+  알 수 없는 KPI 이름 안전 처리/`findRelatedKpiNames` 축-KPI 매칭), `tests/unit/preLaunchValidation.test.ts`에
+  `weakestAxis`/`dataReliabilityFlaggedAxes` 테스트 5개 추가, `tests/unit/PlanEditor.test.tsx`에 사용자
+  추가 KPI 자동 보강 렌더링 테스트 1개 추가, `tests/unit/contestScenarios.test.ts`에 강릉/경주/제천
+  실제 fixture 기반 KPI 연결 차별화 테스트 5개 추가(연결 목표가 시나리오별 실제 `primaryGoal`을
+  그대로 반영해 다름, 세 지역의 KPI 이름·목표값 근거 집합이 서로 다름, 결정론성 등).
+- **검증**: Production(`tour-dna.lib.lc`)에서 강릉 실행안 프로젝트로 전략을 재선택해 KPI 연결
+  보강이 실제로 반영되는지 확인 — "재방문 의사율"(수요 축, ESTIMATED 근거)이 사전검증의 "데이터
+  신뢰도 보완 KPI"로 정확히 이어짐을 확인했고, 사용자가 KPI를 추가·저장·새로고침해도 "기관 설정
+  필요" 문구와 함께 정상 유지됨을 확인했다. 실행안·인쇄 화면의 KPI 세부 내용(측정 목적/연결 축/연결
+  목표/권장 시점/목표값 근거)이 완전히 일치함을 확인했다. 콘솔/서버 오류 없음.
+- **전체 검증**: `npx vitest run` 769/769 통과, `npm run typecheck`/`npm run lint`/`npm run build`
+  전부 통과.
+- **남은 한계**: KPI-축 매핑 표(`KPI_AXIS_LINK`)는 23개 기존 KPI 이름에 대한 수작업 큐레이션이며,
+  `strategyTemplates.ts`에 새 KPI 이름이 추가되면 이 표도 함께 갱신해야 한다(자동 동기화 없음).
+  사용자가 직접 추가한 KPI는 위에서 설명한 대로 재분석해도 영구히 축과 연결되지 않는다 — 이는
+  버그가 아니라 "이름 기반 수작업 매핑 표 밖의 임의 텍스트에 자동으로 의미를 추론해 붙이지 않는다"는
+  의도된 설계다.
+- **아직 하지 않은 것**: 이 문서 갱신 시점 기준 커밋·push·배포는 하지 않았다(별도 작업 지시 대기).

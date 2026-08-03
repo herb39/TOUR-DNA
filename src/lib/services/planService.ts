@@ -15,6 +15,9 @@ import {
 } from "@/lib/domain/strategy";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { filterRecommendablePois, isRequiredSlotCategory, type PoiFitContext } from "@/lib/domain/poiFit";
+import { enrichKpis, type AxisScoreLike } from "@/lib/domain/kpiLinking";
+import { DNA_AXES, type AxisStatus } from "@/lib/domain/types";
+import { labelForPrimaryGoal } from "@/lib/validation/codes";
 import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
 
 function countMealEligibleFood(pois: PoiDetail[]): number {
@@ -63,7 +66,7 @@ function excludeBelowMinimumFitPois(
 export async function ensureSelectedPlan(projectId: string) {
   const project = await prisma.project.findUniqueOrThrow({
     where: { id: projectId },
-    include: { selectedPlan: true, input: true, region: true },
+    include: { selectedPlan: true, input: true, region: true, analysisResult: true },
   });
 
   if (!project.selectedStrategyResultId) {
@@ -132,8 +135,27 @@ export async function ensureSelectedPlan(projectId: string) {
     preferredThemes: project.input.preferredThemes,
   };
   const operationChecklist = buildOperationChecklist(strategy.templateId, audienceContext);
-  const kpis = buildKpis(strategy.templateId, audienceContext);
+  const rawKpis = buildKpis(strategy.templateId, audienceContext);
   const risks = buildRisks(strategy.templateId, audienceContext);
+
+  // KPI 연결 보강(2026-08-03) — buildKpis()가 만든 KPI 목록·전략별 생성 로직은 그대로 두고, 이미
+  // 계산된 DNA 5축(analysisResult)·프로젝트 목표(input.primaryGoal)만 참고해 측정 목적/연결 축/연결
+  // 목표/권장 시점/목표값 근거를 덧붙인다. 실행안 최초 생성 시점에 한 번 계산해 SelectedPlan.kpis에
+  // 그대로 저장하므로, 실행안·인쇄 화면이 같은 DB 값을 읽는 한 항상 같은 KPI 연결을 본다.
+  const analysisResult = project.analysisResult;
+  const axisScores: AxisScoreLike[] | null = analysisResult
+    ? DNA_AXES.map((axis) => ({
+        axis,
+        score: analysisResult[`${axis}Score` as const] as number | null,
+        status: analysisResult[`${axis}Status` as const] as AxisStatus,
+      }))
+    : null;
+  const primaryGoalCode = project.input.primaryGoal ?? null;
+  const kpis = enrichKpis(rawKpis, {
+    axisScores,
+    primaryGoalCode,
+    primaryGoalLabel: primaryGoalCode ? labelForPrimaryGoal(primaryGoalCode) : null,
+  });
 
   const data = {
     strategyResultId: strategy.id,
@@ -145,7 +167,7 @@ export async function ensureSelectedPlan(projectId: string) {
     course: JSON.parse(JSON.stringify({ days: course })),
     operationChecklist,
     risks,
-    kpis,
+    kpis: JSON.parse(JSON.stringify(kpis)),
     memo: "",
     kpiMemo: "",
   };

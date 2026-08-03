@@ -4,6 +4,8 @@ import type {
   PreLaunchValidationReport,
   SignalStatus,
 } from "@/lib/domain/preLaunchValidation";
+import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
+import { AXIS_LABEL_KO } from "@/lib/domain/types";
 
 const RECOMMENDATION_STYLE: Record<PreLaunchRecommendation, string> = {
   RECOMMENDED: "border-emerald-300 bg-emerald-50 text-emerald-800",
@@ -40,8 +42,20 @@ function SignalCard({ label, signal }: { label: string; signal: PreLaunchSignal 
 }
 
 /** 사업 사전검증 리포트 — 실행안 화면 전용 섹션(정보 제공용, 저장하지 않음). 인쇄 화면은
- * PrintPage.tsx에서 같은 report 객체를 더 압축된 레이아웃으로 별도 렌더링한다. */
-export function PreLaunchValidationSection({ report }: { report: PreLaunchValidationReport }) {
+ * PrintPage.tsx에서 같은 report 객체를 더 압축된 레이아웃으로 별도 렌더링한다.
+ * `kpis`가 주어지면 데이터 신뢰도가 지목한 축·이 지역의 취약 축과 연결된 KPI를 "관련 KPI"로 이어
+ * 보여준다(요구사항 2 — 사전검증의 위험·보완사항에서 관련 KPI로 이어지게 한다). 관련 KPI가 없으면
+ * 억지로 만들지 않고 조용히 생략한다. */
+export function PreLaunchValidationSection({
+  report,
+  kpis,
+}: {
+  report: PreLaunchValidationReport;
+  kpis?: EnrichedKpi[];
+}) {
+  const dataReliabilityKpis = kpis ? findRelatedKpiNames(kpis, report.dataReliabilityFlaggedAxes) : [];
+  const weakAxisKpis = kpis && report.weakestAxis ? findRelatedKpiNames(kpis, [report.weakestAxis]) : [];
+
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -86,6 +100,22 @@ export function PreLaunchValidationSection({ report }: { report: PreLaunchValida
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {dataReliabilityKpis.length > 0 ? (
+        <p className="mt-2 text-xs text-slate-500">
+          <span className="font-medium text-slate-600">데이터 신뢰도 보완 KPI: </span>
+          {dataReliabilityKpis.join(", ")}
+        </p>
+      ) : null}
+
+      {weakAxisKpis.length > 0 ? (
+        <p className="mt-1 text-xs text-slate-500">
+          <span className="font-medium text-slate-600">
+            이 지역의 취약 축({AXIS_LABEL_KO[report.weakestAxis!]})과 연결된 KPI:{" "}
+          </span>
+          {weakAxisKpis.join(", ")}
+        </p>
       ) : null}
 
       <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">

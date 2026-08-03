@@ -134,6 +134,12 @@ export interface PreLaunchValidationReport {
   /** 판정 기준·한계를 설명하는 고정 문구(화면에 그대로 노출). */
   criteria: string;
   ruleVersion: string;
+  /** 데이터 신뢰도 신호에서 CAUTION/BLOCKER 사유로 지목된 축(0~5개) — KPI 연결(요구사항 2)이 "데이터
+   * 신뢰도 보완 KPI"를 추천할 때 쓴다. 전부 OK면 빈 배열. */
+  dataReliabilityFlaggedAxes: DnaAxisKey[];
+  /** DNA 5축 중 점수가 가장 낮은 축 — "체류/소비/수요 취약 지역 KPI" 등 축 기반 KPI 연결에 쓴다.
+   * 점수가 있는 축이 하나도 없으면 null. */
+  weakestAxis: DnaAxisKey | null;
 }
 
 const MAX_KEY_RISKS = 5;
@@ -147,9 +153,16 @@ const CRITERIA_TEXT =
   "외부 시장조사·실제 수요 데이터는 포함되지 않으며, 네 항목 중 하나라도 치명적 문제가 있으면 다른 항목 점수가 높아도 " +
   "'보완 후 재검토'로 판단합니다(단일 평균 점수로 결론 내리지 않음).";
 
+interface DataReliabilityResult {
+  signal: PreLaunchSignal;
+  /** 이 신호에서 CAUTION/BLOCKER 사유로 지목된 축들 — KPI 연결(요구사항 2, kpiLinking.ts)이 "데이터
+   * 신뢰도 보완 KPI"를 추천할 때 그대로 재사용한다. */
+  flaggedAxes: DnaAxisKey[];
+}
+
 function evaluateDataReliability(
   axisScores: PreLaunchValidationInput["axisScores"],
-): PreLaunchSignal {
+): DataReliabilityResult {
   const classified = axisScores.map((a) => ({
     axis: a.axis,
     tier: classifyAxisProvenance(a.evidenceProvenances),
@@ -169,30 +182,53 @@ function evaluateDataReliability(
 
   if (missing.length >= MISSING_AXIS_BLOCKER_THRESHOLD) {
     return {
-      status: "BLOCKER",
-      detail: `DNA 5축 중 ${missing.length}개 축(${missing.map((c) => AXIS_LABEL_KO[c.axis]).join(", ")})은 ${AXIS_TIER_REASON_KO.MISSING} 상태라 판단 근거가 부족합니다.${staleNote}`,
+      signal: {
+        status: "BLOCKER",
+        detail: `DNA 5축 중 ${missing.length}개 축(${missing.map((c) => AXIS_LABEL_KO[c.axis]).join(", ")})은 ${AXIS_TIER_REASON_KO.MISSING} 상태라 판단 근거가 부족합니다.${staleNote}`,
+      },
+      flaggedAxes: missing.map((c) => c.axis),
     };
   }
   if (missing.length === 1) {
     return {
-      status: "CAUTION",
-      detail: `${AXIS_LABEL_KO[missing[0].axis]} 축은 ${AXIS_TIER_REASON_KO.MISSING} 상태라 판단에 반영하지 못했습니다.${staleNote}`,
+      signal: {
+        status: "CAUTION",
+        detail: `${AXIS_LABEL_KO[missing[0].axis]} 축은 ${AXIS_TIER_REASON_KO.MISSING} 상태라 판단에 반영하지 못했습니다.${staleNote}`,
+      },
+      flaggedAxes: [missing[0].axis],
     };
   }
 
   const cautionAxes = [...estimated, ...unclassified];
   if (cautionAxes.length === 0) {
     return {
-      status: "OK",
-      detail: `DNA 5축 모두 실시간 또는 검증된(LIVE_API/CACHED_API/CURATED) 데이터를 사용했습니다.${staleNote}`,
+      signal: {
+        status: "OK",
+        detail: `DNA 5축 모두 실시간 또는 검증된(LIVE_API/CACHED_API/CURATED) 데이터를 사용했습니다.${staleNote}`,
+      },
+      flaggedAxes: [],
     };
   }
 
   const detailParts = cautionAxes.map((c) => `${AXIS_LABEL_KO[c.axis]}(${AXIS_TIER_REASON_KO[c.tier]})`);
   return {
-    status: "CAUTION",
-    detail: `다음 축은 신뢰도가 낮은 근거를 포함합니다 — ${detailParts.join(", ")}.${staleNote}`,
+    signal: {
+      status: "CAUTION",
+      detail: `다음 축은 신뢰도가 낮은 근거를 포함합니다 — ${detailParts.join(", ")}.${staleNote}`,
+    },
+    flaggedAxes: cautionAxes.map((c) => c.axis),
   };
+}
+
+/** 공유 축 중 점수가 가장 낮은 축(취약 축)을 고른다 — businessOpportunity.ts의 취약축 보완형과 동일한
+ * "가장 낮은 점수" 원칙. KPI 연결(요구사항 2)이 "체류/소비/수요 취약 지역 KPI"를 추천할 때 재사용한다.
+ * 점수가 있는 축이 하나도 없으면(전부 MISSING) null. */
+function findWeakestAxis(axisScores: PreLaunchValidationInput["axisScores"]): DnaAxisKey | null {
+  const scored = axisScores.filter((a) => a.score !== null) as (PreLaunchValidationInput["axisScores"][number] & {
+    score: number;
+  })[];
+  if (scored.length === 0) return null;
+  return [...scored].sort((a, b) => a.score - b.score)[0].axis;
 }
 
 function evaluatePoiSupplySufficiency(
@@ -323,7 +359,8 @@ function buildRequiredImprovements(signals: GatingSignal[]): string[] {
 /** 사업 사전검증 리포트를 계산한다. DB 조회·외부 API 호출이 전혀 없는 순수 함수 — 같은 입력이면 항상
  * 같은 결과를 낸다. */
 export function computePreLaunchValidation(input: PreLaunchValidationInput): PreLaunchValidationReport {
-  const dataReliability = evaluateDataReliability(input.axisScores);
+  const dataReliabilityResult = evaluateDataReliability(input.axisScores);
+  const dataReliability = dataReliabilityResult.signal;
   const poiSupplySufficiency = evaluatePoiSupplySufficiency(input.poiShortage, input.totalCourseDays);
   const travelFeasibility = evaluateTravelFeasibility(input.travelNoticeCount, input.totalCourseDays);
   const regionalDifferentiation = evaluateRegionalDifferentiation(
@@ -353,5 +390,7 @@ export function computePreLaunchValidation(input: PreLaunchValidationInput): Pre
     requiredImprovements: buildRequiredImprovements(signals),
     criteria: CRITERIA_TEXT,
     ruleVersion: PRE_LAUNCH_RULE_VERSION,
+    dataReliabilityFlaggedAxes: dataReliabilityResult.flaggedAxes,
+    weakestAxis: findWeakestAxis(input.axisScores),
   };
 }

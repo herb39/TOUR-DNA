@@ -18,6 +18,8 @@ import {
 import { CourseMap } from "@/components/map/CourseMap";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
+import { enrichKpis, type EnrichedKpi } from "@/lib/domain/kpiLinking";
+import { AXIS_LABEL_KO } from "@/lib/domain/types";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -35,9 +37,12 @@ export interface PlanEditorData {
   course: { days: CourseDay[] };
   operationChecklist: string[];
   risks: { risk: string; mitigation: string }[];
-  kpis: { name: string; method: string }[];
+  kpis: EnrichedKpi[];
   memo: string;
   kpiMemo: string;
+  /** 사용자가 새 KPI를 추가할 때도 같은 사업 목표를 연결하기 위해 그대로 전달한다(kpiLinking.ts). */
+  primaryGoalCode: string | null;
+  primaryGoalLabel: string | null;
 }
 
 const initialActionState: SavePlanFormState = { success: false };
@@ -279,7 +284,14 @@ export function PlanEditor({
   function addKpi() {
     const name = newKpiName.trim();
     if (!name) return;
-    setKpis((prev) => [...prev, { name, method: newKpiMethod.trim() }]);
+    // 사용자가 직접 추가하는 KPI도 같은 연결 규칙(kpiLinking.ts)으로 보강한다 — 축 데이터는 이 화면에
+    // 없으므로(analysisResult 미포함) targetBasis는 항상 "기관 설정 필요"로 정직하게 표시된다.
+    const [enriched] = enrichKpis([{ name, method: newKpiMethod.trim() }], {
+      axisScores: null,
+      primaryGoalCode: plan.primaryGoalCode,
+      primaryGoalLabel: plan.primaryGoalLabel,
+    });
+    setKpis((prev) => [...prev, enriched]);
     setNewKpiName("");
     setNewKpiMethod("");
   }
@@ -674,20 +686,46 @@ export function PlanEditor({
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">KPI</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-600">
+          <ul className="mt-2 space-y-2 text-sm text-slate-600">
             {kpis.map((k, i) => (
-              <li key={i} className="flex items-center justify-between gap-2">
-                <span>
-                  <span className="font-medium text-slate-700">{k.name}</span> — {k.method}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeKpi(i)}
-                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                  aria-label={`KPI "${k.name}" 삭제`}
-                >
-                  삭제
-                </button>
+              <li key={i} className="rounded-md border border-slate-100 bg-slate-50 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span>
+                    <span className="font-medium text-slate-700">{k.name}</span> — {k.method}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeKpi(i)}
+                    className="no-print shrink-0 cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                    aria-label={`KPI "${k.name}" 삭제`}
+                  >
+                    삭제
+                  </button>
+                </div>
+                {k.purpose ? (
+                  <dl className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-0.5 text-[11px] text-slate-500 sm:grid-cols-2">
+                    <div>
+                      <dt className="inline font-medium text-slate-500">측정 목적: </dt>
+                      <dd className="inline">{k.purpose}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium text-slate-500">연결된 DNA 축: </dt>
+                      <dd className="inline">{k.linkedAxis ? AXIS_LABEL_KO[k.linkedAxis] : "해당 없음(운영 지표)"}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium text-slate-500">연결된 사업 목표: </dt>
+                      <dd className="inline">{k.linkedGoalLabel ?? "목표 미설정"}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium text-slate-500">권장 측정 시점: </dt>
+                      <dd className="inline">{k.recommendedTiming}</dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="inline font-medium text-slate-500">목표값 설정 근거: </dt>
+                      <dd className="inline">{k.targetBasis}</dd>
+                    </div>
+                  </dl>
+                ) : null}
               </li>
             ))}
           </ul>

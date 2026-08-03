@@ -11,6 +11,7 @@ import { buildKpis, buildOperationChecklist, buildRisks, type AudiencePlanContex
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { computeRegionSimilarityComparisons, type RegionAxisProfile } from "@/lib/domain/regionSimilarity";
 import { computePreLaunchValidation, type PoiShortageLike } from "@/lib/domain/preLaunchValidation";
+import { enrichKpis } from "@/lib/domain/kpiLinking";
 import { MODEL_VERSION } from "@/lib/domain/constants";
 import { DNA_AXES, METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
@@ -18,7 +19,7 @@ import { METRIC_FIXTURES, type MetricFixture } from "@/lib/fixtures/metrics";
 import { POI_SEED } from "@/lib/fixtures/pois";
 import { REGION_SEED } from "@/lib/fixtures/regions";
 import { projectInputSchema } from "@/lib/validation/project-input.schema";
-import { NATIONALITY_CODES, ROLE_CODES } from "@/lib/validation/codes";
+import { NATIONALITY_CODES, ROLE_CODES, labelForPrimaryGoal } from "@/lib/validation/codes";
 import {
   getRepresentativeScenarioById,
   REPRESENTATIVE_SCENARIOS,
@@ -643,6 +644,70 @@ describe("사업 사전검증 리포트 — 강릉/경주/제천 실질적 차�
   it("동일 입력으로 반복 계산해도 완전히 동일한 결과다(결정론성)", () => {
     const first = preLaunchValidationFor(gangneung);
     const second = preLaunchValidationFor(gangneung);
+    expect(first).toEqual(second);
+  });
+});
+
+/**
+ * KPI 연결 강화(2026-08-03) — 강릉/경주/제천 실제 fixture 데이터(DNA·전략 1위 템플릿의 KPI 목록·
+ * 사업 목표)로 KPI 연결(측정 목적/연결 축/연결 목표/목표값 근거)이 지역마다 실제로 달라지는지
+ * 확인한다. 어떤 값도 새로 지어내지 않는다.
+ */
+function enrichedKpisFor(s: RepresentativeScenario) {
+  const dna = computeDna(dnaInputFor(s.sigunguCode));
+  const { strategies } = runScenario(s);
+  const rawKpis = buildKpis(strategies[0].templateId, audienceContextOf(s));
+  const axisScores = DNA_AXES.map((axis) => ({ axis, score: dna[axis].score, status: dna[axis].status }));
+  return enrichKpis(rawKpis, {
+    axisScores,
+    primaryGoalCode: s.primaryGoal,
+    primaryGoalLabel: labelForPrimaryGoal(s.primaryGoal),
+  });
+}
+
+describe("KPI 연결 강화 — 강릉/경주/제천 실질적 차별화", () => {
+  it("세 지역 모두 KPI마다 측정 목적·권장 시점·목표값 근거를 채운다(비어 있지 않음)", () => {
+    for (const s of [gangneung, gyeongju, jecheon]) {
+      const kpis = enrichedKpisFor(s);
+      expect(kpis.length).toBeGreaterThan(0);
+      for (const k of kpis) {
+        expect(k.purpose.length).toBeGreaterThan(0);
+        expect(k.recommendedTiming.length).toBeGreaterThan(0);
+        expect(k.targetBasis.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("체류 취약 지역(체류(Stay) 연결 KPI)과 소비 취약 지역(소비(Spend) 연결 KPI)의 목표값 근거가 서로 다른 축 점수를 인용한다", () => {
+    // 강릉은 1위 전략이 야간·체류 확대형(NIGHT_STAY_EXTENSION) → 체류(Stay) 연결 KPI가 존재한다.
+    const gangneungKpis = enrichedKpisFor(gangneung);
+    const stayKpi = gangneungKpis.find((k) => k.linkedAxis === "stay");
+    expect(stayKpi).toBeDefined();
+    expect(stayKpi!.targetBasis).toContain("체류(Stay)");
+  });
+
+  it("연결된 사업 목표가 시나리오의 실제 primaryGoal을 그대로 반영해 지역마다 달라진다", () => {
+    // 강릉/제천은 GOAL_STAY_SPEND_EXPANSION, 경주는 GOAL_LOCAL_ECONOMY(대표 시나리오 fixture 그대로).
+    const gangneungGoal = enrichedKpisFor(gangneung)[0].linkedGoalCode;
+    const gyeongjuGoal = enrichedKpisFor(gyeongju)[0].linkedGoalCode;
+    expect(gangneungGoal).toBe("GOAL_STAY_SPEND_EXPANSION");
+    expect(gyeongjuGoal).toBe("GOAL_LOCAL_ECONOMY");
+    expect(gangneungGoal).not.toBe(gyeongjuGoal);
+  });
+
+  it("세 지역의 KPI 이름 집합 또는 목표값 근거가 서로 다르다(전략·DNA가 다르므로 하드코딩 없이 달라짐)", () => {
+    const gangneungKpis = enrichedKpisFor(gangneung).map((k) => `${k.name}:${k.targetBasis}`);
+    const gyeongjuKpis = enrichedKpisFor(gyeongju).map((k) => `${k.name}:${k.targetBasis}`);
+    const jecheonKpis = enrichedKpisFor(jecheon).map((k) => `${k.name}:${k.targetBasis}`);
+
+    expect(gangneungKpis).not.toEqual(gyeongjuKpis);
+    expect(gangneungKpis).not.toEqual(jecheonKpis);
+    expect(gyeongjuKpis).not.toEqual(jecheonKpis);
+  });
+
+  it("동일 입력을 반복 계산해도 완전히 동일한 KPI 연결 결과를 낸다(결정론성)", () => {
+    const first = enrichedKpisFor(gangneung);
+    const second = enrichedKpisFor(gangneung);
     expect(first).toEqual(second);
   });
 });

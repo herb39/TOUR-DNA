@@ -262,3 +262,49 @@ describe("computePreLaunchValidation — provenance 조합별 데이터 신뢰�
     expect(result.dataReliability.detail).toContain("체류(Stay)");
   });
 });
+
+/** 축별 실제 점수를 지정하는 헬퍼(KPI 연결용 weakestAxis 테스트 전용) — provenance는 전부 LIVE_API로
+ * 고정해 데이터 신뢰도 신호가 결과에 섞이지 않게 한다. */
+function axisScoresWithScores(scores: Record<DnaAxisKey, number | null>) {
+  const axes: DnaAxisKey[] = ["demand", "stay", "spend", "diversity", "network"];
+  return axes.map((axis) => ({
+    axis,
+    score: scores[axis],
+    evidenceProvenances: scores[axis] === null ? [] : (["LIVE_API"] as DataProvenance[]),
+  }));
+}
+
+describe("computePreLaunchValidation — KPI 연결용 부가 필드(weakestAxis/dataReliabilityFlaggedAxes)", () => {
+  it("weakestAxis는 점수가 가장 낮은 축을 가리킨다", () => {
+    const result = computePreLaunchValidation(
+      baseInput({
+        axisScores: axisScoresWithScores({ demand: 70, stay: 20, spend: 60, diversity: 80, network: 50 }),
+      }),
+    );
+    expect(result.weakestAxis).toBe("stay");
+  });
+
+  it("점수가 있는 축이 하나도 없으면(전부 MISSING) weakestAxis는 null이다", () => {
+    const result = computePreLaunchValidation(
+      baseInput({
+        axisScores: axisScoresWithScores({ demand: null, stay: null, spend: null, diversity: null, network: null }),
+      }),
+    );
+    expect(result.weakestAxis).toBeNull();
+  });
+
+  it("dataReliabilityFlaggedAxes는 데이터 신뢰도 신호가 지목한 축과 정확히 일치한다(ESTIMATED)", () => {
+    const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ demand: ["ESTIMATED"] }) }));
+    expect(result.dataReliabilityFlaggedAxes).toEqual(["demand"]);
+  });
+
+  it("데이터 신뢰도가 전부 OK면 dataReliabilityFlaggedAxes는 빈 배열이다", () => {
+    const result = computePreLaunchValidation(baseInput());
+    expect(result.dataReliabilityFlaggedAxes).toEqual([]);
+  });
+
+  it("MISSING 축이 여러 개면 dataReliabilityFlaggedAxes에 전부 담긴다", () => {
+    const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ demand: [], stay: [] }) }));
+    expect(result.dataReliabilityFlaggedAxes.sort()).toEqual(["demand", "stay"].sort());
+  });
+});

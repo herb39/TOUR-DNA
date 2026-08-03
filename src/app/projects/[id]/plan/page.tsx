@@ -14,6 +14,7 @@ import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { summarizeEvidenceBaseYms } from "@/lib/format";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
+import { labelForPrimaryGoal } from "@/lib/validation/codes";
 
 export const dynamic = "force-dynamic";
 
@@ -65,9 +66,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     course: planRow.course as unknown as PlanEditorData["course"],
     operationChecklist: planRow.operationChecklist as string[],
     risks: planRow.risks as PlanEditorData["risks"],
-    kpis: planRow.kpis as PlanEditorData["kpis"],
+    kpis: planRow.kpis as unknown as PlanEditorData["kpis"],
     memo: planRow.memo ?? "",
     kpiMemo: planRow.kpiMemo ?? "",
+    primaryGoalCode: project.input?.primaryGoal ?? null,
+    primaryGoalLabel: project.input?.primaryGoal ? labelForPrimaryGoal(project.input.primaryGoal) : null,
   };
 
   // 2026-07-30(P0-1): 전략별 POI 적합도·후보 부족 안내를 이 코스에 담긴 poiId 기준으로 매번 새로
@@ -164,7 +167,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         ) : null}
         {preLaunchValidation ? (
           <div className="mt-4">
-            <PreLaunchValidationSection report={preLaunchValidation} />
+            <PreLaunchValidationSection report={preLaunchValidation} kpis={planData.kpis} />
           </div>
         ) : null}
         <div className="mt-6">

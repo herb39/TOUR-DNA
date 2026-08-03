@@ -59,6 +59,8 @@ function makePlan(): PlanEditorData {
     kpis: [],
     memo: "",
     kpiMemo: "",
+    primaryGoalCode: null,
+    primaryGoalLabel: null,
   };
 }
 
@@ -217,6 +219,18 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
 
     fireEvent.click(screen.getByLabelText('KPI "재방문율" 삭제'));
     expect(screen.queryByText("재방문율")).not.toBeInTheDocument();
+  });
+
+  it("새로 추가한 KPI도 측정 목적·연결 축·목표값 근거가 자동으로 채워진다(KPI 연결 보강)", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("새 KPI 이름"), { target: { value: "숙박 전환율" } });
+    fireEvent.change(screen.getByPlaceholderText("측정 방법"), { target: { value: "예약 데이터 비교" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "추가" })[2]);
+
+    expect(screen.getByText(/측정 목적:/)).toBeInTheDocument();
+    expect(screen.getByText("체류(Stay)")).toBeInTheDocument();
+    expect(screen.getByText(/기관 설정 필요/)).toBeInTheDocument();
   });
 });
 
