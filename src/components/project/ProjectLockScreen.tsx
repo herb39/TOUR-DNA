@@ -44,14 +44,9 @@ export function ProjectLockScreen({ projectId }: { projectId: string }) {
             {isPending ? "확인 중..." : "입장"}
           </button>
         </form>
-        <div className="mt-4 flex justify-center gap-4 text-sm text-slate-500">
-          <Link href="/" className="hover:text-slate-900">
-            프로젝트 목록으로 돌아가기
-          </Link>
-          <Link href="/" className="hover:text-slate-900">
-            홈으로 돌아가기
-          </Link>
-        </div>
+        <Link href="/" className="mt-4 block text-center text-sm text-slate-500 hover:text-slate-900">
+          홈으로 돌아가기
+        </Link>
       </div>
     </div>
   );
