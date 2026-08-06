@@ -81,13 +81,18 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
           return position;
         });
 
+        // 카카오모빌리티 실제 도로 경로(길찾기 API)의 거리·시간은 이미 위 일정 목록에 반영돼 있지만,
+        // 이 Polyline은 그 실제 도로 geometry가 아니라 방문 순서를 잇는 직선이다(2026-08-06 조사 결과,
+        // docs/route-api-status.md 참고 — 실제 경로 좌표 자체는 카카오 API로 확보 가능하나, 그 결과를
+        // 저장·재사용해도 되는지 카카오 측 이용약관이 아직 불명확해 이번에는 구현하지 않는다). 점선·낮은
+        // 강조 스타일로 바꿔 "실제 도로 기준" 거리·시간 배지와 혼동하지 않게 한다.
         if (path.length > 1) {
           new kakao.maps.Polyline({
             path,
-            strokeWeight: 3,
-            strokeColor: "#0f172a",
-            strokeOpacity: 0.8,
-            strokeStyle: "solid",
+            strokeWeight: 2,
+            strokeColor: "#94a3b8",
+            strokeOpacity: 0.7,
+            strokeStyle: "shortdash",
           }).setMap(map);
         }
 
@@ -122,9 +127,13 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
         </div>
       ) : null}
       <div ref={containerRef} data-testid="course-map-container" className="h-80 w-full rounded-lg border border-slate-200" />
+      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
+        <span aria-hidden="true" className="inline-block h-0 w-4 border-t-2 border-dashed border-slate-400" />
+        <span>방문 순서 연결선</span>
+      </div>
       <p className="mt-1 text-[11px] text-slate-400">
-        지도의 선은 장소 방문 순서를 이어주는 연결선이며, 실제 도로 경로와 다를 수 있습니다. 거리·시간은
-        위 일정 목록의 값을 기준으로 확인해주세요.
+        지도 선은 실제 도로 경로가 아닌 방문 순서 연결선입니다. 거리·시간은 위 일정 목록의 &quot;실제 도로
+        기준&quot;/&quot;직선거리 기반 추정&quot; 값을 확인해주세요.
       </p>
     </div>
   );

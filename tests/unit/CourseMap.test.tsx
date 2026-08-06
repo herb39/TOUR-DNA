@@ -49,4 +49,12 @@ describe("CourseMap", () => {
     render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
     expect(screen.queryByRole("button", { name: "1일차" })).not.toBeInTheDocument();
   });
+
+  /** 카카오모빌리티 실제 도로 거리·시간은 일정 목록에 반영돼 있지만 지도 선 자체는 방문 순서를 잇는
+   * 직선일 뿐이라(2026-08-06 조사), 실제 도로 경로처럼 오해하지 않도록 범례와 문구를 명확히 한다. */
+  it("지도 선이 방문 순서 연결선이며 실제 도로 경로가 아니라는 범례·문구를 보여준다", () => {
+    render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
+    expect(screen.getByText("방문 순서 연결선")).toBeInTheDocument();
+    expect(screen.getByText(/지도 선은 실제 도로 경로가 아닌 방문 순서 연결선입니다/)).toBeInTheDocument();
+  });
 });
