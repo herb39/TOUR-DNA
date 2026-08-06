@@ -65,6 +65,28 @@ describe("computeRegionSimilarityComparisons — 기본 동작", () => {
     expect(result.commonLimitationNote).toBeNull();
   });
 
+  it("candidatePoolSize는 대상 지역을 제외한 전체 후보 수를 그대로 담고(표시된 3개와 다를 수 있음), 후보가 적으면 isSmallCandidatePool이 true다(2026-08-06)", () => {
+    const target = profile("A", "A시", { demand: 50, stay: 50, spend: 50, diversity: 50, network: 50 }, BALANCED_POI);
+    const candidates = ["B", "C", "D", "E", "F"].map((c, i) =>
+      profile(c, `${c}시`, { demand: 50 + i, stay: 50, spend: 50, diversity: 50, network: 50 }, BALANCED_POI),
+    );
+    const result = computeRegionSimilarityComparisons(target, [target, ...candidates]);
+
+    expect(result.candidatePoolSize).toBe(5);
+    expect(result.comparisons.length).toBe(3); // 화면에 보여주는 개수는 최대 3개로 제한됨
+    expect(result.isSmallCandidatePool).toBe(true); // 5 < 임계값(10)
+  });
+
+  it("후보 지역이 충분히 많으면(임계값 이상) isSmallCandidatePool이 false다", () => {
+    const target = profile("A", "A시", {}, BALANCED_POI);
+    const candidates = Array.from({ length: 12 }, (_, i) =>
+      profile(`R${i}`, `지역${i}`, { demand: 50 + i }, BALANCED_POI),
+    );
+    const result = computeRegionSimilarityComparisons(target, [target, ...candidates]);
+    expect(result.candidatePoolSize).toBe(12);
+    expect(result.isSmallCandidatePool).toBe(false);
+  });
+
   it("자기 자신은 후보에서 제외된다", () => {
     const target = profile("A", "A시", {});
     const other = profile("B", "B시", { demand: 61 });

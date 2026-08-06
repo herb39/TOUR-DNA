@@ -28,6 +28,7 @@ import {
   labelForTransport,
 } from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/format";
+import { summarizeAxisSource } from "@/lib/domain/axisSourceSummary";
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
@@ -140,6 +141,20 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     axisEvidenceByAxis.set(e.axis ?? "", list);
   }
 
+  // 축 출처 배지(2026-08-06) — 기존에는 LIVE/SNAPSHOT/MISSING enum 원문을 그대로 노출해 SNAPSHOT이
+  // CACHED_API(과거 API 캐시)·CURATED(정제 데이터)·ESTIMATED(추정값)를 전부 뭉뚱그려 "저장된 과거
+  // 스냅샷"처럼 오해하기 쉬웠다. 점수·상태 산식(dna.ts)은 그대로 두고, 이미 저장된 Evidence의
+  // provenance만 다시 읽어 순수 표시용 문구를 만든다.
+  const axisSourceSummaries = new Map<string, ReturnType<typeof summarizeAxisSource>>(
+    AXIS_ORDER.map((axis) => [
+      axis,
+      summarizeAxisSource(
+        axis,
+        (axisEvidenceByAxis.get(axis) ?? []).map((e) => ({ ...e, provenance: e.provenance ?? null })),
+      ),
+    ]),
+  );
+
   // 유사지역 비교(2026-08-02, DNA 5축 바로 다음에 표시) — 이 분석의 근거에 실제로 저장된 기준월과
   // 동일한 baseYm으로 지원 지역 전체의 DNA·POI 구성을 다시 계산한다(같은 baseYm이어야 min-max 코호트가
   // 일치해 점수가 서로 비교 가능함). DNA 5축 산식(dna.ts)은 그대로 재사용하며 전혀 바꾸지 않는다.
@@ -158,6 +173,8 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         uniqueStrengthNote: null,
         note: "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.",
         commonLimitationNote: null,
+        candidatePoolSize: 0,
+        isSmallCandidatePool: true,
         ruleVersion: REGION_SIMILARITY_RULE_VERSION,
       };
   // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
@@ -360,7 +377,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold text-slate-900">관광 DNA 5축</h2>
-            <DnaRadarChart data={axisData} />
+            <DnaRadarChart
+              data={axisData.map((a) => ({ ...a, sourceLabel: axisSourceSummaries.get(a.axisKey)?.label }))}
+            />
             <p className="mt-3 text-xs text-slate-500">
               ※ 이 점수는 실제 수치가 아니라, 같은 행정단위(시군구) 비교군 안에서의 상대 순위를
               0~100으로 환산한 정규화 점수입니다. 원값·비교 행정단위·기준월은 각 축의 &quot;근거
@@ -369,39 +388,45 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {axisData.map((a) => (
-              <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-800">{a.label}</span>
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                      a.status === "LIVE"
-                        ? "border-emerald-300 text-emerald-700"
-                        : a.status === "SNAPSHOT"
-                          ? "border-amber-300 text-amber-700"
-                          : "border-slate-300 text-slate-500"
-                    }`}
-                  >
-                    {a.status === "MISSING" ? "데이터 부족" : a.status}
-                  </span>
-                </div>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {a.score === null ? "데이터 부족" : a.score}
-                </p>
-                {a.score === 0 ? (
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    비교군 내 최저 상대 점수입니다 — 관광객·소비가 전혀 없다는 뜻이 아니라, 같은
-                    행정단위 비교 지역 중 상대적으로 가장 낮다는 의미입니다.
-                  </p>
-                ) : null}
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
-                  <div className="mt-2">
-                    <EvidenceTable items={axisEvidenceByAxis.get(a.axisKey) ?? []} />
+            {axisData.map((a) => {
+              const source = axisSourceSummaries.get(a.axisKey);
+              return (
+                <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-800">{a.label}</span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                        source?.tier === "ALL_LIVE"
+                          ? "border-emerald-300 text-emerald-700"
+                          : source?.tier === "MIXED"
+                            ? "border-amber-300 text-amber-700"
+                            : "border-slate-300 text-slate-500"
+                      }`}
+                      title="이 축의 점수 계산에 실제로 쓰인 근거들의 출처 구성입니다. 개별 근거의 정확한 값·기준월은 아래 근거 보기에서 확인할 수 있습니다."
+                    >
+                      {source?.label ?? "데이터 부족"}
+                    </span>
                   </div>
-                </details>
-              </div>
-            ))}
+                  <p className="mt-2 flex items-center gap-2 text-2xl font-bold text-slate-900">
+                    {a.score === null ? "데이터 부족" : a.score}
+                    {a.score === 0 ? (
+                      <span
+                        className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-500"
+                        title="관광객·소비가 전혀 없다는 뜻이 아니라, 같은 행정단위 비교 지역 중 상대적으로 가장 낮다는 의미입니다."
+                      >
+                        비교지역 내 최저
+                      </span>
+                    ) : null}
+                  </p>
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
+                    <div className="mt-2">
+                      <EvidenceTable items={axisEvidenceByAxis.get(a.axisKey) ?? []} />
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -417,9 +442,20 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </div>
           <p className="mt-1 text-xs text-slate-500">
             현재 지원 지역 데이터 기준 비교입니다(조회 시점 최신 데이터, 기준월 {regionComparisonAnalysis.comparisonBaseYm}) —
-            DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교해, 이 지역의 점수가 상대적으로 어떤
-            의미인지 보여줍니다.
+            DNA 5축·관광 자원 구성이 현재 지원 지역 중 가장 비슷한 지역과 비교해, 이 지역의 점수가
+            상대적으로 어떤 의미인지 보여줍니다.
           </p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            현재 지원지역 {regionComparisonAnalysis.candidatePoolSize + 1}곳 중 대상 지역을 제외한{" "}
+            {regionComparisonAnalysis.candidatePoolSize}곳을 비교했습니다 — 전국 전체가 아닌, 현재
+            데이터가 준비된 지역 내 비교 결과입니다.
+          </p>
+          {regionComparisonAnalysis.isSmallCandidatePool && regionComparisonAnalysis.candidatePoolSize > 0 ? (
+            <p className="mt-1 text-[11px] text-amber-700">
+              ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 통계적으로
+              의미 있는 &quot;유사 지역&quot;이라기보다 참고용으로만 활용해주세요.
+            </p>
+          ) : null}
           {analysisBaseYmMismatchNote ? (
             <p className="mt-1 text-xs text-amber-700">{analysisBaseYmMismatchNote}</p>
           ) : null}

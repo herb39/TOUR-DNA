@@ -14,6 +14,10 @@ export interface DnaAxisChartDatum {
   label: string;
   score: number | null;
   status: "LIVE" | "SNAPSHOT" | "MISSING";
+  /** 스크린리더용 대체 텍스트 표에 표시할 출처 요약 문구(2026-08-06) — enum 원문(LIVE/SNAPSHOT/MISSING)
+   * 대신 "모두 실시간 API"처럼 사람이 이해할 수 있는 문구를 넘긴다. 넘기지 않으면 기존처럼 status를
+   * 그대로 보여준다(하위 호환). */
+  sourceLabel?: string;
 }
 
 export function DnaRadarChart({ data }: { data: DnaAxisChartDatum[] }) {
@@ -45,7 +49,7 @@ export function DnaRadarChart({ data }: { data: DnaAxisChartDatum[] }) {
             <tr key={d.axisKey}>
               <th scope="row">{d.label}</th>
               <td>{d.score === null ? "데이터 부족" : d.score}</td>
-              <td>{d.status}</td>
+              <td>{d.sourceLabel ?? d.status}</td>
             </tr>
           ))}
         </tbody>

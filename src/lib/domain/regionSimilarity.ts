@@ -39,6 +39,9 @@ const MIN_SHARED_AXES = 3;
 const BENCHMARK_MARGIN = 10;
 /** 최대로 보여줄 비교 지역 수. */
 const MAX_COMPARISONS = 3;
+/** 후보 지역 수가 이 값 미만이면 "모집단이 적어 참고용으로만 활용하라"는 안내를 추가로 보여준다
+ * (2026-08-06, 표시용 임계값 — 유사도 계산·순위에는 영향을 주지 않는다). */
+const SMALL_CANDIDATE_POOL_THRESHOLD = 10;
 
 const ALL_POI_CATEGORIES: PoiCategoryCode[] = ["ATTRACTION", "FOOD", "LODGING", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
 
@@ -90,6 +93,13 @@ export interface RegionComparisonAnalysis {
   uniqueStrengthNote: string | null;
   /** 비교 후보가 3개 미만이거나 하나도 없을 때만 채워지는 사유 설명. */
   note: string | null;
+  /** 대상 지역을 제외한 전체 후보 지역 수(현재 지원하는 SIGUNGU 지역 - 1) — 2026-08-06, "전국에서 가장
+   * 유사한 지역"처럼 오해하지 않도록 실제 비교 모집단 규모를 화면에 그대로 밝힌다. comparisons.length는
+   * 화면에 보여주는 개수(최대 3)일 뿐이라 이 값과 다를 수 있다. */
+  candidatePoolSize: number;
+  /** candidatePoolSize가 작아 통계적으로 의미 있는 "유사 지역"이라 보기 어려울 때 true(2026-08-06) —
+   * 임계값(SMALL_CANDIDATE_POOL_THRESHOLD)은 순위·거리 계산에는 전혀 영향을 주지 않는 표시용 판정이다. */
+  isSmallCandidatePool: boolean;
   /** 모든 비교 카드에 동일하게 붙는 한계 안내(ComparedRegion.limitations와 항상 같은 문구) — 카드마다
    * 반복 렌더링하지 않고 섹션에 한 번만 표시하기 위해 여기 별도로 둔다(2026-08-06). 비교 카드가
    * 하나도 없으면 표시할 대상이 없어 null. */
@@ -273,6 +283,8 @@ export function computeRegionSimilarityComparisons(
     uniqueStrengthNote: computeUniqueStrengthNote(target.name, comparisons),
     note: buildNote(comparisons.length, others.length),
     commonLimitationNote: comparisons.length > 0 ? LIMITATION_SUFFIX : null,
+    candidatePoolSize: others.length,
+    isSmallCandidatePool: others.length < SMALL_CANDIDATE_POOL_THRESHOLD,
     ruleVersion: REGION_SIMILARITY_RULE_VERSION,
   };
 }

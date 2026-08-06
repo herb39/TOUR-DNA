@@ -119,3 +119,34 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 - `AnalysisResult.overallDataMode`: `LIVE`(5축 모두 LIVE) / `HYBRID`(일부만 LIVE) / `SNAPSHOT`(모두 비-LIVE)
 - `DataSnapshot.status`: `SUCCESS` / `EMPTY`(성공했지만 0건) / `ERROR`
 - `SyncLog.overallStatus`: `SUCCESS` / `PARTIAL` / `FAILED`
+
+## 분석 화면 표시 관련 알려진 한계(2026-08-06, Production 조사 결과)
+
+`E2E 결정론 B` 프로젝트(제천시) 조사 결과를 바탕으로 화면 표시 문구를 개선했다. 점수 산식·정규화·
+유사지역 순위는 이 조사·개선 과정에서 전혀 바꾸지 않았다 — 아래는 표시 방식과 알려진 데이터 공백에
+대한 설명이다.
+
+- **축 출처 배지**(`src/lib/domain/axisSourceSummary.ts`): 예전에는 `AxisStatus`(LIVE/SNAPSHOT/MISSING)
+  enum 원문을 그대로 노출했는데, `SNAPSHOT`은 "이 축 점수 계산에 쓰인 근거 중 `LIVE_API`가 아닌 것이
+  하나라도 있다"는 뜻일 뿐이라 `CACHED_API`(과거 API 캐시)·`CURATED`(사람이 만든 정제 데이터)·
+  `ESTIMATED`(추정값)를 전부 뭉뚱그려 "저장된 과거 스냅샷"처럼 오해하기 쉬웠다. 이제 축 카드는
+  "모두 실시간 API" / "실시간 2 · 추정 1" / "API 249 · 정제 7 · 관계 정제 2"처럼 실제 출처 구성을
+  짧게 보여준다. 개별 근거의 정확한 값·기준월·출처는 여전히 "근거 보기"에서 확인한다.
+- **상대점수 0의 의미**: DNA 5축 점수는 같은 행정단위(SIGUNGU) 코호트 안에서 min-max 정규화한
+  상대 순위다. 원값이 실제로 존재하는 축(status=LIVE)이 0점이면 "데이터 없음"이 아니라 "현재 코호트
+  안에서 최저값"이라는 뜻이다(예: 제천시 체류 지수 72.86은 실제 API 값이지만 지원 7개 지역 중
+  최소값이라 정규화 결과가 정확히 0이 됨). `데이터 부족`(MISSING, 근거 자체가 없음)과 `비교지역 내
+  최저`(LIVE인데 상대적으로 0점)는 화면에서 서로 다른 배지로 구분한다.
+- **유사지역 비교의 모집단 제한**: 유사지역 비교는 전국이 아니라 **현재 지원하는 SIGUNGU 지역만의
+  모집단** 안에서 계산한다(2026-08-06 기준 7곳: 대전 유성구·제천시·양양군·경주시·강릉시·제주시·
+  통영시). 대상 지역을 제외하면 후보는 6곳뿐이라 화면에 보여주는 "유사지역 3곳"은 실질적으로 전체
+  후보의 절반이다 — 계산(RMS 거리 + POI 구성 거리, `regionSimilarity.ts`) 자체는 정확히 재현 가능하지만
+  통계적으로 유의미한 "가장 유사한 지역"이라 보기엔 모집단이 작다. 화면은 `candidatePoolSize`(대상
+  지역을 제외한 후보 수)를 그대로 표시하고, 임계값(현재 10곳) 미만이면 참고용 안내를 추가로 보여준다.
+- **수요 축 `touResDemIxVal`(관광자원수요) ESTIMATED**: 실제 공공데이터 API(`AreaTarResDemService`의
+  `culResDemIxCd`)가 유효한 코드값을 확인하지 못해([public-api-status.md](public-api-status.md) 3번
+  항목) 호출하지 않고 seed fixture 추정값을 그대로 쓴다. 지역·POI를 추가해도 해결되지 않는 구조적
+  공백이다.
+- **연계 축 관계 데이터(PoiRelation) CURATED**: 연관관광지 API는 정식 서비스명조차 미확인이라
+  ([public-api-status.md](public-api-status.md) 6번 항목) `syncService.ts`가 절대 호출하지 않는다 —
+  존재하는 관계 데이터는 전부 seed 수작업 큐레이션이며, 모든 지역에 동일하게 적용되는 구조적 한계다.
