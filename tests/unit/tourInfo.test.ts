@@ -159,4 +159,45 @@ describe("fetchTourInfo — areaBasedList2 신규 법정동 파라미터(2026-07
     expect((item as unknown as Record<string, unknown>).cat2).toBeUndefined();
     expect((item as unknown as Record<string, unknown>).cat3).toBeUndefined();
   });
+
+  /** 2026-08-07 지원지역 확대 중 가평군 "몽덕산"에서 실제로 재현된 문제 — mapx/mapy가 문자열 리터럴
+   * "null"로 오는 항목이 있었는데, 예전에는 `z.coerce.number()`가 이를 NaN으로 만들어 파싱 자체가
+   * 실패했다. 그 결과 이 항목 하나 때문에 페이지 전체(다른 415개 정상 항목까지)가 버려져 가평군 POI
+   * 동기화가 통째로 FAILED 처리됐다. 이제는 이 항목의 좌표만 undefined로 처리하고 나머지 항목은
+   * 정상 파싱된다(좌표 없는 항목을 건너뛰는 판단은 호출부 syncService.ts가 기존 로직으로 그대로 한다). */
+  it("mapx/mapy가 문자열 \"null\"인 항목이 섞여 있어도 페이지 전체가 실패하지 않고, 그 항목의 좌표만 undefined로 처리한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        envelope([
+          {
+            contentid: "125483",
+            contenttypeid: "12",
+            title: "몽덕산",
+            addr1: "경기도 가평군 북면 화악리",
+            mapx: "null",
+            mapy: "null",
+          },
+          {
+            contentid: "1",
+            contenttypeid: "12",
+            title: "자라섬",
+            addr1: "경기도 가평군",
+            mapx: "127.5",
+            mapy: "37.8",
+          },
+        ]),
+      ),
+    );
+
+    const res = await fetchTourInfo({ serviceKey: "key", baseUrl: "https://apis.data.go.kr/B551011/KorService2", lDongRegnCd: "41" });
+
+    expect(res.status).toBe("SUCCESS");
+    expect(res.items).toHaveLength(2);
+    const bad = res.items.find((i) => i.title === "몽덕산")!;
+    expect(bad.mapx).toBeUndefined();
+    expect(bad.mapy).toBeUndefined();
+    const good = res.items.find((i) => i.title === "자라섬")!;
+    expect(good.mapx).toBe(127.5);
+    expect(good.mapy).toBe(37.8);
+  });
 });

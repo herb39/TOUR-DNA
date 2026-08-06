@@ -20,6 +20,20 @@ import { extractResultMeta, parsePublicDataEnvelope, type NormalizedItemsResult 
  * lDongSignguCd=150` 요청이 실제로 충북 제천시 항목만 반환).
  */
 
+/** mapx/mapy가 문자열 리터럴 `"null"`로 오는 응답이 실제로 있다(2026-08-07, 가평군 "몽덕산" 등에서
+ * 확인 — 좌표 자체가 없는 정상적인 케이스). `z.coerce.number()`는 이 값을 NaN으로 변환해버려 파싱
+ * 자체가 실패했고, 그 결과 이 항목 하나 때문에 해당 페이지 전체(다른 정상 항목까지)가 버려졌다.
+ * 좌표를 지어내지 않고 그냥 undefined로 처리해 이 항목만 좌표 없음으로 건너뛰게 한다(호출부
+ * syncService.ts가 이미 `mapx === undefined` 항목을 건너뛰는 로직을 갖고 있다 — 그 경로를 정상적으로
+ * 타게 하는 것뿐, 새 필터링 로직을 추가하지 않는다). */
+const coordinateSchema = z
+  .preprocess((v) => {
+    if (v === "null" || v === null || v === undefined) return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+  }, z.number().optional())
+  .optional();
+
 const itemSchema = z.object({
   contentid: z.string().optional(),
   contenttypeid: z.string().optional(),
@@ -29,8 +43,8 @@ const itemSchema = z.object({
   lDongRegnCd: z.string().optional(),
   /** 법정동 시군구 코드(신 체계). */
   lDongSignguCd: z.string().optional(),
-  mapx: z.coerce.number().optional(),
-  mapy: z.coerce.number().optional(),
+  mapx: coordinateSchema,
+  mapy: coordinateSchema,
   tel: z.string().optional(),
   /** 신 분류체계 대분류(예: 음식=FD 계열 — 정확한 코드는 lclsSystmCode2로 확인 필요, 아래 파일 상단 주석 참고). */
   lclsSystm1: z.string().optional(),
