@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 vi.mock("@/app/projects/[id]/plan/actions", () => ({
   savePlanAction: vi.fn(async (state: unknown) => state),
   searchAvailablePoisAction: vi.fn(async () => []),
+  fetchPlanRouteGeometryAction: vi.fn(async () => ({ segments: [] })),
 }));
 
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
@@ -548,12 +549,15 @@ describe("PlanEditor — 저장 후 카카오 실제 경로 결과가 새로고�
     expect(currentDays()[0].items[1].travel).toBe("이동 약 41분(약 13.6km, 차량 기준)"); // 저장 전: 추정치
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    await screen.findByText("모든 변경사항이 저장되었습니다.");
 
-    // 저장 직후, 페이지를 새로고침하지 않고도 실제 도로 기준 값으로 바뀌어야 한다(핵심 회귀 검증).
-    const updated = currentDays()[0].items[1];
-    expect(updated.travel).toBe("18.3km · 약 29분");
-    expect(updated.travelSource).toBe("LIVE_API");
+    // "모든 변경사항이 저장되었습니다." 문구는 dirty 여부(스냅샷 비교)만 보고 뜨므로 편집이 전혀 없던
+    // 이 케이스에서는 클릭 전부터도 참일 수 있다 — 저장 완료 자체의 신뢰할 수 있는 동기화 지점은 실제
+    // 로컬 course state(items[1].travel)가 서버 응답값으로 바뀌는 순간이다(핵심 회귀 검증).
+    await waitFor(() => {
+      const updated = currentDays()[0].items[1];
+      expect(updated.travel).toBe("18.3km · 약 29분");
+      expect(updated.travelSource).toBe("LIVE_API");
+    });
     expect(screen.getByText("실제 도로 기준")).toBeInTheDocument();
     expect(screen.queryByText("직선거리 기반 추정")).not.toBeInTheDocument();
   });

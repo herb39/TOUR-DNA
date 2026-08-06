@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadKakaoMapsSdk } from "./kakaoLoader";
+import { fetchPlanRouteGeometryAction } from "@/app/projects/[id]/plan/actions";
+import type { TransportCode } from "@/lib/domain/planBuilder";
 
 export interface CourseMapItem {
   poiId: string;
@@ -16,8 +18,17 @@ export interface CourseMapDay {
   items: CourseMapItem[];
 }
 
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
 function hasCoords(item: CourseMapItem): item is CourseMapItem & { lat: number; lng: number } {
   return Number.isFinite(item.lat) && Number.isFinite(item.lng);
+}
+
+function edgeKey(fromPoiId: string, toPoiId: string): string {
+  return `${fromPoiId}::${toPoiId}`;
 }
 
 function FallbackNote({ reason }: { reason: "NO_KEY" | "LOAD_FAILED" | "NO_COORDS" }) {
@@ -30,10 +41,31 @@ function FallbackNote({ reason }: { reason: "NO_KEY" | "LOAD_FAILED" | "NO_COORD
   return <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500">{message}</p>;
 }
 
-/** 일자·시간대별 코스를 카카오맵에 순서대로 마커+동선(Polyline)으로 표시한다. 날짜가 여러 개면 날짜별 탭으로 전환한다. */
-export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?: string }) {
+/**
+ * 일자·시간대별 코스를 카카오맵에 순서대로 마커+동선(Polyline)으로 표시한다. 날짜가 여러 개면 날짜별
+ * 탭으로 전환한다.
+ *
+ * PRIVATE_VEHICLE이고 `projectId`가 있으면(2026-08-06, Phase 12 후속) 마운트 후 실제 도로 경로 좌표를
+ * 서버 액션(`fetchPlanRouteGeometryAction`)으로 일시적으로 조회해, 구간별로 실제 도로 Polyline을 덧그린다
+ * — 이 좌표는 어디에도 저장하지 않고(DB write 없음) 이 컴포넌트의 React state에만 잠깐 머문다. 조회
+ * 전이거나 실패한 구간은 항상 기존 방문 순서 직선(점선·저강조)으로 그대로 표시된다 — 지도 자체가
+ * 막히거나 실행안 다른 내용의 렌더링을 지연시키지 않는다(이 조회는 마운트 이후 별도로 진행된다).
+ */
+export function CourseMap({
+  days,
+  kakaoKey,
+  projectId,
+  transport,
+}: {
+  days: CourseMapDay[];
+  kakaoKey?: string;
+  /** 있으면 PRIVATE_VEHICLE일 때 실제 도로 경로를 조회한다. 없으면(인쇄 화면 등) 항상 직선 fallback만 그린다. */
+  projectId?: string;
+  transport?: TransportCode;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapFailed, setMapFailed] = useState(false);
+  const [geometryByEdge, setGeometryByEdge] = useState<Map<string, LatLng[]> | null>(null);
 
   const selectableDays = useMemo(
     () =>
@@ -51,6 +83,46 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
   const currentDay =
     (selectedDayIndex !== null ? selectableDays.find((d) => d.dayIndex === selectedDayIndex) : undefined) ??
     selectableDays[0];
+
+  const isPrivateVehicle = transport === "PRIVATE_VEHICLE";
+
+  // 실제 도로 경로 조회(2026-08-06) — 지도 마운트/일정 변경과 독립적으로 한 번만 시도한다. 실행안
+  // 내용은 이 조회와 무관하게 이미 렌더링돼 있으므로, 여기서 시간이 걸리거나 실패해도 지도의 마커·직선
+  // 연결선은 그대로 보인다(막힘 없음). geometryByEdge가 null → 아직 조회 전(또는 대상 아님), 값이 있으면
+  // 해당 구간만 실제 경로로 대체한다.
+  useEffect(() => {
+    if (!isPrivateVehicle || !projectId) return; // 기본값(null)이라 별도로 되돌릴 필요가 없다.
+    let cancelled = false;
+    fetchPlanRouteGeometryAction(projectId)
+      .then((result) => {
+        if (cancelled) return;
+        const map = new Map<string, LatLng[]>();
+        for (const seg of result.segments) {
+          if (seg.source === "LIVE_ROUTE" && seg.path.length >= 2) {
+            map.set(edgeKey(seg.fromPoiId, seg.toPoiId), seg.path);
+          }
+        }
+        setGeometryByEdge(map);
+      })
+      .catch(() => {
+        if (!cancelled) setGeometryByEdge(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPrivateVehicle, projectId]);
+
+  // 오늘 보여줄 날짜의 각 구간이 실제 도로 경로인지 직선 fallback인지 — 지도(imperative kakao 호출)와
+  // 아래 범례 문구(선언적 JSX)가 같은 판정을 쓰도록 한 곳에서만 계산한다.
+  const currentDaySegmentSources = useMemo(() => {
+    if (!currentDay) return [];
+    const sources: ("LIVE_ROUTE" | "FALLBACK")[] = [];
+    for (let i = 1; i < currentDay.items.length; i++) {
+      const key = edgeKey(currentDay.items[i - 1].poiId, currentDay.items[i].poiId);
+      sources.push(geometryByEdge?.has(key) ? "LIVE_ROUTE" : "FALLBACK");
+    }
+    return sources;
+  }, [currentDay, geometryByEdge]);
 
   useEffect(() => {
     if (!kakaoKey || !currentDay || currentDay.items.length === 0) return;
@@ -70,7 +142,7 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
           level: 7,
         });
 
-        const path = items.map((item, i) => {
+        const positions = items.map((item, i) => {
           const position = new kakao.maps.LatLng(item.lat, item.lng);
           bounds.extend(position);
           const marker = new kakao.maps.Marker({ position, map });
@@ -81,14 +153,26 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
           return position;
         });
 
-        // 카카오모빌리티 실제 도로 경로(길찾기 API)의 거리·시간은 이미 위 일정 목록에 반영돼 있지만,
-        // 이 Polyline은 그 실제 도로 geometry가 아니라 방문 순서를 잇는 직선이다(2026-08-06 조사 결과,
-        // docs/route-api-status.md 참고 — 실제 경로 좌표 자체는 카카오 API로 확보 가능하나, 그 결과를
-        // 저장·재사용해도 되는지 카카오 측 이용약관이 아직 불명확해 이번에는 구현하지 않는다). 점선·낮은
-        // 강조 스타일로 바꿔 "실제 도로 기준" 거리·시간 배지와 혼동하지 않게 한다.
-        if (path.length > 1) {
+        for (let i = 1; i < items.length; i++) {
+          const key = edgeKey(items[i - 1].poiId, items[i].poiId);
+          const livePath = geometryByEdge?.get(key);
+          if (livePath && livePath.length >= 2) {
+            const kakaoPath = livePath.map((p) => new kakao.maps.LatLng(p.lat, p.lng));
+            kakaoPath.forEach((pos) => bounds.extend(pos));
+            new kakao.maps.Polyline({
+              path: kakaoPath,
+              strokeWeight: 4,
+              strokeColor: "#0f172a",
+              strokeOpacity: 0.85,
+              strokeStyle: "solid",
+            }).setMap(map);
+            continue;
+          }
+          // 카카오모빌리티 실제 도로 경로(길찾기 API)의 거리·시간은 이미 위 일정 목록에 반영돼 있다.
+          // 이 구간은 실제 geometry를 아직 못 받았거나(조회 중·실패) PRIVATE_VEHICLE이 아니라 방문
+          // 순서를 잇는 직선일 뿐이다 — 점선·저강조 스타일로 실제 도로선과 구분한다.
           new kakao.maps.Polyline({
-            path,
+            path: [positions[i - 1], positions[i]],
             strokeWeight: 2,
             strokeColor: "#94a3b8",
             strokeOpacity: 0.7,
@@ -100,11 +184,14 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
       },
       () => setMapFailed(true),
     );
-  }, [kakaoKey, currentDay]);
+  }, [kakaoKey, currentDay, geometryByEdge]);
 
   if (!kakaoKey) return <FallbackNote reason="NO_KEY" />;
   if (mapFailed) return <FallbackNote reason="LOAD_FAILED" />;
   if (selectableDays.length === 0) return <FallbackNote reason="NO_COORDS" />;
+
+  const hasLiveSegment = currentDaySegmentSources.includes("LIVE_ROUTE");
+  const hasFallbackSegment = currentDaySegmentSources.includes("FALLBACK");
 
   return (
     <div>
@@ -127,14 +214,35 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
         </div>
       ) : null}
       <div ref={containerRef} data-testid="course-map-container" className="h-80 w-full rounded-lg border border-slate-200" />
-      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-        <span aria-hidden="true" className="inline-block h-0 w-4 border-t-2 border-dashed border-slate-400" />
-        <span>방문 순서 연결선</span>
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+        {isPrivateVehicle && hasLiveSegment ? (
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-0 w-4 border-t-2 border-slate-900" />
+            <span>실제 도로 경로</span>
+          </span>
+        ) : null}
+        {!isPrivateVehicle || hasFallbackSegment ? (
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-0 w-4 border-t-2 border-dashed border-slate-400" />
+            <span>{isPrivateVehicle ? "경로 조회 실패 · 장소 연결선" : "방문 순서 연결선"}</span>
+          </span>
+        ) : null}
       </div>
-      <p className="mt-1 text-[11px] text-slate-400">
-        지도 선은 실제 도로 경로가 아닌 방문 순서 연결선입니다. 거리·시간은 위 일정 목록의 &quot;실제 도로
-        기준&quot;/&quot;직선거리 기반 추정&quot; 값을 확인해주세요.
-      </p>
+      {isPrivateVehicle && hasLiveSegment && !hasFallbackSegment ? (
+        <p className="mt-1 text-[11px] text-slate-400">
+          지도 선은 카카오모빌리티 실제 도로 경로입니다. 거리·시간은 위 일정 목록의 값을 확인해주세요.
+        </p>
+      ) : isPrivateVehicle && hasLiveSegment && hasFallbackSegment ? (
+        <p className="mt-1 text-[11px] text-slate-400">
+          일부 구간은 실제 도로 경로, 일부는 경로 조회에 실패해 방문 순서 연결선(점선)으로 표시됩니다.
+          거리·시간은 위 일정 목록의 값을 확인해주세요.
+        </p>
+      ) : (
+        <p className="mt-1 text-[11px] text-slate-400">
+          지도 선은 실제 도로 경로가 아닌 방문 순서 연결선입니다. 거리·시간은 위 일정 목록의 &quot;실제 도로
+          기준&quot;/&quot;직선거리 기반 추정&quot; 값을 확인해주세요.
+        </p>
+      )}
     </div>
   );
 }

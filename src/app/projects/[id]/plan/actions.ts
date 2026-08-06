@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { searchPoisInRegion } from "@/lib/services/poiDetails";
 import type { CourseDay, PoiDetail, TransportCode } from "@/lib/domain/planBuilder";
 import { enrichCourseDaysWithRealRoutes } from "@/lib/services/route/courseRouteEnrichment";
+import { fetchCourseRouteGeometry, type RouteGeometrySegment } from "@/lib/services/route/routeGeometryService";
 import { assertProjectAccessible, projectAccessCookieName } from "@/lib/services/projectAccess";
 import {
   generatePromoContentForProject,
@@ -105,6 +106,34 @@ export async function savePlanAction(
 
   revalidatePath(`/projects/${projectId}/plan`);
   return { success: true, savedAt: new Date().toISOString(), days: course.days };
+}
+
+export interface FetchPlanRouteGeometryResult {
+  segments: RouteGeometrySegment[];
+}
+
+/**
+ * 실행안 지도(CourseMap)가 마운트된 뒤 클라이언트에서 호출하는 실제 도로 경로 조회 액션(2026-08-06).
+ * 좌표를 클라이언트가 넘기지 않는다 — 이 프로젝트의 SelectedPlan.course를 서버가 직접 다시 읽어
+ * PRIVATE_VEHICLE 인접 구간만 계산하므로, 임의의 좌표로 이 액션을 카카오 프록시처럼 악용할 수 없다
+ * (요청 가능한 것은 이 프로젝트 자신의 이미 저장된 장소 쌍뿐이다). 결과는 어디에도 저장하지 않고
+ * 그대로 반환만 한다 — DB write가 전혀 없다.
+ */
+export async function fetchPlanRouteGeometryAction(projectId: string): Promise<FetchPlanRouteGeometryResult> {
+  await requireProjectAccess(projectId);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { input: true, selectedPlan: true },
+  });
+  const transport = project?.input?.transport;
+  if (transport !== "PRIVATE_VEHICLE" || !project?.selectedPlan) {
+    return { segments: [] };
+  }
+
+  const days = (project.selectedPlan.course as unknown as { days: CourseDay[] }).days;
+  const segments = await fetchCourseRouteGeometry(days);
+  return { segments };
 }
 
 export async function backToAnalysisAction(projectId: string) {

@@ -418,7 +418,7 @@ export function PlanEditor({
             </div>
           ) : null}
           <div className="no-print mt-3">
-            <CourseMap days={days} kakaoKey={plan.kakaoKey} />
+            <CourseMap days={days} kakaoKey={plan.kakaoKey} projectId={plan.projectId} transport={plan.transport} />
           </div>
           <div className="mt-3 space-y-4">
             {days.map((day) => (
