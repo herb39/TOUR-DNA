@@ -19,6 +19,7 @@ import { enrichKpis, type AxisScoreLike } from "@/lib/domain/kpiLinking";
 import { DNA_AXES, type AxisStatus } from "@/lib/domain/types";
 import { labelForPrimaryGoal } from "@/lib/validation/codes";
 import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
+import { enrichCourseDaysWithRealRoutes } from "./route/courseRouteEnrichment";
 
 function countMealEligibleFood(pois: PoiDetail[]): number {
   return pois.filter((p) => p.category === "FOOD" && p.mealEligible !== false).length;
@@ -127,7 +128,22 @@ export async function ensureSelectedPlan(projectId: string) {
     (project.input.preferredThemes as string[] | undefined) ?? [],
   );
 
-  const course = buildDraftCourse(pois, duration, project.input.transport as TransportCode);
+  const transport = project.input.transport as TransportCode;
+  let course = buildDraftCourse(pois, duration, transport);
+
+  // 실제 도로 경로(Phase 12, 2026-08-05): PRIVATE_VEHICLE 실행안만, 최초 생성(또는 전략 재선택으로
+  // 재생성)되는 이 시점에 인접 구간 전체를 실제 경로 기준으로 채운다. 카카오 호출이 실패하거나 키가
+  // 없어도 course는 이미 haversine 기반으로 완성돼 있으므로(buildDraftCourse), 여기서 예외가 나도
+  // 실행안 생성 자체는 항상 성공해야 한다 — 방어적으로 한 번 더 감싼다(routeService 자체도 내부적으로
+  // 카카오 실패를 haversine으로 흡수하지만, DB 캐시 저장 등 예상 밖 오류까지 대비).
+  try {
+    course = await enrichCourseDaysWithRealRoutes(course, transport, null);
+  } catch (e) {
+    console.error(
+      JSON.stringify({ level: "error", source: "ensureSelectedPlan", message: "route enrichment failed, keeping haversine estimates", reason: e instanceof Error ? e.message : "unknown" }),
+    );
+  }
+
   const audienceContext: AudiencePlanContext = {
     role: project.role,
     nationality: project.input.nationality,

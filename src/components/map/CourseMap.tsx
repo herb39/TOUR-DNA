@@ -122,6 +122,10 @@ export function CourseMap({ days, kakaoKey }: { days: CourseMapDay[]; kakaoKey?:
         </div>
       ) : null}
       <div ref={containerRef} data-testid="course-map-container" className="h-80 w-full rounded-lg border border-slate-200" />
+      <p className="mt-1 text-[11px] text-slate-400">
+        지도의 선은 장소 방문 순서를 이어주는 연결선이며, 실제 도로 경로와 다를 수 있습니다. 거리·시간은
+        위 일정 목록의 값을 기준으로 확인해주세요.
+      </p>
     </div>
   );
 }

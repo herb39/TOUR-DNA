@@ -446,3 +446,24 @@ model SelectedPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// 카카오모빌리티 자동차 길찾기 실제 응답(거리·시간)의 짧은 TTL 캐시(2026-08-05, Phase 12).
+/// 카카오 측 이용약관 확인 결과 응답 결과의 자체 DB 영구 저장은 허용되지 않는다는 안내가 있어(공식
+/// 약관 조항 번호까지는 확인하지 못함), 영구 캐시 대신 routeService.ts의 짧은 TTL(기본 24시간) 정책으로만
+/// 중복 호출을 줄인다 — TTL이 지나면 이 행은 만료로 간주되어 다시 호출한다(자동 삭제는 하지 않고
+/// fetchedAt만으로 판단). fromKey/toKey는 방향성이 있어 A→B와 B→A를 별도 행으로 저장한다(같은 POI쌍이라도
+/// 순서를 정렬해 하나로 합치지 않는다).
+model RouteCache {
+  id           String   @id @default(cuid())
+  fromKey      String // 출발 POI id(좌표 대신 POI id를 캐시 키로 쓴다 — CourseItem이 항상 poiId를 갖고 있음)
+  toKey        String // 도착 POI id
+  transport    String // TransportModeCode 문자열 그대로("PRIVATE_VEHICLE"만 실제로 채워짐)
+  provider     String // "KAKAO_MOBILITY"
+  routeVersion String // 응답 파싱 규격 버전(향후 파싱 로직이 바뀌면 값을 올려 이전 캐시와 섞이지 않게 한다)
+  distanceKm   Float
+  minutes      Int
+  fetchedAt    DateTime @default(now())
+
+  @@unique([fromKey, toKey, transport, provider, routeVersion])
+  @@index([fetchedAt])
+}

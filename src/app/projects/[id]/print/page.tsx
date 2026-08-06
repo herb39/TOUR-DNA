@@ -8,7 +8,7 @@ import {
   labelForRole,
   labelForTransport,
 } from "@/lib/validation/codes";
-import { formatBaseYm, formatDateTime, metricLabel, sourceLabel, summarizeEvidenceBaseYms } from "@/lib/format";
+import { formatBaseYm, formatDateTime, metricLabel, sourceLabel, summarizeEvidenceBaseYms, travelSourceLabel } from "@/lib/format";
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { PrintButton } from "@/components/plan/PrintButton";
@@ -38,6 +38,16 @@ import {
 } from "@/lib/domain/strategyResourcePlan";
 
 export const dynamic = "force-dynamic";
+
+/** 하루 코스 중 실제 도로 기준(카카오, 캐시 포함) 구간과 추정치 구간 수를 요약한다(Phase 12,
+ * 2026-08-05, PlanEditor.tsx의 summarizeDayTravelSources와 동일한 집계 기준). 인쇄 화면은 외부 API를
+ * 다시 호출하지 않고 SelectedPlan에 이미 저장된 travelSource만 읽는다. */
+function summarizePrintDayTravelSources(day: CourseDay): string {
+  const edges = [...day.items.slice(1), ...(day.lodging ? [day.lodging] : [])];
+  const real = edges.filter((e) => e.travelSource === "LIVE_API" || e.travelSource === "CACHED_API").length;
+  const estimated = edges.length - real;
+  return `실제 도로 기준 ${real}개 구간 · 직선거리 기반 추정 ${estimated}개 구간`;
+}
 
 export default async function PrintPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -469,12 +479,18 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           {course.days.map((day) => (
             <div key={day.dayIndex}>
               <p className="text-xs font-semibold text-slate-600">{day.dayIndex}일차</p>
+              {project.input?.transport === "PRIVATE_VEHICLE" ? (
+                <p className="text-[10px] text-slate-400">{summarizePrintDayTravelSources(day)}</p>
+              ) : null}
               <ol className="mt-1 space-y-1 text-xs text-slate-700">
                 {day.items.map((item, i) => {
                   const fit = poiFits?.[item.poiId];
                   return (
                     <li key={i}>
-                      {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분)
+                      {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분, {item.travel})
+                      {i > 0 && project.input?.transport === "PRIVATE_VEHICLE" ? (
+                        <span className="text-slate-400"> · {travelSourceLabel(item.travelSource)}</span>
+                      ) : null}
                       {fit ? <span className="text-slate-400"> · 적합도 {fit.totalScore}점</span> : null}
                     </li>
                   );
@@ -484,6 +500,9 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                 <p className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
                   <span className="font-semibold">[숙박]</span> {day.lodging.timeSlot} {day.lodging.poiName} (
                   {day.lodging.category}, {day.lodging.travel})
+                  {project.input?.transport === "PRIVATE_VEHICLE" ? (
+                    <span className="text-slate-400"> · {travelSourceLabel(day.lodging.travelSource)}</span>
+                  ) : null}
                 </p>
               ) : null}
               {day.notices?.map((notice, i) => (

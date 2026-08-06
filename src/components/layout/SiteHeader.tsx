@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { logoutAction } from "@/app/login/actions";
 
 export function SiteHeader() {
   return (
@@ -21,14 +20,6 @@ export function SiteHeader() {
           >
             새 관광상품 기획
           </Link>
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="cursor-pointer text-sm text-slate-500 hover:text-slate-900"
-            >
-              잠금
-            </button>
-          </form>
         </nav>
       </div>
     </header>

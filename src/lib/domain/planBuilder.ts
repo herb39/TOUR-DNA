@@ -68,6 +68,16 @@ export interface CourseItem {
   lat?: number;
   lng?: number;
   mealPurpose?: MealPurpose;
+  /** 실제 경로 API 연동(Phase 12, 2026-08-05) 이후에만 채워지는 구조화된 이동 결과 — travel(문자열
+   * 라벨)은 그대로 화면에 쓰지만, 이 필드들로 그 라벨이 실제 도로/캐시/추정 중 무엇인지 구분해 보여줄
+   * 수 있다. courseRouteEnrichment.ts(서비스 계층)만 채우고, planBuilder.ts의 haversine 계산
+   * (estimateTravel/recomputeDayItems)은 이 필드를 전혀 건드리지 않는다 — 이 필드가 없으면(2026-08-05
+   * 이전 저장분, 또는 PRIVATE_VEHICLE이 아닌 이동수단) 항상 haversine 추정치라는 뜻이다(레거시 호환). */
+  travelDistanceKm?: number;
+  travelMinutes?: number;
+  travelSource?: "LIVE_API" | "CACHED_API" | "ESTIMATED";
+  travelProvider?: "KAKAO_MOBILITY" | "HAVERSINE";
+  travelCalculatedAt?: string;
 }
 
 export interface CourseDay {

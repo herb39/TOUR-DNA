@@ -20,6 +20,7 @@ import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
 import { enrichKpis, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
+import { travelSourceLabel } from "@/lib/format";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -54,6 +55,16 @@ const FIT_GRADE_BADGE_CLASS: Record<PoiFitResult["grade"], string> = {
   MEDIUM: "border-amber-300 bg-amber-50 text-amber-700",
   LOW: "border-slate-300 bg-slate-100 text-slate-600",
 };
+/** 하루 코스 중 실제 도로 기준(카카오, 캐시 포함) 구간과 추정치 구간이 각각 몇 개인지 요약한다(Phase 12,
+ * 2026-08-05) — PRIVATE_VEHICLE 실행안에서만 의미가 있어 호출부에서 이동수단을 먼저 확인한다. 첫 항목
+ * (숙소/집결지에서 이동)은 애초에 계산 대상이 아니라 집계에서 제외한다. */
+function summarizeDayTravelSources(day: CourseDay): string {
+  const edges = [...day.items.slice(1), ...(day.lodging ? [day.lodging] : [])];
+  const real = edges.filter((e) => e.travelSource === "LIVE_API" || e.travelSource === "CACHED_API").length;
+  const estimated = edges.length - real;
+  return `실제 도로 기준 ${real}개 구간 · 직선거리 기반 추정 ${estimated}개 구간`;
+}
+
 const FIT_GRADE_LABEL: Record<PoiFitResult["grade"], string> = {
   HIGH: "적합도 높음",
   MEDIUM: "적합도 보통",
@@ -102,9 +113,20 @@ export function PlanEditor({
 
   // 저장이 성공하면(state.savedAt 변경) 저장 시점의 스냅샷을 기준선으로 갱신한다.
   // (React 권장 패턴: effect 대신 렌더 중 상태를 조정 — https://react.dev/learn/you-might-not-need-an-effect)
+  //
+  // state.days도 함께 반영한다(2026-08-06, 실제 경로 결과 미표시 버그 수정) — savePlanAction은 클라이언트가
+  // 보낸 course를 그대로 저장하는 게 아니라 PRIVATE_VEHICLE 인접 구간을 카카오 실제 경로로 다시
+  // enrichment한 뒤 저장한다. 그 결과(travelSource/travelDistanceKm 등)는 서버에만 있고, days는 이미
+  // 마운트된 이 컴포넌트의 로컬 state라 부모(Server Component)가 revalidatePath로 새 props를 내려줘도
+  // useState가 자동으로 따라가지 않는다 — 저장 응답에 실려온 days로 명시적으로 덮어써야 화면에 실제
+  // 경로 결과가 보인다.
   if (state.success && state.savedAt !== lastHandledSavedAt) {
     setLastHandledSavedAt(state.savedAt);
-    setSavedSnapshot(currentSnapshot);
+    const adoptedDays = state.days ?? days;
+    if (state.days) setDays(state.days);
+    setSavedSnapshot(
+      JSON.stringify({ productName, conceptText, memo, kpiMemo, days: adoptedDays, operationChecklist, risks, kpis }),
+    );
   }
 
   const isDirty = currentSnapshot !== savedSnapshot;
@@ -402,6 +424,9 @@ export function PlanEditor({
             {days.map((day) => (
               <div key={day.dayIndex}>
                 <p className="text-xs font-semibold text-slate-500">{day.dayIndex}일차</p>
+                {plan.transport === "PRIVATE_VEHICLE" ? (
+                  <p className="mt-0.5 text-[11px] text-slate-400">{summarizeDayTravelSources(day)}</p>
+                ) : null}
                 {day.notices?.map((notice, i) => (
                   <p key={i} className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
                     ⚠ {notice}
@@ -442,6 +467,11 @@ export function PlanEditor({
                             />
                             분, {item.travel})
                           </span>
+                          {idx > 0 && plan.transport === "PRIVATE_VEHICLE" ? (
+                            <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
+                              {travelSourceLabel(item.travelSource)}
+                            </span>
+                          ) : null}
                           {feasibility.infeasible ? (
                             <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibility.reason}</p>
                           ) : null}
@@ -537,6 +567,11 @@ export function PlanEditor({
                     <span className="ml-2 text-xs text-slate-500">
                       ({day.lodging.category}, {day.lodging.travel})
                     </span>
+                    {plan.transport === "PRIVATE_VEHICLE" ? (
+                      <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
+                        {travelSourceLabel(day.lodging.travelSource)}
+                      </span>
+                    ) : null}
                   </div>
                 ) : null}
 

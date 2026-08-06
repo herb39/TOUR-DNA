@@ -471,3 +471,100 @@ describe("PlanEditor 저장 후 날짜 select 값 유지(회귀)", () => {
     expect((screen.getByLabelText("Z1장소 다른 날짜로 이동") as HTMLSelectElement).value).toBe("1");
   });
 });
+
+/**
+ * 2026-08-06 회귀 재현: 카카오 실제 경로 API 호출·저장은 성공하는데도 화면에 반영되지 않던 버그.
+ *
+ * 원인: savePlanAction은 클라이언트가 보낸 course를 그대로 저장하지 않고 서버에서 PRIVATE_VEHICLE
+ * 인접 구간을 실제 경로로 다시 enrichment한 뒤 저장한다. 그런데 PlanEditor의 `days` state는 이미
+ * 마운트된 컴포넌트의 로컬 state라, 저장 성공 후 부모(Server Component)가 revalidatePath로 새 props를
+ * 계산해도 React가 이미 있는 useState를 그 값으로 되돌리지 않는다 — 그 결과 저장이 성공했다는 메시지는
+ * 뜨지만 화면의 travel 문자열·배지는 저장 "이전"(카카오 결과가 반영되기 전) 값 그대로 남았다.
+ *
+ * 수정: savePlanAction이 자신이 실제로 반영한 course.days를 SavePlanFormState.days로 함께 돌려주고,
+ * PlanEditor는 저장 성공을 인식하는 바로 그 렌더에서 setDays(state.days)로 로컬 state를 서버가 계산한
+ * 값으로 덮어쓴다.
+ */
+describe("PlanEditor — 저장 후 카카오 실제 경로 결과가 새로고침 없이 화면에 반영된다(2026-08-06 회귀 수정)", () => {
+  function makePrivateVehiclePlan(): PlanEditorData {
+    const p = makePlan();
+    p.transport = "PRIVATE_VEHICLE";
+    p.course.days = [
+      {
+        dayIndex: 1,
+        items: [
+          { order: 1, poiId: "poi-a", poiName: "A장소", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동", lat: 37.0, lng: 128.0 },
+          { order: 2, poiId: "poi-b", poiName: "B장소", category: "ATTRACTION", timeSlot: "13:00", stayMinutes: 60, travel: "이동 약 41분(약 13.6km, 차량 기준)", lat: 37.1, lng: 128.2 },
+        ],
+      },
+    ];
+    return p;
+  }
+
+  /** courseJson hidden input(파일 상단 다른 테스트들이 이미 쓰는 방식)에서 현재 days state를 그대로
+   * 읽는다 — item.travel 텍스트는 체류시간 입력 등과 같은 <span> 안에 섞여 있어 getByText 정확 일치로는
+   * 찾을 수 없다(문자열이 여러 텍스트 노드로 쪼개짐). state 자체는 이 방식으로, 배지 표시는
+   * getByText로(배지는 자기 완결 <span>이라 문제 없음) 각각 검증한다. */
+  function currentDays(): { items: { travel: string; travelSource?: string }[] }[] {
+    const input = document.querySelector('input[name="courseJson"]') as HTMLInputElement;
+    return JSON.parse(input.value).days;
+  }
+
+  it("저장 전에는 haversine 추정 문구('직선거리 기반 추정')만 보인다", () => {
+    render(<PlanEditor plan={makePrivateVehiclePlan()} />);
+    expect(currentDays()[0].items[1].travel).toBe("이동 약 41분(약 13.6km, 차량 기준)");
+    expect(screen.getByText("직선거리 기반 추정")).toBeInTheDocument();
+    expect(screen.queryByText("실제 도로 기준")).not.toBeInTheDocument();
+  });
+
+  it("저장 응답에 실려온 실제 경로 결과(days)가 새로고침 없이 즉시 화면에 반영된다", async () => {
+    const enrichedDays = [
+      {
+        dayIndex: 1,
+        items: [
+          { order: 1, poiId: "poi-a", poiName: "A장소", category: "ATTRACTION", timeSlot: "10:00", stayMinutes: 60, travel: "숙소/집결지에서 이동", lat: 37.0, lng: 128.0 },
+          {
+            order: 2,
+            poiId: "poi-b",
+            poiName: "B장소",
+            category: "ATTRACTION",
+            timeSlot: "13:00",
+            stayMinutes: 60,
+            travel: "18.3km · 약 29분",
+            lat: 37.1,
+            lng: 128.2,
+            travelDistanceKm: 18.3,
+            travelMinutes: 29,
+            travelSource: "LIVE_API" as const,
+            travelProvider: "KAKAO_MOBILITY" as const,
+            travelCalculatedAt: "2026-08-06T00:00:00.000Z",
+          },
+        ],
+      },
+    ];
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-08-06T00:00:00.000Z", days: enrichedDays });
+
+    render(<PlanEditor plan={makePrivateVehiclePlan()} />);
+    expect(currentDays()[0].items[1].travel).toBe("이동 약 41분(약 13.6km, 차량 기준)"); // 저장 전: 추정치
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    // 저장 직후, 페이지를 새로고침하지 않고도 실제 도로 기준 값으로 바뀌어야 한다(핵심 회귀 검증).
+    const updated = currentDays()[0].items[1];
+    expect(updated.travel).toBe("18.3km · 약 29분");
+    expect(updated.travelSource).toBe("LIVE_API");
+    expect(screen.getByText("실제 도로 기준")).toBeInTheDocument();
+    expect(screen.queryByText("직선거리 기반 추정")).not.toBeInTheDocument();
+  });
+
+  it("서버가 days를 돌려주지 않으면(예: 이 액션이 옛 버전이거나 실패 응답) 로컬 state를 그대로 유지한다(크래시 없음)", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-08-06T00:00:00.000Z" });
+    render(<PlanEditor plan={makePrivateVehiclePlan()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    expect(currentDays()[0].items[1].travel).toBe("이동 약 41분(약 13.6km, 차량 기준)");
+  });
+});

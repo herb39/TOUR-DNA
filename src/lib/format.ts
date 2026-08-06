@@ -62,6 +62,20 @@ export function formatDateTime(date: Date | string | null | undefined): string {
   }).format(d);
 }
 
+/** 이동 결과 출처(Phase 12, 2026-08-05) → 사용자용 한글 라벨. 실제 도로 경로와 추정치를 같은 문구로
+ * 보여주지 않기 위해 쓴다(routeService.ts의 RouteResultSource와 1:1 대응). 이 필드가 아예 없는
+ * CourseItem(레거시 실행안, 또는 PRIVATE_VEHICLE이 아니라 애초에 실제 경로를 시도하지 않은 이동수단)은
+ * 항상 haversine 추정치였다는 뜻이므로 "직선거리 기반 추정"으로 안전하게 기본 처리한다. */
+export const TRAVEL_SOURCE_LABEL_KO: Record<"LIVE_API" | "CACHED_API" | "ESTIMATED", string> = {
+  LIVE_API: "실제 도로 기준",
+  CACHED_API: "실제 도로 기준 · 캐시",
+  ESTIMATED: "직선거리 기반 추정",
+};
+
+export function travelSourceLabel(source: "LIVE_API" | "CACHED_API" | "ESTIMATED" | null | undefined): string {
+  return TRAVEL_SOURCE_LABEL_KO[source ?? "ESTIMATED"];
+}
+
 export function formatBaseYm(baseYm: string | null | undefined): string {
   if (!baseYm || baseYm.length !== 6) return "-";
   return `${baseYm.slice(0, 4)}년 ${Number(baseYm.slice(4, 6))}월`;

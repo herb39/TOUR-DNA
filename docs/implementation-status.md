@@ -564,10 +564,17 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 - 로컬 환경 `node v24.11.1` / `npm 11.6.2` 확인 — 마스터 문서가 지목한 "npm 11 환경에서 npm ci 실패" 문제를 이번 세션에서 직접 재현하지는 않았음(BLOCKED: 재현 여부는 Phase 11 착수 시 `npm ci` 실행으로 재확인 필요).
 - `prisma`가 `dependencies`에 있음(devDependency 아님) — 마스터 문서 Phase 11-3 대상.
 
-## Phase 12. 실제 경로(카카오내비/카카오맵 경로 API) — `NOT_STARTED`
+## Phase 12. 실제 경로(카카오모빌리티 자동차 길찾기 API) — `DONE(로컬+테스트, 2026-08-06, PRIVATE_VEHICLE만) / RouteCache는 BLOCKED`
 
-- `CourseMap.tsx`는 Haversine 직선거리 기반 Polyline만 그린다. `RouteProvider`, `KAKAO_NAVI`, `directions` 등 실제 경로 API 연동 코드 없음(전체 검색 0건).
-- 무료 쿼터 조건 자체가 아직 확인되지 않았음 — `docs/route-api-status.md` 참고, Phase 12는 그 문서의 선검증 완료 전까지 `BLOCKED`로 둔다.
+- `src/lib/services/route/`(routeService/kakaoRouteProvider/haversineRouteProvider/routeCache/courseRouteEnrichment)를 신설해 PRIVATE_VEHICLE 실행안의 인접 구간 이동 거리·시간을 카카오 실제 도로 경로로 계산한다. 키 없음/timeout/401/403/429/5xx/잘못된 응답/좌표 누락/캐시 조회·저장 오류 등 모든 실패는 기존 haversine 추정치(estimateTravel과 동일 공식)로 안전하게 대체된다.
+- `RouteCache` Prisma 모델(migration `20260806011802_add_route_cache`, additive-only, Production 적용됨)은 만들어뒀지만 **`ROUTE_CACHE_ENABLED = false`로 읽기·쓰기를 비활성화했다**(2026-08-06 재확인) — 카카오 측 커뮤니티 공개 답변이 "이런 재사용 캐시는 저장 미지원"에 가까워, 공식 확인 전까지 안전한 쪽으로 껐다. `SelectedPlan.course`에 그 프로젝트 자신의 결과로 저장하는 것은 유지했으나 이 구분도 공식 확인 대상이다 — **Production 정식 운영 전 카카오 측 확인 필요(BLOCKED)**. 상세: `docs/route-api-status.md`.
+- `SelectedPlan.course` JSON의 각 인접 구간에 `travelDistanceKm/travelMinutes/travelSource/travelProvider/travelCalculatedAt`을 함께 저장 — 인쇄 화면은 이 저장값만 읽고 외부 API를 다시 호출하지 않는다.
+- 실행안 편집 저장 시 이전 course와 인접 POI 쌍을 비교해 바뀐 구간만 재호출한다(순서 변경·추가·삭제만 재호출 대상, 시간·체류시간만 변경은 재호출 없음).
+- **화면 미표시 버그 수정(2026-08-06)**: 저장은 매번 성공했지만 새로고침 전 화면에는 반영되지 않던 버그를 고쳤다 — `savePlanAction`이 실제 반영한 `course.days`를 응답에 실어 돌려주고, `PlanEditor`가 저장 성공 시 그 값으로 로컬 state를 덮어쓴다. 상세 원인·수정: `docs/route-api-status.md` 2절.
+- `CourseMap.tsx`는 여전히 Haversine 직선거리 기반 Polyline만 그리며(실제 도로 Polyline 미반영, 이번 범위 제외), 그 사실을 화면에 안내 문구로 명시했다.
+- WALK/PUBLIC_TRANSPORT/MIXED는 기존 haversine 추정치를 그대로 유지한다(이번 범위는 PRIVATE_VEHICLE 전용).
+- 헤더의 "잠금"(로그아웃) 버튼 제거 — 접근 제어 자체(`SITE_ACCESS_PASSWORD`, 프로젝트별 비밀번호)는 서버에서 그대로 유지된다.
+- 테스트 40개 신규/수정(`tests/unit/route/`, `PlanEditor.test.tsx` 회귀 3건, `SiteHeader.test.tsx` 3건), 실제 카카오 API로 4개 구간 라이브 검증 + 실제 Production DB 임시 프로젝트로 브라우저 검증 완료 — `docs/route-api-status.md`에 결과 기록.
 
 ## 요약 테이블 (2026-08-01 갱신 — P0-3/P0-4 완료, Production 실사용 검증 반영)
 
