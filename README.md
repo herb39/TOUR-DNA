@@ -65,7 +65,7 @@ TOUR-DNA는 기관과 기업이 관광사업을 기획하고 예산·협력·성
 | 전략 3안 비교(해결문제·활용자원·체류방식·실행난이도·기대효과·주요위험·적합역할) + 예산·협력 대상(CURATED) | 완료 | 완료 | **완료**(커밋 `f2e3f57`, `main` push됨) | 해당 없음(기존 컬럼·Prisma 변경 없음) | **완료**(Production 배포됨) |
 | 카카오모빌리티 자동차 실제 경로(Phase 12, PRIVATE_VEHICLE만) — 거리·시간·출처(LIVE_API/CACHED_API/ESTIMATED) 구분 표시 | 완료(로컬) | 완료(837개, `tests/unit/route/*` 포함) | 미반영(이번 세션 로컬 구현만, 커밋 전) | **적용됨**(`RouteCache` 모델, `20260806011802_add_route_cache`, Production Neon 적용) | 미배포 |
 | 헤더 잠금(로그아웃) 버튼 제거 — 사이트/프로젝트 접근 제어 자체는 그대로 유지 | 완료 | 완료(`SiteHeader.test.tsx`) | **완료**(커밋 `c03c38f`, `main` push됨) | 해당 없음 | **완료**(Production 배포됨) |
-| 비밀번호 화면(사이트/프로젝트) 이탈 링크 — 뒤로가기 없이 홈/프로젝트 목록으로 이동, open redirect 차단 유지 | 완료 | 완료(`LoginPage.test.tsx`, `ProjectLockScreen.test.tsx`) | 미반영(이번 세션 로컬 구현만, 커밋 전) | 해당 없음 | 미배포 |
+| 비밀번호 화면(사이트/프로젝트) 이탈 링크 — 뒤로가기 없이 홈으로 이동, open redirect 차단 유지 | 완료 | 완료(`LoginPage.test.tsx`, `ProjectLockScreen.test.tsx`) | 미반영(이번 세션 로컬 구현만, 커밋 전) | 해당 없음 | 미배포 |
 
 **2026-08-01에 Production(`tour-dna.lib.lc`)에서 실제 Chromium(Playwright)으로 홍보자료 생성·재생성·
 역할별 채널 순서·전체 복사·새로고침/재접속 유지·모바일 레이아웃·지도 렌더링까지 전부 수동 검증을

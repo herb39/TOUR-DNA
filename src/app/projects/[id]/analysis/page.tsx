@@ -609,7 +609,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         <div className="mt-8 text-xs text-slate-400">
           분석 생성일 {formatDateTime(analysisResult.createdAt)} ·{" "}
           <Link href="/" className="underline">
-            프로젝트 목록으로
+            홈으로 돌아가기
           </Link>
         </div>
       </main>

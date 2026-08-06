@@ -20,9 +20,17 @@ describe("SiteHeader — 잠금(로그아웃) 버튼 미노출", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("기존 정상 네비게이션(프로젝트 목록, 새 관광상품 기획)은 그대로 유지된다", () => {
+  it("기존 정상 네비게이션(새 관광상품 기획)은 그대로 유지된다", () => {
     render(<SiteHeader />);
-    expect(screen.getByRole("link", { name: "프로젝트 목록" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "새 관광상품 기획" })).toBeInTheDocument();
+  });
+
+  /** 별도 프로젝트 목록 화면이 없어(홈이 곧 목록) "프로젝트 목록" 메뉴는 홈 링크와 중복이었다
+   * (2026-08-06 제거). 로고가 이미 홈으로 이동하는 링크를 제공한다. */
+  it("프로젝트 목록 메뉴는 더 이상 노출되지 않는다(홈 링크와 중복)", () => {
+    render(<SiteHeader />);
+    expect(screen.queryByText("프로젝트 목록")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "프로젝트 목록" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /TOUR DNA/ })).toHaveAttribute("href", "/");
   });
 });
