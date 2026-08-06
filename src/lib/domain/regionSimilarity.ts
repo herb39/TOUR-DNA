@@ -90,6 +90,10 @@ export interface RegionComparisonAnalysis {
   uniqueStrengthNote: string | null;
   /** 비교 후보가 3개 미만이거나 하나도 없을 때만 채워지는 사유 설명. */
   note: string | null;
+  /** 모든 비교 카드에 동일하게 붙는 한계 안내(ComparedRegion.limitations와 항상 같은 문구) — 카드마다
+   * 반복 렌더링하지 않고 섹션에 한 번만 표시하기 위해 여기 별도로 둔다(2026-08-06). 비교 카드가
+   * 하나도 없으면 표시할 대상이 없어 null. */
+  commonLimitationNote: string | null;
   ruleVersion: string;
 }
 
@@ -268,6 +272,7 @@ export function computeRegionSimilarityComparisons(
     comparisons,
     uniqueStrengthNote: computeUniqueStrengthNote(target.name, comparisons),
     note: buildNote(comparisons.length, others.length),
+    commonLimitationNote: comparisons.length > 0 ? LIMITATION_SUFFIX : null,
     ruleVersion: REGION_SIMILARITY_RULE_VERSION,
   };
 }

@@ -157,6 +157,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         comparisons: [],
         uniqueStrengthNote: null,
         note: "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.",
+        commonLimitationNote: null,
         ruleVersion: REGION_SIMILARITY_RULE_VERSION,
       };
   // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
@@ -447,6 +448,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           {regionComparisonAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
           ) : null}
+          {regionComparisonAnalysis.commonLimitationNote ? (
+            <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
+              <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
+              {regionComparisonAnalysis.commonLimitationNote}
+            </p>
+          ) : null}
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -510,6 +517,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           )}
           {opportunityAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
+          ) : null}
+          {opportunityAnalysis.commonLimitationNote ? (
+            <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
+              <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
+              {opportunityAnalysis.commonLimitationNote}
+            </p>
           ) : null}
         </section>
 

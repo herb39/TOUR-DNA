@@ -42,12 +42,6 @@ export interface StrategyCardData {
   expectedEffect: string | null;
 }
 
-const EXECUTION_DIFFICULTY_LABEL: Record<"LOW" | "MEDIUM" | "HIGH", string> = {
-  LOW: "낮음",
-  MEDIUM: "보통",
-  HIGH: "높음",
-};
-
 type ScoreBreakdownKey = keyof Omit<ScoreBreakdown, "roleFitReason">;
 
 const SCORE_BREAKDOWN_LABEL: Record<ScoreBreakdownKey, string> = {
@@ -103,45 +97,8 @@ export function StrategyCard({
         ※ 점수는 조건 적합도이며, 매출·방문객 증가 예측치가 아닙니다.
       </p>
 
-      <dl className="mt-3 space-y-1.5 rounded-md bg-slate-50 p-3 text-xs text-slate-700">
-        <div>
-          <dt className="font-medium text-slate-500">해결하려는 문제</dt>
-          <dd>{strategy.coreProblem ?? "재분석 필요"}</dd>
-        </div>
-        <div>
-          <dt className="font-medium text-slate-500">활용 자원</dt>
-          <dd>{strategy.coreResource ?? "재분석 필요"}</dd>
-        </div>
-        <div>
-          <dt className="font-medium text-slate-500">체류 방식</dt>
-          <dd>{strategy.stayStyle ?? "재분석 필요"}</dd>
-        </div>
-        <div className="flex items-center justify-between">
-          <dt className="font-medium text-slate-500">실행 난이도</dt>
-          <dd>{strategy.executionDifficulty ? EXECUTION_DIFFICULTY_LABEL[strategy.executionDifficulty] : "재분석 필요"}</dd>
-        </div>
-        <div>
-          <dt className="font-medium text-slate-500">기대 효과</dt>
-          <dd>{strategy.expectedEffect ?? "재분석 필요"}</dd>
-        </div>
-      </dl>
-
-      <ul className="mt-3 space-y-1 text-xs text-slate-600">
-        {(Object.keys(SCORE_BREAKDOWN_LABEL) as ScoreBreakdownKey[]).map((key) => (
-          <li key={key}>
-            <div className="flex justify-between" title={SCORE_BREAKDOWN_DESCRIPTION[key]}>
-              <span>{SCORE_BREAKDOWN_LABEL[key]}</span>
-              <span className="font-medium">{formatBreakdownScore(strategy.scoreBreakdown[key])}</span>
-            </div>
-            {key === "roleFit" && strategy.scoreBreakdown.roleFitReason ? (
-              <p className="mt-0.5 text-[11px] text-slate-500">{strategy.scoreBreakdown.roleFitReason}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-
       <div className="mt-3">
-        <p className="text-xs font-medium text-slate-700">선정 이유</p>
+        <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-600">
           {strategy.reasons.map((r, i) => (
             <li key={i}>{r}</li>
@@ -149,28 +106,50 @@ export function StrategyCard({
         </ul>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">
-        <p className="font-medium text-slate-700">지역 소비 접점</p>
-        <p className="mt-1">
-          음식 {strategy.consumptionTouchpoints.food ? "포함" : "미포함"} · 숙박{" "}
-          {strategy.consumptionTouchpoints.lodging ? "포함" : "미포함"} · 체험{" "}
-          {strategy.consumptionTouchpoints.experience ? "포함" : "미포함"}
-        </p>
-        {strategy.consumptionTouchpoints.examples.length > 0 ? (
-          <p className="mt-0.5 text-slate-500">예: {strategy.consumptionTouchpoints.examples.join(", ")}</p>
-        ) : null}
-      </div>
+      {/* 해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과는 위쪽 "전략 3안 비교" 표에 이미 나란히
+       * 표시되므로 카드에서는 중복 제거한다(2026-08-06) — 점수 세부·소비 접점·위험은 표에 없는
+       * 전략별 고유 정보라 삭제하지 않고 접어서 유지한다. */}
+      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-slate-700">점수 세부·소비 접점·위험 보기</summary>
+        <div className="mt-2">
+          <ul className="space-y-1 text-xs text-slate-600">
+            {(Object.keys(SCORE_BREAKDOWN_LABEL) as ScoreBreakdownKey[]).map((key) => (
+              <li key={key}>
+                <div className="flex justify-between" title={SCORE_BREAKDOWN_DESCRIPTION[key]}>
+                  <span>{SCORE_BREAKDOWN_LABEL[key]}</span>
+                  <span className="font-medium">{formatBreakdownScore(strategy.scoreBreakdown[key])}</span>
+                </div>
+                {key === "roleFit" && strategy.scoreBreakdown.roleFitReason ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500">{strategy.scoreBreakdown.roleFitReason}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
 
-      <div className="mt-3 text-xs text-slate-600">
-        <p className="font-medium text-slate-700">위험 요인</p>
-        <ul className="mt-1 list-disc space-y-0.5 pl-4">
-          {strategy.risks.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-      </div>
+          <div className="mt-3 text-xs text-slate-600">
+            <p className="font-medium text-slate-700">지역 소비 접점</p>
+            <p className="mt-1">
+              음식 {strategy.consumptionTouchpoints.food ? "포함" : "미포함"} · 숙박{" "}
+              {strategy.consumptionTouchpoints.lodging ? "포함" : "미포함"} · 체험{" "}
+              {strategy.consumptionTouchpoints.experience ? "포함" : "미포함"}
+            </p>
+            {strategy.consumptionTouchpoints.examples.length > 0 ? (
+              <p className="mt-0.5 text-slate-500">예: {strategy.consumptionTouchpoints.examples.join(", ")}</p>
+            ) : null}
+          </div>
 
-      <details className="mt-4 rounded-md border border-slate-100 bg-slate-50 p-3">
+          <div className="mt-3 text-xs text-slate-600">
+            <p className="font-medium text-slate-700">위험 요인</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {strategy.risks.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </details>
+
+      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
         <summary className="cursor-pointer text-xs font-medium text-slate-700">근거 보기</summary>
         <div className="mt-2">
           <EvidenceTable items={strategy.evidences} />

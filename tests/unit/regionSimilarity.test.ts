@@ -47,6 +47,24 @@ describe("computeRegionSimilarityComparisons — 기본 동작", () => {
     expect(result.note).toBeNull(); // 3개 모두 확보됨
   });
 
+  it("비교 지역이 있으면 카드마다 반복되는 한계 안내를 섹션 공통 문구(commonLimitationNote)로 한 번만 제공한다(2026-08-06)", () => {
+    const target = profile("A", "A시", { demand: 50, stay: 50, spend: 50, diversity: 50, network: 50 }, BALANCED_POI);
+    const near = profile("B", "B시", { demand: 52, stay: 51, spend: 49, diversity: 50, network: 50 }, BALANCED_POI);
+    const result = computeRegionSimilarityComparisons(target, [target, near]);
+
+    expect(result.commonLimitationNote).toBeTruthy();
+    for (const c of result.comparisons) {
+      expect(c.limitations).toBe(result.commonLimitationNote);
+    }
+  });
+
+  it("비교 지역이 하나도 없으면 commonLimitationNote도 null이다(표시할 카드가 없음)", () => {
+    const target = profile("A", "A시", {});
+    const result = computeRegionSimilarityComparisons(target, [target]);
+    expect(result.comparisons).toEqual([]);
+    expect(result.commonLimitationNote).toBeNull();
+  });
+
   it("자기 자신은 후보에서 제외된다", () => {
     const target = profile("A", "A시", {});
     const other = profile("B", "B시", { demand: 61 });

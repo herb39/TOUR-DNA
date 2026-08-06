@@ -48,8 +48,12 @@ export interface OpportunityItem {
   direction: string;
   /** 데이터 근거(사람이 읽는 요약 문장들) */
   evidence: string[];
-  /** 한계 및 추가 확인사항 */
+  /** 한계 및 추가 확인사항(공통 안내 포함, 전체 문장) */
   limitations: string;
+  /** limitations 중 이 기회에만 해당하는 부분(공통 안내 제외) — 카드마다 반복되는 공통 안내
+   * (OPPORTUNITY_LIMITATION_SUFFIX)는 섹션에 한 번만 표시하고, 카드에는 이 필드만 보여준다
+   * (2026-08-06). 공통 안내만 해당하고 기회별로 다른 한계가 없으면 null. */
+  uniqueLimitationNote: string | null;
 }
 
 /** 기회 생성 규칙의 버전. 규칙 문구·점수식을 바꿀 때마다 올린다 — 화면에 노출해 "이 결과가 어떤
@@ -62,6 +66,9 @@ export interface BusinessOpportunityAnalysis {
   note: string | null;
   /** 이 결과를 만든 규칙 버전(OPPORTUNITY_RULE_VERSION과 동일) — 화면에 "CURATED 규칙" 표시와 함께 노출한다. */
   ruleVersion: string;
+  /** 모든 기회 카드에 공통으로 붙는 한계 안내(OPPORTUNITY_LIMITATION_SUFFIX와 동일 문구) — 카드마다
+   * 반복하지 않고 섹션에 한 번만 표시한다(2026-08-06). items가 비어 있으면 표시할 대상이 없어 null. */
+  commonLimitationNote: string | null;
 }
 
 export interface AxisScoreInput {
@@ -166,6 +173,7 @@ function buildWeaknessRecoveryOpportunity(
       weakest.status === "SNAPSHOT"
         ? `${OPPORTUNITY_LIMITATION_SUFFIX} 이 축은 실시간이 아닌 최근 확보 데이터를 사용해 계산됐습니다.`
         : OPPORTUNITY_LIMITATION_SUFFIX,
+    uniqueLimitationNote: weakest.status === "SNAPSHOT" ? "이 축은 실시간이 아닌 최근 확보 데이터를 사용해 계산됐습니다." : null,
     score: 100 - weakest.score,
   };
 }
@@ -235,6 +243,7 @@ function buildSeasonalityGapOpportunity(
     direction,
     evidence: [`입력 조건의 여행월: ${travelMonth}월(${isOffPeak ? "비수기로 분류" : "성수기로 분류"}, 기획 규칙 기준)`],
     limitations: `이 시기 구분은 일반적으로 알려진 경향(CURATED 기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다. ${OPPORTUNITY_LIMITATION_SUFFIX}`,
+    uniqueLimitationNote: `이 시기 구분은 일반적으로 알려진 경향(CURATED 기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다.`,
     score: isOffPeak ? 65 : 40,
   };
 }
@@ -300,6 +309,7 @@ function buildSupplyGapOpportunity(
     direction: `${label} 신규 발굴·연계 상품화 및 지역 사업자 육성`,
     evidence: [`지역 등록 POI ${totalCount}건 중 ${label} ${worst.count}건(비중 ${roundForDisplay((worst.count / totalCount) * 100)}%)`],
     limitations: `이 지역에 등록된 공공데이터 POI 기준이며, 실제로는 아직 등록되지 않은 사업자가 있을 수 있어 현장 조사로 보완이 필요합니다. ${OPPORTUNITY_LIMITATION_SUFFIX}`,
+    uniqueLimitationNote: "이 지역에 등록된 공공데이터 POI 기준이며, 실제로는 아직 등록되지 않은 사업자가 있을 수 있어 현장 조사로 보완이 필요합니다.",
     score: worst.deficit,
   };
 }
@@ -368,6 +378,7 @@ function buildTargetThemeGapOpportunity(
     direction: `'${themeLabel}' 테마에 맞는 자원 발굴 및 상품화`,
     evidence: [`선호 테마 입력: ${preferredThemes.join(", ")} → '${themeLabel}' 분류`, `지역 등록 POI ${totalCount}건 중 ${poiLabel} ${best.count}건`],
     limitations: `테마 매칭은 키워드 기반 근사치이며 실제 자원 성격과 다를 수 있습니다. ${OPPORTUNITY_LIMITATION_SUFFIX}`,
+    uniqueLimitationNote: "테마 매칭은 키워드 기반 근사치이며 실제 자원 성격과 다를 수 있습니다.",
     score: best.deficit,
   };
 }
@@ -405,5 +416,10 @@ export function computeBusinessOpportunities(
       ? `데이터 근거가 확인되는 기회만 표시했습니다(${items.length}건). 나머지 유형은 여행월/선호 테마 미입력 또는 지역 POI 데이터 부족 등으로 근거가 충분하지 않아 만들지 않았습니다.`
       : null;
 
-  return { items, note, ruleVersion: OPPORTUNITY_RULE_VERSION };
+  return {
+    items,
+    note,
+    ruleVersion: OPPORTUNITY_RULE_VERSION,
+    commonLimitationNote: items.length > 0 ? OPPORTUNITY_LIMITATION_SUFFIX : null,
+  };
 }

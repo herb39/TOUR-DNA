@@ -54,10 +54,12 @@ export function OpportunityCard({ opportunity, rank }: { opportunity: Opportunit
         </ul>
       </div>
 
-      <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-        <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
-        {opportunity.limitations}
-      </p>
+      {opportunity.uniqueLimitationNote ? (
+        <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
+          <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
+          {opportunity.uniqueLimitationNote}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -73,11 +73,6 @@ export function RegionComparisonCard({
       {comparison.poiCompositionNote ? (
         <p className="mt-3 text-[11px] text-slate-500">{comparison.poiCompositionNote}</p>
       ) : null}
-
-      <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-        <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
-        {comparison.limitations}
-      </p>
     </div>
   );
 }

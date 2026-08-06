@@ -165,6 +165,34 @@ describe("computeBusinessOpportunities — 역할·여행월·테마 반영", ()
   });
 });
 
+describe("computeBusinessOpportunities — 카드별 반복 안내문 통합(2026-08-06)", () => {
+  it("기회가 하나 이상이면 공통 한계 안내(commonLimitationNote)를 함께 반환하고, 각 항목의 uniqueLimitationNote는 limitations의 일부다", () => {
+    const result = computeBusinessOpportunities(
+      baseInput({ poiCountByCategory: { ATTRACTION: 20, FOOD: 2, LODGING: 20, EXPERIENCE: 20, FESTIVAL: 20, SHOPPING: 20 } }),
+    );
+    expect(result.commonLimitationNote).toBeTruthy();
+    for (const item of result.items) {
+      expect(item.limitations).toContain(result.commonLimitationNote!);
+      if (item.uniqueLimitationNote !== null) {
+        expect(item.limitations).toContain(item.uniqueLimitationNote);
+      }
+    }
+  });
+
+  it("기회가 하나도 없으면 commonLimitationNote는 null이다", () => {
+    const result = computeBusinessOpportunities({
+      regionName: "데이터없음시",
+      axisScores: axis({ demand: null, stay: null, spend: null, diversity: null, network: null }),
+      role: undefined,
+      travelMonth: undefined,
+      preferredThemes: [],
+      poiCountByCategory: {},
+    });
+    expect(result.items).toEqual([]);
+    expect(result.commonLimitationNote).toBeNull();
+  });
+});
+
 describe("computeBusinessOpportunities — 전략 카탈로그와 무관하게 동작한다", () => {
   it("전략 템플릿 이름(예: '자연·웰니스형')과 기회 제목이 겹치지 않는다", () => {
     const result = computeBusinessOpportunities(

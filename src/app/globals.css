@@ -35,4 +35,12 @@ body {
   body {
     background: #ffffff;
   }
+
+  .print-expand-details > summary {
+    display: none;
+  }
+
+  .print-expand-details:not([open]) > *:not(summary) {
+    display: block !important;
+  }
 }
