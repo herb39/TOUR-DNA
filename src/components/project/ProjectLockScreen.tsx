@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { verifyProjectAccessAction, type ProjectAccessFormState } from "@/app/projects/[id]/access-actions";
 
@@ -43,6 +44,14 @@ export function ProjectLockScreen({ projectId }: { projectId: string }) {
             {isPending ? "확인 중..." : "입장"}
           </button>
         </form>
+        <div className="mt-4 flex justify-center gap-4 text-sm text-slate-500">
+          <Link href="/" className="hover:text-slate-900">
+            프로젝트 목록으로 돌아가기
+          </Link>
+          <Link href="/" className="hover:text-slate-900">
+            홈으로 돌아가기
+          </Link>
+        </div>
       </div>
     </div>
   );

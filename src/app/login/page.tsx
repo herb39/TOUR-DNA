@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LoginForm } from "./LoginForm";
 
 function safeNextPath(next: string | string[] | undefined): string {
@@ -19,6 +20,9 @@ export default async function LoginPage({
         <h1 className="text-lg font-bold text-slate-900">TOUR DNA</h1>
         <p className="mt-1 text-sm text-slate-600">비밀번호를 입력해야 프로젝트를 볼 수 있습니다.</p>
         <LoginForm next={safeNextPath(next)} />
+        <Link href="/" className="mt-4 block text-center text-sm text-slate-500 hover:text-slate-900">
+          홈으로 돌아가기
+        </Link>
       </div>
     </div>
   );
