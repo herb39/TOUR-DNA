@@ -22,7 +22,13 @@ export type SyncTrigger = "CRON" | "ADMIN" | "CLI";
 // 본점(중구)처럼 대전 하면 바로 떠오르는 다른 구 명소가 실제로 검색돼도 반영되지 못하는 부작용이
 // 있었다(2026-07-22 발견) — 지표(DNA 점수)는 여전히 유성구 대표값이지만 POI 후보 풀은 대전 전체로
 // 되돌린다. 다른 지역에서 비슷한 예외가 필요해지면 여기 추가한다.
-const TOUR_INFO_ADDRESS_FILTER_OVERRIDE: Record<string, string> = {};
+const TOUR_INFO_ADDRESS_FILTER_OVERRIDE: Record<string, string> = {
+  // "대구 중구"라는 표시명은 실제 주소("대구광역시 중구 ...")에 부분 문자열로 나타나지 않아
+  // region.name을 그대로 쓰면 POI가 전부 걸러진다(2026-08-07 발견). API 호출 자체는 이미
+  // lDongRegnCd/lDongSignguCd로 대구 중구만 좁혀 조회하므로 "중구"만으로도 다른 도시 중구가
+  // 섞여 들어올 위험은 없다.
+  SGG_DAEGU_JUNG: "중구",
+};
 
 function tourInfoAddressFilterKeyword(region: { code: string; name: string }): string {
   return TOUR_INFO_ADDRESS_FILTER_OVERRIDE[region.code] ?? region.name;

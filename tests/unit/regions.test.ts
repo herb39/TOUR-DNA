@@ -53,11 +53,11 @@ describe("REGION_SEED — 무결성", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  /** 2026-08-07 지원지역 확대 Batch 1 — 유사지역 비교 모집단을 기존 7곳에서 넓히는 첫 단계. 정확한
-   * 최종 개수는 이 테스트가 "최소 N개"만 보장해, Batch 2·3에서 지역이 더 늘어도 이 테스트를 깨지
-   * 않는다. */
-  it("지원지역이 기존 7곳보다 늘어났다(Batch 1 이상 반영)", () => {
+  /** 2026-08-07 지원지역 확대 Batch 1·2 — 유사지역 비교 모집단을 기존 7곳에서 넓히는 단계.
+   * 정확한 최종 개수는 이 테스트가 "최소 N개"만 보장해, Batch 3에서 지역이 더 늘어도 이 테스트를
+   * 깨지 않는다. */
+  it("지원지역이 기존 7곳보다 늘어났다(Batch 2 이상 반영)", () => {
     const sigunguCount = REGION_SEED.filter((r) => r.level === "SIGUNGU").length;
-    expect(sigunguCount).toBeGreaterThanOrEqual(17);
+    expect(sigunguCount).toBeGreaterThanOrEqual(27);
   });
 });

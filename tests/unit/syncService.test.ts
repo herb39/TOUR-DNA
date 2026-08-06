@@ -328,6 +328,29 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
     });
   });
 
+  /** 2026-08-07 지원지역 확대 — "대구 중구"라는 표시명은 실제 주소("대구광역시 중구 ...")에 부분
+   * 문자열로 나타나지 않아, POI 주소 필터를 region.name 그대로 쓰면 정상 POI까지 전부 걸러진다.
+   * TOUR_INFO_ADDRESS_FILTER_OVERRIDE가 이 지역을 "중구"로 override하는지 회귀 검증한다. */
+  it("SGG_DAEGU_JUNG은 주소 필터 override(\"중구\")를 사용해, region.name(\"대구 중구\")과 정확히 일치하지 않는 실제 주소도 POI로 채택한다", () => {
+    poiFindMany.mockResolvedValue([]);
+    regionFindMany.mockImplementationOnce(async (args?: { where?: { level?: string } }) => {
+      if (args?.where?.level === "SIDO") return [];
+      return [{ ...REGION, code: "SGG_DAEGU_JUNG", name: "대구 중구" }];
+    });
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "중구맛집", addr1: "대구광역시 중구 동성로", contenttypeid: "39", mapx: 128.6, mapy: 35.87 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [] },
+    });
+
+    return runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" }).then(() => {
+      const call = poiUpsert.mock.calls.find((c) => c[0].create?.name === "중구맛집");
+      if (!call) throw new Error("중구맛집 poi.upsert 호출을 찾지 못함(주소 필터에 걸러졌을 가능성)");
+    });
+  });
+
   it("API가 실제 오류 응답 본문을 반환하면 그 본문 그대로 ERROR 상태로 snapshot을 저장한다", async () => {
     // data.go.kr의 실제 에러 구조(response 래퍼 없는 플랫 구조, docs/public-api-status.md 참고).
     const realErrorBody = { resultCode: "10", resultMsg: "INVALID_REQUEST_PARAMETER_ERROR" };
