@@ -113,21 +113,25 @@ export interface FetchPlanRouteGeometryResult {
 }
 
 /**
- * 실행안 지도(CourseMap)가 마운트된 뒤 클라이언트에서 호출하는 실제 도로 경로 조회 액션(2026-08-06).
- * 좌표를 클라이언트가 넘기지 않는다 — 이 프로젝트의 SelectedPlan.course를 서버가 직접 다시 읽어
- * PRIVATE_VEHICLE 인접 구간만 계산하므로, 임의의 좌표로 이 액션을 카카오 프록시처럼 악용할 수 없다
- * (요청 가능한 것은 이 프로젝트 자신의 이미 저장된 장소 쌍뿐이다). 결과는 어디에도 저장하지 않고
- * 그대로 반환만 한다 — DB write가 전혀 없다.
+ * 실행안 지도(CourseMap)가 마운트된 뒤 클라이언트에서 호출하는 이동 동선 조회 액션(2026-08-06,
+ * 2026-08-06 2차: 이동수단 구분 없이 모든 실행안에 적용). 좌표를 클라이언트가 넘기지 않는다 — 이
+ * 프로젝트의 SelectedPlan.course를 서버가 직접 다시 읽어 인접 구간만 계산하므로, 임의의 좌표로 이
+ * 액션을 카카오 프록시처럼 악용할 수 없다(요청 가능한 것은 이 프로젝트 자신의 이미 저장된 장소 쌍뿐).
+ * 결과는 어디에도 저장하지 않고 그대로 반환만 한다 — DB write가 전혀 없다.
+ *
+ * 이동수단(WALK/PUBLIC_TRANSPORT/PRIVATE_VEHICLE/MIXED)과 무관하게 동일한 도로 기반 geometry를
+ * 사용한다 — 현재 안정적으로 확보 가능한 geometry 소스가 카카오모빌리티 자동차 길찾기뿐이기 때문이며,
+ * 이는 "이동수단별 정확한 경로"가 아니라 장소 간 이동 동선을 직선 대신 시각화하기 위한 것이다. 이
+ * 구분은 사용자 화면에는 전혀 노출하지 않는다(CourseMap.tsx 주석 참고).
  */
 export async function fetchPlanRouteGeometryAction(projectId: string): Promise<FetchPlanRouteGeometryResult> {
   await requireProjectAccess(projectId);
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    include: { input: true, selectedPlan: true },
+    select: { selectedPlan: { select: { course: true } } },
   });
-  const transport = project?.input?.transport;
-  if (transport !== "PRIVATE_VEHICLE" || !project?.selectedPlan) {
+  if (!project?.selectedPlan) {
     return { segments: [] };
   }
 

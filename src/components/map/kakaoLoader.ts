@@ -14,7 +14,7 @@ export interface KakaoMap {
   new (container: HTMLElement, options: { center: unknown; level: number }): KakaoMapInstance;
 }
 export interface KakaoMarker {
-  new (options: { position: unknown; map: unknown }): unknown;
+  new (options: { position: unknown; map: unknown; zIndex?: number }): unknown;
 }
 export interface KakaoInfoWindow {
   new (options: { content: string }): { open: (map: unknown, marker: unknown) => void };
@@ -29,6 +29,7 @@ export interface KakaoPolyline {
     strokeColor?: string;
     strokeOpacity?: number;
     strokeStyle?: string;
+    zIndex?: number;
   }): KakaoPolylineInstance;
 }
 export interface KakaoMapsNamespace {
