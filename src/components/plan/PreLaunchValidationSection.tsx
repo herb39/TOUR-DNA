@@ -64,7 +64,7 @@ export function PreLaunchValidationSection({
           className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
           title="이미 계산된 DNA·POI·이동·유사지역 비교·위험 데이터만 조합한 결정론적 규칙입니다."
         >
-          정제 규칙 · {report.ruleVersion}
+          정제 규칙 적용
         </span>
       </div>
 

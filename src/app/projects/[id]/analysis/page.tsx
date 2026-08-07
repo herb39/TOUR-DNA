@@ -10,7 +10,6 @@ import {
   buildStrategyBudgetItems,
   buildStrategyComparisonRows,
   buildStrategyPartners,
-  STRATEGY_RESOURCE_PLAN_RULE_VERSION,
 } from "@/lib/domain/strategyResourcePlan";
 import { EvidenceTable, type EvidenceRow } from "@/components/evidence/EvidenceTable";
 import { MapOrFallback, type MapPoi } from "@/components/map/MapOrFallback";
@@ -29,6 +28,7 @@ import {
 } from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/format";
 import { summarizeAxisSource } from "@/lib/domain/axisSourceSummary";
+import { interpretAxisExtreme } from "@/lib/domain/axisScoreInterpretation";
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
@@ -166,6 +166,22 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
       summarizeAxisSource(
         axis,
         (axisEvidenceByAxis.get(axis) ?? []).map((e) => ({ ...e, provenance: e.provenance ?? null })),
+      ),
+    ]),
+  );
+
+  // 0점/100점 절대값 오해 방지(2026-08-07) — DNA 산식·정규화 공식은 전혀 바꾸지 않고, 이미 저장된
+  // Evidence의 정규화값(반올림 전 소수)만 다시 읽어 "화면에 0/100으로 뜨는 것이 실제 비교지역 중
+  // 확정 최저·최고인지, 반올림 때문에 그렇게 보일 뿐인지"만 판별한다(조사 결과: 화천군 사례가 후자).
+  const axisExtremeByAxis = new Map<string, ReturnType<typeof interpretAxisExtreme>>(
+    axisData.map((a) => [
+      a.axisKey,
+      interpretAxisExtreme(
+        a.axisKey as DnaAxisKey,
+        a.score,
+        (axisEvidenceByAxis.get(a.axisKey) ?? [])
+          .map((e) => e.normalizedValue)
+          .filter((v): v is number => v !== null),
       ),
     ]),
   );
@@ -360,6 +376,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               </span>
             ))}
           </div>
+          <p className="mt-2 text-[11px] text-slate-400">
+            ※ 위 점수는 절대평가가 아니라 현재 비교지역 안에서의 상대 수준입니다.
+          </p>
           <a
             href="#strategies"
             className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
@@ -442,15 +461,17 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               data={axisData.map((a) => ({ ...a, sourceLabel: axisSourceSummaries.get(a.axisKey)?.label }))}
             />
             <p className="mt-3 text-xs text-slate-500">
-              ※ 이 점수는 실제 수치가 아니라, 같은 행정단위(시군구) 비교군 안에서의 상대 순위를
-              0~100으로 환산한 정규화 점수입니다. 원값·비교 행정단위·기준월은 각 축의 &quot;근거
-              보기&quot;에서 확인할 수 있습니다.
+              ※ 이 점수는 실제 관광량이나 절대평가 점수가 아니라, 같은 행정단위(시군구) 비교지역의
+              데이터 범위 안에서 상대적 수준을 0~100으로 환산한 값입니다. 원값·비교 행정단위·기준월은
+              각 축의 &quot;근거 보기&quot;에서 확인할 수 있습니다.
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {axisData.map((a) => {
               const source = axisSourceSummaries.get(a.axisKey);
+              const extreme = axisExtremeByAxis.get(a.axisKey) ?? { level: "NONE" as const, badgeLabel: null, helperText: null };
+              const isHighest = extreme.level === "CONFIRMED_HIGHEST" || extreme.level === "NEAR_HIGHEST";
               return (
                 <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-2">
@@ -468,14 +489,18 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                       {source?.label ?? "데이터 부족"}
                     </span>
                   </div>
-                  <p className="mt-2 flex items-center gap-2 text-2xl font-bold text-slate-900">
+                  <p className="mt-2 flex flex-wrap items-center gap-2 text-2xl font-bold text-slate-900">
                     {a.score === null ? "데이터 부족" : a.score}
-                    {a.score === 0 ? (
+                    {a.score !== null ? (
+                      <span className="text-[11px] font-medium text-slate-400">상대점수</span>
+                    ) : null}
+                    {extreme.badgeLabel ? (
                       <span
-                        className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-500"
-                        title="관광객·소비가 전혀 없다는 뜻이 아니라, 같은 행정단위 비교 지역 중 상대적으로 가장 낮다는 의미입니다."
+                        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                          isHighest ? "border-indigo-300 text-indigo-700" : "border-slate-300 text-slate-500"
+                        }`}
                       >
-                        비교지역 내 최저
+                        {extreme.badgeLabel}
                       </span>
                     ) : null}
                     {topAxisKeys.has(a.axisKey) ? (
@@ -484,6 +509,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                       <span className="text-xs font-medium text-amber-700">개선 필요</span>
                     ) : null}
                   </p>
+                  {extreme.helperText ? (
+                    <p className="mt-1 text-[11px] text-slate-500">{extreme.helperText}</p>
+                  ) : null}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
                     <div className="mt-2">
@@ -503,7 +531,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
               title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 참고 정보이며, 통계·머신러닝 예측치가 아닙니다."
             >
-              정제 규칙 · {regionComparisonAnalysis.ruleVersion}
+              정제 규칙 적용
             </span>
           </div>
           <p
@@ -594,7 +622,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
               title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 가설이며, 통계·머신러닝 예측치가 아닙니다."
             >
-              정제 규칙 · {opportunityAnalysis.ruleVersion}
+              정제 규칙 적용
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
@@ -637,7 +665,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
               title="사람이 정한 기획 규칙으로 도출한 참고 정보이며, 실제 사업비·매출 예측치가 아닙니다."
             >
-              정제 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION}
+              정제 규칙 적용
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
