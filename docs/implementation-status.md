@@ -1054,3 +1054,57 @@ README 로드맵("사업안 비교·예산·협력 대상")을 구현했다. 신
 - **검증**: 유닛 테스트 891개 통과, typecheck/lint/build 통과.
 - **Git/배포**: `7df89f7`(Batch 1) → `9fcb784`(Batch 2) → `83ab4e1`(문서) 순으로 `origin/main`에
   push 완료, Vercel Production 배포 Ready 확인.
+
+## 역할별 맞춤 기획 차별화 검증·보완 (2026-08-08) — `DONE(로컬+원격+배포)`
+
+세 사용자 역할(여행사/DMC, 지자체/관광재단, 축제 기획자)이 실제로 "역할명만 문장에 삽입"하는 수준이
+아니라 전략·실행안 결과 자체를 의미 있게 다르게 만드는지 재검증하고, 발견된 유일한 공백(위험 목록)을
+최소 범위로 보완했다.
+
+### 구현 완료 상태
+
+- 세 사용자 역할을 프로젝트 생성 시 입력받아 저장한다(`Project.role`, `UserRole` enum).
+- role 값은 단순 저장에 그치지 않고 전략·실행안 생성 흐름 전체에 전달된다 —
+  [audienceContext.ts](../src/lib/domain/audienceContext.ts)의 역할별 목표 우선순위 테이블 →
+  [strategy.ts](../src/lib/domain/strategy.ts)의 `roleFit`(전략 점수 10% 가중치)·추천 근거 문구 →
+  [planBuilder.ts](../src/lib/domain/planBuilder.ts)의 KPI·운영 체크리스트·**위험 목록**(이번 보완) →
+  [strategyResourcePlan.ts](../src/lib/domain/strategyResourcePlan.ts)의 일부 예산·협력 대상 설명까지
+  이어진다.
+- DNA 5축 원시 점수(`demandFit`/`supplyFit` 등)와 정규화 공식, 유사지역 비교 결과는 역할과 무관하게
+  동일하게 유지된다 — 역할은 데이터 진단이 아니라 그 이후의 전략·운영 해석 단계에만 반영된다.
+
+### 검증 완료
+
+동일 지역·동일 기준월·동일 여행월·동일 타깃·동일 목표·동일 테마로 조건을 전부 고정하고 역할만
+(여행사/DMC → 지자체/관광재단 → 축제 기획자 순으로) 바꿔 비교했다. Production에 새 임시 프로젝트를
+만들지 않고, 순수 함수 직접 호출과 단위 테스트로 검증했다(`tests/unit/roleDifferentiation.test.ts`).
+
+결과:
+
+- DNA 원시 축 점수(`demandFit`/`supplyFit`)는 역할과 무관하게 완전히 동일했다(회귀 방지 테스트로
+  고정).
+- `roleFit` 점수는 같은 전략 템플릿이라도 역할마다 달랐고, 이 차이가 상위 3개 전략 후보 구성 자체를
+  바꾸는 경우도 있었다(단순 점수 차이가 아니라 어떤 전략이 추천되는지 자체가 달라짐).
+- KPI·운영 체크리스트는 역할마다 실질적으로 다른 항목이 추가됐다(예: KPI 이름이 여행사="상품 판매
+  전환율", 지자체="정책 성과 보고 지표", 축제 기획자="프로그램 운영 지표"로 서로 다름).
+- 예산·협력 대상 설명 중 일부(6개 항목 중 2개)가 역할별로 다르게 표현됐다(금액 자체는 역할과 무관).
+- **위험 목록만 유일하게 세 역할 모두 완전히 동일**했다 — 이 문서의 이전 버전들이 "역할별로 위험까지
+  반영된다"고 서술하지 않았던 것과 일치하는, 실제로 존재하던 공백이었다.
+
+### 보완 내용
+
+발견된 공백(위험 목록의 역할 무관 문제)에 한해 최소 범위로 수정했다. 기존 `computeRoleChecklistNotes`/
+`computeRoleKpiNotes`와 동일한 구조를 그대로 따라 `computeRoleRiskNotes(role)`를
+[audienceContext.ts](../src/lib/domain/audienceContext.ts)에 추가하고 `planBuilder.ts`의 `buildRisks`에
+연결했다 — 역할별 알고리즘을 새로 만들거나 DNA 점수에 관여하지 않고, 공통 결과 엔진 위에 역할 우선순위
+항목 하나를 얹는 기존 패턴을 그대로 재사용했다.
+
+- 여행사/DMC: 예약 취소·노쇼로 인한 상품 운영 손실 위험
+- 지자체/관광재단: 정책 보고 시점과 데이터 집계 시점이 어긋날 위험
+- 축제 기획자: 행사 당일 집중 방문에 따른 혼잡·안전 관리 위험
+
+### 검증·배포
+
+유닛 테스트 32개 추가(역할 차별화 7개, 그 외 목록 페이지네이션 관련 25개 — 같은 세션에서 함께
+작업됨), 전체 965개 통과, typecheck/lint/build 통과. 커밋 `54aa7ed`로 `origin/main`에 push,
+Vercel Production 배포 Ready 확인.

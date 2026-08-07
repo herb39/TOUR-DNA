@@ -35,13 +35,58 @@
 
 | 지정과제 요구 | 현재 화면/기능 | 사용 API/데이터 | 테스트 | 시연 시나리오 | 상태 |
 |---|---|---|---|---|---|
-| 여행사·지자체 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV) 입력, 저장·표시, 분석 화면 요약에도 노출, 대표 시나리오 카드 3개로 역할별 입력 재현 가능 | 없음(입력값 + 기획 규칙) | `audienceContext.test.ts`(27), `strategy.test.ts` 역할 관련 3건, `contestScenarios.test.ts`(24) | 강릉(여행사)/경주(지자체) 대표 시나리오 카드 — 2026-08-01 Production 브라우저(Playwright)로 실제 재현·검증 완료 | **구현됨 + 배포 완료(2026-08-01 Production 검증, 2026-08-08 위험 목록 보완)** — `role`이 [audienceContext.ts](../src/lib/domain/audienceContext.ts)의 역할별 목표 우선순위 테이블을 거쳐 [strategy.ts](../src/lib/domain/strategy.ts)의 `roleFit`(전략 점수 구성요소)과 추천 근거 문구, `planBuilder.ts`의 실행 체크리스트·KPI·**위험 목록**에 실제로 반영된다(2026-08-08 이전에는 위험 목록만 역할과 무관하게 완전히 동일해, 동일 조건·역할만 변경 비교로 이 비대칭을 발견하고 `computeRoleRiskNotes`를 추가했다 — `tests/unit/roleDifferentiation.test.ts` 참고). DNA 5축 원시 점수와 예산 금액은 역할과 무관하게 그대로다(역할은 우선순위·관점만 바꾼다). 배포 URL(`tour-dna.lib.lc`)에서 실제 브라우저로 확인 완료 |
+| 여행사·지자체·축제 기획자 실무자 대상 | `/projects/new`의 `role`(TRAVEL_AGENCY\|LOCAL_GOV\|FESTIVAL_PLANNER) 입력, 저장·표시, 분석 화면 요약에도 노출, 대표 시나리오 카드 3개로 역할별 입력 재현 가능 | 없음(입력값 + 기획 규칙) | `audienceContext.test.ts`(27), `strategy.test.ts` 역할 관련 3건, `contestScenarios.test.ts`(24), `roleDifferentiation.test.ts`(7, 2026-08-08) | 강릉(여행사)/경주(지자체) 대표 시나리오 카드 — 2026-08-01 Production 브라우저(Playwright)로 실제 재현·검증 완료 | **구현됨 + 배포 완료(2026-08-01 Production 검증, 2026-08-08 위험 목록 보완)** — DNA 5축 원시 점수와 예산 금액은 역할과 무관하게 그대로 유지되고, 전략 적합도(`roleFit`)·추천 근거·KPI·체크리스트·위험 목록·일부 예산 협력 대상 설명이 역할별로 달라진다. 상세 표와 검증 근거는 아래 "1-A. 역할별 맞춤 기획" 절 참고 |
 | 타깃·지역·기간·콘셉트 조건 입력 | `/projects/new` 폼 27개 지역(2026-08-07 기준, 최초 작성 시점은 7개), 여행월, 연령/동반유형/목적/기간/예산/이동수단/그룹규모/선호·제외테마/메모, 상단 대표 시나리오 카드 3개(강릉/경주/제천)로 원클릭 프리셋 | `ProjectInput` 테이블 | `project-input-schema.test.ts`(6), `ProjectInputForm.test.tsx`(6), `audienceContext.test.ts`(27), `contestScenarios.test.ts`(24) | 입력→분석 E2E 1건(대표 시나리오 카드 자체는 단위 테스트로 검증, E2E 미확장) | **구현됨(2026-07-26 Phase 4로 국적·테마 반영 추가, 2026-07-27 대표 시나리오 카드 추가)** — `nationality`(FOREIGN/DOMESTIC)는 `feasibilityFit`(운영 적합도)에 템플릿별 CURATED 서비스 준비도로 반영, `preferredThemes`/`excludedThemes`는 내부 카테고리 분류([strategy.ts](../src/lib/domain/strategy.ts) `targetFit`)로 반영된다. `memo`는 여전히 저장만 되고 산출물에 미반영(자유 서술 메모라 구조화 반영 대상이 아님) |
 | 데이터 기반 관광 수요·관광지 분석 | `/projects/[id]/analysis` DNA 5축 레이더, 근거 보기 패널 | `AreaTarDemDsService`(체류/소비), `AreaTarResDemService`(서비스수요), `AreaTarDivService`(다양성), `KorService2`(POI) — [public-api-status.md](public-api-status.md) | `dna.test.ts`(9), `strategy.test.ts`(12) | 데모 프로젝트 열람 E2E | **핵심 구현됨, 신뢰성 결함 있음** — `isSnapshotFallback: false`가 [metricCohort.ts:23](../src/lib/services/metricCohort.ts#L23)과 [buildDnaEngineInput.ts:45](../src/lib/services/buildDnaEngineInput.ts#L45)에 하드코딩되어, fixture/추정값도 `LIVE`로 표시될 수 있음(provenance 필드 자체가 schema에 없음) |
 | 맞춤형 상품 운영 초안 | `/projects/[id]/plan` 코스/체류시간/체크리스트/위험/KPI 편집, 카카오맵 동선 | POI(TourAPI), 카카오맵 JS SDK | `planBuilder.test.ts`(11), `PlanEditor.test.tsx`(10), `CourseMap.test.tsx`(5) | 전략선택→실행안 편집→인쇄 E2E | **구현됨** — 이동시간은 Haversine 직선거리 추정(도로 경로 아님), 실행 가능성 경고 포함 |
 | 다채널 마케팅 콘텐츠 | `/projects/[id]/plan`의 "홍보자료" 섹션(제안서 요약/랜딩/Instagram/블로그/카드뉴스/역할별 자료 생성·편집·복사, 채널 우선순위 역할별 정렬), 인쇄 화면 출력 | 없음(저장된 실행안/Evidence만 재사용, LLM·외부 API 미사용) | `promoContent.test.ts`(21), `promoContentAdapter.test.ts`(14), `promoContentService.test.ts`(16), `PromoContentEditor.test.tsx`(16+11), `PrintPage.test.tsx`(6), `promoContentFormat.test.ts`, `promoContentSchema.test.ts` | 2026-08-01 Production 브라우저(Playwright)로 홍보자료 생성→역할별 채널 순서→전체 복사→새로고침/재접속 유지까지 검증 완료 | **구현·배포·검증 완료(2026-08-01)** — 관련 커밋이 `origin/main`에 push되어 있고, `SelectedPlan.promoContent`·`StrategyResult` 차별화 필드 migration 모두 원격 Production Neon DB에 적용 완료. **배포 URL(`tour-dna.lib.lc`)에서 실제로 확인 가능.** 상세: [docs/implementation-status.md](implementation-status.md)의 "Production 실사용 검증 및 대표 시나리오 완성(2026-08-01)" 절 |
 | 빠른 상품화 | 입력→분석→전략선택→실행안→인쇄 흐름 + 조건 수정 후 안전한 재분석(`/projects/[id]/edit`) | — | E2E 1건(전체 흐름) + `updateProjectAndReanalyzeAction.test.ts`(11) | 전체 흐름 E2E | **구현됨(2026-08-02 Phase 6 완료)** — 조건이 틀렸을 때 새 프로젝트를 만들지 않고 같은 프로젝트에서 조건을 고쳐 재분석할 수 있다(재분석 성공 시 기존 실행안·홍보자료는 삭제되고 새 결과로 교체됨을 명확히 경고) |
 | 사업 사전검증 | `/projects/[id]/plan`·`print` "사업 사전검증 리포트" 섹션 — 추진 권고(권장/조건부 권장/보완 후 재검토), 데이터 신뢰도·POI 공급 충분성·이동 현실성·지역 차별성 4개 신호, 주요 위험, 필수 보완사항 | 없음(DNA·POI 공급 부족 판정·이동 경고·유사지역 비교·위험·대응안 등 이미 계산된 값만 재사용) | `preLaunchValidation.test.ts`(15), `contestScenarios.test.ts` 강릉/경주/제천 차별화 4건 | 전략선택→실행안 화면에서 사전검증 리포트 확인, 인쇄 화면 요약 대조 | **구현됨(로컬+테스트, 2026-08-03, push 전)** — 단일 평균 점수로 결론 내지 않고, 4개 신호 중 하나라도 치명적(BLOCKER)이면 나머지가 좋아도 "보완 후 재검토"로 판정한다(`preLaunchValidation.ts`) |
+
+## 1-A. 역할별 맞춤 기획 — 하나의 데이터 진단, 세 가지 실무 관점(2026-08-08 정리)
+
+기존 관광 데이터 서비스가 하나의 분석 결과를 제공하는 데 그친다면, TOUR-DNA는 동일한 지역 데이터를
+각 실무자의 업무 목적에 맞는 전략과 실행안으로 변환한다. 같은 지역이라도 여행사/DMC는 판매 가능한
+관광상품 관점, 지자체/관광재단은 지역 활성화 사업 관점, 축제 기획자는 프로그램 운영 관점으로 결과를
+활용할 수 있다.
+
+핵심 설계는 다음 순서로 이어진다.
+
+1. 지역 공공데이터 수집·정규화
+2. 관광 DNA 5축 진단(체류·소비·다양성·서비스 수요·네트워크)
+3. 동일 지역·동일 기준월이면 위 진단 결과를 역할과 무관하게 그대로 유지
+4. 사용자가 입력한 역할을 전략 후보의 우선순위 계산에 반영
+5. 역할별 실행 관점(KPI·체크리스트·위험·일부 예산 협력 대상 설명)을 생성
+
+| 영역 | 공통/역할별 | 설명 |
+| --- | --- | --- |
+| DNA 5축 점수 | 공통 | 동일 지역·동일 기준월이면 역할에 관계없이 동일 |
+| 유사지역 비교 | 공통 | 데이터 기반 비교 결과 유지, 역할이 비교 대상이나 산식을 바꾸지 않음 |
+| 전략 적합도(roleFit) | 역할별 | 역할별 목표 우선순위를 전략 점수의 한 요소(10% 가중치)로 반영 |
+| 전략 순위 | 역할별 가능 | roleFit 반영으로 상위 후보 구성이 역할마다 달라질 수 있음 |
+| 추천 근거 문구 | 역할별 | 역할 라벨과 실제 계산된 점수·이유가 함께 달라짐(단순 치환 아님) |
+| KPI | 역할별 | 판매 전환율·정책 성과 보고 지표·프로그램 운영 지표 등 |
+| 운영 체크리스트 | 역할별 | 각 주체의 실무 관점을 반영한 항목 추가 |
+| 위험요소 | 역할별 | 예약 취소·노쇼(여행사), 정책 보고 시점 불일치(지자체), 혼잡·안전(축제)(2026-08-08 보완) |
+| 예산·협력 대상 설명 | 일부 역할별 | 6개 항목 중 2개가 역할별로 다른 서술을 쓴다(금액 자체는 역할과 무관) |
+
+이 기능의 차별점은 다음과 같이 요약한다.
+
+- 하나의 관광 데이터를 세 역할이 서로 다른 실무 목적으로 활용할 수 있다.
+- 사용자의 역할에 맞춰 같은 데이터 진단 결과를 재해석한다 — 데이터 자체를 역할에 맞게 왜곡하지 않는다.
+- 역할별로 완전히 분리된 알고리즘을 복제하지 않고, 공통 결과 엔진(`strategy.ts`/`planBuilder.ts`) 위에
+  역할 우선순위 테이블(`audienceContext.ts`)을 적용하는 구조다.
+- 동일한 데이터 기반이므로 세 역할의 결과를 서로 비교하고 근거를 설명할 수 있다.
+
+검증은 동일 지역·동일 기준월·동일 여행월·동일 타깃·동일 목표·동일 테마로 조건을 고정하고 역할만
+바꿔 비교하는 방식으로 수행했다(Production에 새 임시 프로젝트를 만들지 않고 순수 함수 직접 호출과
+`tests/unit/roleDifferentiation.test.ts`로 검증). DNA 원시 축 점수는 역할과 무관하게 동일했고,
+roleFit·KPI·체크리스트·위험 목록은 역할마다 실질적으로 달랐다. 상세 내용은
+[docs/implementation-status.md](implementation-status.md)의 "역할별 맞춤 기획 차별화 검증·보완
+(2026-08-08)" 절 참고.
+
+이 기능이 "AI가 알아서 역할별로 완전히 다른 분석을 수행한다"는 뜻은 아니다 — DNA 진단·정규화 공식은
+역할과 무관하게 하나이며, 역할은 그 진단 이후 전략·실행 단계의 우선순위와 관점에만 반영된다.
 
 ## 2. LIVE/CACHED/CURATED/ESTIMATED/MISSING 구분과 화면 표시
 
