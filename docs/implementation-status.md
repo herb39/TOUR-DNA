@@ -1108,3 +1108,60 @@ README 로드맵("사업안 비교·예산·협력 대상")을 구현했다. 신
 유닛 테스트 32개 추가(역할 차별화 7개, 그 외 목록 페이지네이션 관련 25개 — 같은 세션에서 함께
 작업됨), 전체 965개 통과, typecheck/lint/build 통과. 커밋 `54aa7ed`로 `origin/main`에 push,
 Vercel Production 배포 Ready 확인.
+
+## 홍보자료 포스터·카드뉴스 미리보기 Phase 1 (2026-08-07) — `DONE(로컬+원격+배포)`
+
+기존 홍보자료 화면이 채널별 텍스트 편집기만 연속 나열되는 구조라 "완성된 산출물"처럼 보이지 않는다는
+문제를 조사한 뒤(홍보자료 LLM 도입 설계 검토, 같은 세션 이전 절), LLM 없이 기존 데이터만으로 시각적
+완성도를 높이는 Phase 1을 구현했다. 결정론적 홍보자료 생성 로직(`buildPromoContent`)과 저장 구조
+(`SelectedPlan.promoContent`)는 전혀 바꾸지 않았다.
+
+### 구현 내용
+
+- `src/lib/domain/promoPreview.ts`(신규) — 이미 저장된 `PromoContent`(6개 채널)와 프로젝트 요약
+  (지역·여행월·전략명)만 재조합하는 순수 view model 함수. 새 문구를 생성하지 않고, 긴 문구는 단어/구두점
+  경계에서만 잘라 의미가 사라지지 않게 한다(`truncateAtBoundary`).
+  - `buildPromoPosterViewModel`: 헤드라인은 `landing.title`, 한 줄 카피는 `instagram.caption`의 첫
+    문장, 타깃은 `cardNews.slides[0].body`(모든 역할에 공통으로 존재하는 targetSummary), 대표 코스는
+    `courseHighlights` 최대 3곳(순서 유지), 마무리 문구는 역할별 roleContent의 기존 필드
+    (TRAVEL_AGENCY.itineraryHighlight/LOCAL_GOV.lead/FESTIVAL_PLANNER.retentionTip)를 그대로 재사용한다.
+  - `buildPromoCardNewsViewModel`: 저장된 `cardNews.slides` 순서·개수를 그대로 따르고, 위치(첫/마지막/
+    중간)로만 표지·마무리·코스 슬라이드를 구분한다(새 슬라이드를 추가·삭제하지 않음).
+- `src/components/plan/promo/PromoPosterPreview.tsx`(신규) — 이미지 없이 타이포그래피·숫자 배지·도형만
+  으로 구성한 포스터. 정보 위계 Level 1(지역/제목/한 줄 카피) → Level 2(여행월/타깃/대표 코스) →
+  Level 3(핵심 전략/마무리 문구)를 그대로 따르고, KPI·위험·체크리스트·provenance는 넣지 않는다.
+- `src/components/plan/promo/PromoCardNewsPreview.tsx`(신규) — 저장된 슬라이드를 순서대로 렌더링,
+  데스크톱은 grid(최대 4열), 모바일은 1열로 쌓는다(가로 스크롤 없음). 슬라이드 번호·표지/코스/마무리
+  구분 배지로 시각 구조를 만든다.
+- `src/components/plan/promo/PromoPreviewPanel.tsx`(신규) — 포스터/카드뉴스 탭 전환 + 역할 배지("여행사
+  /DMC 관점" 등)를 상단 한 곳에만 표시. `PromoContentEditor`의 기존 `content` state를 그대로 props로
+  받아 렌더링하므로 별도 state가 없다 — 편집·저장·재생성 후에도 항상 최신 값을 보여준다(source of
+  truth 단일화).
+- `PromoContentEditor.tsx`에 미리보기 패널을 기존 편집 UI 위에 추가하고, 편집 영역 앞에 "문구 편집"
+  구분 제목을 넣었다 — 기존 편집·복사·저장·재생성 로직은 한 줄도 바꾸지 않았다.
+- `PlanPage`(`src/app/projects/[id]/plan/page.tsx`)가 이미 조회해 둔 `project.region.name`/
+  `travelYear`/`travelMonth`/선택 전략명을 `PromoContentEditor`에 `projectSummary`로 추가 전달한다
+  (새 DB 조회 없음 — 기존에 로드된 값을 그대로 넘기는 최소 배선).
+
+### 역할 표시(Phase 1 한정)
+
+미리보기 상단에 현재 프로젝트 역할 배지를 한 번만 표시한다("여행사/DMC 관점"/"지자체/관광재단
+관점"/"축제 기획자 관점"). 역할별 생성 로직(roleContent 제외 5개 공통 채널)은 이번 Phase에서
+변경하지 않았다 — 그 작업은 다음 Phase(공통 채널 역할 반영) 대상이다.
+
+### 검증
+
+`tests/unit/promoPreview.test.ts`(13개 — 경계값 자르기, 대표 코스 3곳 제한, course 빈 배열, 긴
+지역명/전략명, 3역할 roleLabel/closingNote), `tests/unit/PromoPreviewPanel.test.tsx`(4개 — 탭 전환,
+content prop 변경 시 최신값 반영, 역할 배지 중복 표시 안 함), 기존 `PromoContentEditor.test.tsx`에
+`projectSummary` prop 추가 반영. 전체 유닛 테스트 965→**985개** 통과, typecheck/lint/build 통과.
+Production 기존 프로젝트 2건(여행사/DMC: "[데모] 대전 9월 소규모 여행 기획", 지자체/관광재단: "운영
+검증-강릉-20260801")에서 SSR 렌더 결과(accessibility tree)로 포스터 미리보기가 실제 데이터로 정확히
+렌더되는지 확인했다 — 새 임시 Production 프로젝트는 만들지 않았다. 이 세션의 브라우저 미리보기
+창(pane)이 컴포지팅되지 않는 환경 제약으로 실제 클릭 상호작용(탭 전환) 검증은 RTL
+`fireEvent.click`(jsdom) 단위 테스트로 대체했다.
+
+### 미구현(다음 Phase 후보)
+
+LLM 카피 생성, 공통 5개 채널의 역할 관점 반영, 이미지 수집/표시, PNG/PDF export, 공유 링크는 이번
+Phase 1 범위에 포함하지 않았다.

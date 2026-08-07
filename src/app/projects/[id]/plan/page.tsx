@@ -178,7 +178,16 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           />
         </div>
         <div className="mt-6">
-          <PromoContentEditor projectId={id} initial={promoContentResult} />
+          <PromoContentEditor
+            projectId={id}
+            initial={promoContentResult}
+            projectSummary={{
+              regionName: project.region.name,
+              travelYear: project.travelYear,
+              travelMonth: project.travelMonth,
+              strategyName: selectedStrategy?.name ?? "선택 전략",
+            }}
+          />
         </div>
       </main>
     </>

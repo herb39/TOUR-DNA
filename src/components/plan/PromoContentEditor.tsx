@@ -9,6 +9,8 @@ import type {
   SavePromoContentResult,
 } from "@/lib/services/promoContentService";
 import type { PromoContent } from "@/lib/domain/promoContent";
+import type { PromoProjectSummary } from "@/lib/domain/promoPreview";
+import { PromoPreviewPanel } from "./promo/PromoPreviewPanel";
 import {
   formatBlogForCopy,
   formatCardNewsForCopy,
@@ -49,7 +51,15 @@ function replaceTupleAt(
   return next;
 }
 
-export function PromoContentEditor({ projectId, initial }: { projectId: string; initial: GetPromoContentResult }) {
+export function PromoContentEditor({
+  projectId,
+  initial,
+  projectSummary,
+}: {
+  projectId: string;
+  initial: GetPromoContentResult;
+  projectSummary: PromoProjectSummary;
+}) {
   const [content, setContent] = useState<PromoContent | null>(initial.ok ? initial.content : null);
   const [loadErrorCode] = useState<PromoContentErrorCode | null>(initial.ok ? null : initial.code);
   const [dirty, setDirty] = useState(false);
@@ -201,6 +211,8 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
         </div>
       ) : (
         <div key={generationKey} className="mt-4 space-y-4">
+          <PromoPreviewPanel content={content} project={projectSummary} />
+
           <p role="status" className="text-xs">
             {dirty ? (
               <span className="text-amber-600">저장하지 않은 변경사항이 있습니다.</span>
@@ -240,9 +252,12 @@ export function PromoContentEditor({ projectId, initial }: { projectId: string; 
             </div>
           ) : null}
 
-          <p className="text-[11px] text-slate-400">
-            아래 채널은 현재 역할에서 우선 확인하도록 정렬되어 있습니다(모든 채널은 그대로 제공됩니다).
-          </p>
+          <div className="border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-semibold text-slate-900">문구 편집</h3>
+            <p className="mt-1 text-[11px] text-slate-400">
+              아래 채널은 현재 역할에서 우선 확인하도록 정렬되어 있습니다(모든 채널은 그대로 제공됩니다).
+            </p>
+          </div>
 
           {content.channelPriority.map((channel) => {
             if (channel === "proposalSummary") {

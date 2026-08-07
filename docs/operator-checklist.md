@@ -56,7 +56,7 @@
       `syncService.ts`의 `TOUR_INFO_ADDRESS_FILTER_OVERRIDE`에 별도 키워드를 등록해야 POI가 정상
       수집된다.
 - [ ] `npm run db:seed` 실행(Region은 upsert라 기존 데이터에 안전) → 실 동기화(`npm run sync:tourism-data --
-      --base-ym=YYYYMM` — 2026-08-08부터 이 플래그 형식만 지원한다. 위치 인자(`sync-tourism-data.ts
+      --base-ym=YYYYMM` — 2026-08-07부터 이 플래그 형식만 지원한다. 위치 인자(`sync-tourism-data.ts
       202606`)는 더 이상 지원하지 않고 즉시 거부된다. 인자를 생략하면 `TOUR_DATA_BASE_YM` 환경변수 →
       최신 공통월 자동 탐색 순으로 넘어가며, 자동 탐색은 `npm run check:base-ym`으로 DB 쓰기 없이 먼저
       확인할 수 있다)로 해당 지역 지표/POI 확보 확인
@@ -66,13 +66,13 @@
       스크리닝에서 과하게 호출하면 그날 안에는 신규 지역 동기화까지 막힌다(429). 한도가 풀렸는지
       불확실한 상태에서 무제한 재시도하지 않는다 — 다른 날 다시 시도하거나, 다른 오퍼레이션
       (`TAR_SVC_DEM`/`TOUR_INFO`)으로 먼저 스크리닝한다.
-- [ ] **Batch 3~5 실행 전 최신월 확인 절차(2026-08-08 도입)**: 지역을 추가하기 전에
+- [ ] **Batch 3~5 실행 전 최신월 확인 절차(2026-08-07 도입)**: 지역을 추가하기 전에
       `npm run check:base-ym`을 먼저 실행해 `TAR_SVC_DEM`·`TOU_RES_DEM`이 공통으로 제공하는 최신월을
       확인한다(DB 쓰기·전체 동기화 없음, 대표 지역 제천시 1곳만 사용). 이 명령이 찾은 월을 그대로
       `npm run sync:tourism-data -- --base-ym=<확인된 월>`에 넘겨 Batch 전체가 같은 기준월을 쓰도록
       한다. `AreaTarDivService`(관광 다양성)는 한도 문제 이력이 있어 이 자동 탐색에서 의도적으로
       제외했다 — 그 축은 여전히 `sync:tourism-data` 실행 시 지역별로 개별 확인된다(itemCount로 판단).
-      2026-08-08 기준 실제 확인 결과: `TAR_SVC_DEM`·`TOU_RES_DEM` 둘 다 202607 데이터가 아직 없고(2건
+      2026-08-07 기준 실제 확인 결과: `TAR_SVC_DEM`·`TOU_RES_DEM` 둘 다 202607 데이터가 아직 없고(2건
       모두 정상 응답, EMPTY), 202606까지만 제공됨을 확인했다 — 8월이라는 이유만으로 7월 데이터가
       공개됐다고 가정하지 않는다.
 
@@ -134,12 +134,12 @@
   교차검증은 완료하지 못한 상태다. 다음 확장 작업 전에 이 API의 최근 호출량을 확인하고, 한도가
   회복됐는지 불확실하면 무제한 재시도하지 말 것.
 
-- **CLI 인자 오류로 정크 baseYm Snapshot 108건 발생·정리(2026-08-07 발생, 2026-08-08 해결)**: Batch 2
+- **CLI 인자 오류로 정크 baseYm Snapshot 108건 발생·정리(2026-08-07 발생, 2026-08-07 해결)**: Batch 2
   검증 중 `npm run sync:tourism-data -- --base-ym=202606`처럼 플래그 형식으로 호출했는데, 당시 CLI가
   `process.argv[2]`를 그대로 baseYm 문자열로 썼기 때문에 실제로는 `"--base-ym=202606"`이라는 잘못된
   문자열이 그대로 baseYm 값이 되어 API가 호출되고 `DataSnapshot`에 27개 지역 × 4개 소스(TAR_SVC_DEM/
   TOU_DIV_IX/TOU_RES_DEM/TOUR_INFO) = 108건이 쌓였다. 정상 `"202606"` 스냅샷은 별도 unique key라
-  덮어써지지 않고 그대로 보존됐다(사고 발견 당시 이미 확인됨). 2026-08-08에 (1) CLI가 `--base-ym=
+  덮어써지지 않고 그대로 보존됐다(사고 발견 당시 이미 확인됨). 2026-08-07에 (1) CLI가 `--base-ym=
   YYYYMM`/`--base-ym YYYYMM` 형식만 엄격히 검증해 받아들이고 그 외(위치 인자, 알 수 없는 옵션, 하이픈
   포함, 중첩된 플래그 문자열 등)는 API 호출 전에 즉시 거부하도록 재작성했고(`syncCliArgs.ts`), (2) 정확히
   `baseYm = "--base-ym=202606"`인 108건만(`NormalizedMetric`/`Evidence` 참조 0건, 정상 `202606` 스냅샷
