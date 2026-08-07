@@ -28,7 +28,7 @@ import {
 } from "@/lib/validation/codes";
 import { formatBaseYm, formatDateTime, summarizeEvidenceBaseYms } from "@/lib/format";
 import { summarizeAxisSource } from "@/lib/domain/axisSourceSummary";
-import { interpretAxisExtreme } from "@/lib/domain/axisScoreInterpretation";
+import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
@@ -170,20 +170,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     ]),
   );
 
-  // 0점/100점 절대값 오해 방지(2026-08-07) — DNA 산식·정규화 공식은 전혀 바꾸지 않고, 이미 저장된
-  // Evidence의 정규화값(반올림 전 소수)만 다시 읽어 "화면에 0/100으로 뜨는 것이 실제 비교지역 중
-  // 확정 최저·최고인지, 반올림 때문에 그렇게 보일 뿐인지"만 판별한다(조사 결과: 화천군 사례가 후자).
-  const axisExtremeByAxis = new Map<string, ReturnType<typeof interpretAxisExtreme>>(
-    axisData.map((a) => [
-      a.axisKey,
-      interpretAxisExtreme(
-        a.axisKey as DnaAxisKey,
-        a.score,
-        (axisEvidenceByAxis.get(a.axisKey) ?? [])
-          .map((e) => e.normalizedValue)
-          .filter((v): v is number => v !== null),
-      ),
-    ]),
+  // 내부 분석점수 vs 사용자 표시지수 분리(2026-08-07) — 27개 지역 실제 분포 조사 결과, 설명 문구만으로는
+  // 0/100 절대값 오해를 완전히 막기 어려워 표시 계층 자체를 도입했다. 강점/개선 판정(topAxes/bottomAxes,
+  // 이 파일 위쪽에서 이미 axisData의 내부점수로 계산됨)과 전략 계산은 이 표시값을 전혀 참조하지 않는다 —
+  // 오직 화면에 숫자를 그릴 때만 사용한다(dnaDisplayScore.ts 참고).
+  const axisDisplayScoreByAxis = new Map<string, number | null>(
+    axisData.map((a) => [a.axisKey, toDisplayDnaScore(a.score)]),
   );
 
   // 유사지역 비교(2026-08-02, DNA 5축 바로 다음에 표시) — 이 분석의 근거에 실제로 저장된 기준월과
@@ -364,7 +356,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 key={a.axisKey}
                 className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
               >
-                강점 · {a.label} {a.score}
+                강점 · {a.label} {axisDisplayScoreByAxis.get(a.axisKey)}
               </span>
             ))}
             {bottomAxes.map((a) => (
@@ -372,12 +364,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 key={a.axisKey}
                 className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
               >
-                개선 · {a.label} {a.score}
+                개선 · {a.label} {axisDisplayScoreByAxis.get(a.axisKey)}
               </span>
             ))}
           </div>
           <p className="mt-2 text-[11px] text-slate-400">
-            ※ 위 점수는 절대평가가 아니라 현재 비교지역 안에서의 상대 수준입니다.
+            ※ 위 지수는 절대평가가 아니라, 현재 비교지역 안에서 극단적인 차이를 완화해 보여주는 상대
+            수준입니다.
           </p>
           <a
             href="#strategies"
@@ -458,20 +451,23 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold text-slate-900">관광 DNA 5축</h2>
             <DnaRadarChart
-              data={axisData.map((a) => ({ ...a, sourceLabel: axisSourceSummaries.get(a.axisKey)?.label }))}
+              data={axisData.map((a) => ({
+                ...a,
+                score: axisDisplayScoreByAxis.get(a.axisKey) ?? null,
+                sourceLabel: axisSourceSummaries.get(a.axisKey)?.label,
+              }))}
             />
             <p className="mt-3 text-xs text-slate-500">
-              ※ 이 점수는 실제 관광량이나 절대평가 점수가 아니라, 같은 행정단위(시군구) 비교지역의
-              데이터 범위 안에서 상대적 수준을 0~100으로 환산한 값입니다. 원값·비교 행정단위·기준월은
-              각 축의 &quot;근거 보기&quot;에서 확인할 수 있습니다.
+              ※ 이 지수는 실제 관광량이나 절대평가 점수가 아니라, 같은 행정단위(시군구) 비교지역
+              데이터를 기준으로 극단적인 차이를 완화해 보여주는 상대지수입니다. 원값·비교 행정단위·
+              기준월은 각 축의 &quot;근거 보기&quot;에서 확인할 수 있습니다.
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {axisData.map((a) => {
               const source = axisSourceSummaries.get(a.axisKey);
-              const extreme = axisExtremeByAxis.get(a.axisKey) ?? { level: "NONE" as const, badgeLabel: null, helperText: null };
-              const isHighest = extreme.level === "CONFIRMED_HIGHEST" || extreme.level === "NEAR_HIGHEST";
+              const displayScore = axisDisplayScoreByAxis.get(a.axisKey) ?? null;
               return (
                 <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-2">
@@ -490,18 +486,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                     </span>
                   </div>
                   <p className="mt-2 flex flex-wrap items-center gap-2 text-2xl font-bold text-slate-900">
-                    {a.score === null ? "데이터 부족" : a.score}
-                    {a.score !== null ? (
-                      <span className="text-[11px] font-medium text-slate-400">상대점수</span>
-                    ) : null}
-                    {extreme.badgeLabel ? (
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                          isHighest ? "border-indigo-300 text-indigo-700" : "border-slate-300 text-slate-500"
-                        }`}
-                      >
-                        {extreme.badgeLabel}
-                      </span>
+                    {displayScore === null ? "데이터 부족" : displayScore}
+                    {displayScore !== null ? (
+                      <span className="text-[11px] font-medium text-slate-400">DNA 상대지수</span>
                     ) : null}
                     {topAxisKeys.has(a.axisKey) ? (
                       <span className="text-xs font-medium text-emerald-700">강점</span>
@@ -509,9 +496,6 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                       <span className="text-xs font-medium text-amber-700">개선 필요</span>
                     ) : null}
                   </p>
-                  {extreme.helperText ? (
-                    <p className="mt-1 text-[11px] text-slate-500">{extreme.helperText}</p>
-                  ) : null}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
                     <div className="mt-2">

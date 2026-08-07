@@ -4,11 +4,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * DNA 점수 0/100 절대값 오해 방지 UX 개선(2026-08-07) — 실제 화면 소스 코드에서 다음을 정적으로
- * 확인한다: (1) 잘못된 "상대 순위" 표현이 남아있지 않은지, (2) 내부 규칙 버전 문자열
- * (`pre-launch-validation-rules-v1` 등)이 사용자 화면에 그대로 노출되지 않는지. 화면 텍스트를 실제로
- * 렌더링하지 않고도(서버 컴포넌트 렌더링은 무거운 의존성이 많아 여기서는 소스 검사로 대체) 회귀를
- * 잡을 수 있다.
+ * DNA 점수 0/100 절대값 오해 방지 UX 개선(2026-08-07, 표시지수 도입으로 갱신) — 실제 화면 소스
+ * 코드에서 다음을 정적으로 확인한다: (1) 잘못된 "상대 순위" 표현이 남아있지 않은지, (2) 내부 규칙
+ * 버전 문자열(`pre-launch-validation-rules-v1` 등)이 사용자 화면에 그대로 노출되지 않는지. 화면
+ * 텍스트를 실제로 렌더링하지 않고도(서버 컴포넌트 렌더링은 무거운 의존성이 많아 여기서는 소스 검사로
+ * 대체) 회귀를 잡을 수 있다.
  */
 function readSource(relativePath: string): string {
   return readFileSync(join(process.cwd(), relativePath), "utf-8");
@@ -23,9 +23,29 @@ describe("DNA 분석 화면 — 점수 설명 문구 정확성", () => {
     expect(source).not.toContain("상대 순위");
   });
 
-  it("'절대평가가 아닌 상대 수준'이라는 정확한 의미의 문구가 존재한다", () => {
+  it("'절대평가가 아닌 상대지수'라는 정확한 의미의 문구가 존재한다", () => {
     const source = readSource(ANALYSIS_PAGE);
-    expect(source).toContain("절대평가가 아니라 현재 비교지역 안에서의 상대 수준");
+    expect(source).toContain("절대평가가 아니라, 현재 비교지역 안에서 극단적인 차이를 완화해 보여주는 상대");
+  });
+});
+
+describe("DNA 분석 화면 — 내부 분석점수와 사용자 표시지수 분리(2026-08-07)", () => {
+  it("카드와 레이더 차트가 같은 표시지수(axisDisplayScoreByAxis)를 참조한다(서로 다른 값으로 보이지 않음)", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    const occurrences = source.match(/axisDisplayScoreByAxis\.get\(a\.axisKey\)/g) ?? [];
+    // 카드 점수 표시(1곳)와 레이더 차트 데이터 매핑(1곳)에서 모두 같은 Map을 참조해야 한다.
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("강점/개선 판정(topAxes/bottomAxes)은 여전히 axisData의 원본 내부점수로 계산한다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).toContain("const topAxes = [...scoredAxes].sort((a, b) => b.score - a.score)");
+    expect(source).toContain('.sort((a, b) => a.score - b.score)');
+  });
+
+  it("사용자 화면 라벨이 '상대점수' 대신 'DNA 상대지수'로 통일됐다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).toContain("DNA 상대지수");
   });
 });
 
