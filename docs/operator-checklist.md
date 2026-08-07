@@ -5,8 +5,10 @@
 - [x] Neon 프로젝트 생성, `DATABASE_URL`/`DIRECT_URL` 발급 및 등록
 - [x] `npm run db:migrate` 실행 확인
 - [x] `npm run db:seed` 실행 확인 (대전/제천/양양/강릉/경주/제주/통영 7개 지역 fixture + 데모 프로젝트 생성)
-      — fixture는 여전히 이 7개 지역만 대상이다. 2026-08-07에 실 API 동기화만으로 20개 지역을 추가
-      등록해 총 지원 SIGUNGU는 27곳이다(fixture 대상과 별개, `docs/data-dictionary.md` 참고)
+      — fixture는 여전히 이 7개 지역만 대상이다. 2026-08-07에 실 API 동기화만으로 20개 지역(Batch
+      1+2), 2026-08-08에 10개 지역(Batch 3)을 추가 등록해 총 지원 SIGUNGU는 37곳이다(fixture 대상과
+      별개, `docs/data-dictionary.md` 참고). Batch 3은 Region 등록까지는 완료됐으나, Neon DB 데이터
+      전송 쿼터 초과로 관광 데이터 동기화는 남해군 1곳만 완료된 상태다 — 쿼터 회복 후 재실행 필요.
 - [x] 카카오 개발자 콘솔 애플리케이션 등록 및 배포 도메인 허용 목록 등록(**"JavaScript 키 > JavaScript
       SDK 도메인"**에 `https://tour-dna.lib.lc` 등록 완료). ⚠️ 이 과정에서 Vercel에 잘못된 키 값이
       설정돼 있던 것을 발견·수정함 — 아래 참고.

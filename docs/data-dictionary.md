@@ -86,10 +86,33 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 |---|---|---|---|
 | 1 | 가평군·파주시·안동시·부여군·거제시·평창군·아산시·해운대구·보령시·하동군 | 2026-08-07 | A(5축 LIVE) |
 | 2 | 양평군·공주시·김해시·울릉군·정선군·창녕군·이천시·대구 중구·화천군·삼척시 | 2026-08-07 | A(5축 LIVE) |
+| 3 | 남해군·옹진군·기장군·서산시·무주군·함양군·단양군·영월군·연수구·수성구 | 2026-08-08 | 남해군만 A(5축 LIVE) 확인, 나머지 9곳은 §Batch 3 진행 상태 참고 |
 
-Batch 3(추가 10곳)은 후보 코드 검증 중 `AreaTarDivService`(관광 다양성 지수) API의 일일 호출 한도가
-소진되어(429, 초기화 시점 미확인) 보류했다 — 사용자 판단으로 이번 확장은 Batch 2(20곳)까지로 종료했다.
-지원 SIGUNGU는 7 + 20 = **27곳**이다.
+**2026-08-08 지역 확장(Batch 3, 10곳 신규 추가 — 지원 SIGUNGU 27→37곳)**: Batch 1+2와 같은 방식으로
+후보 코드를 확인했다. Batch 1+2 당시 소진됐던 `AreaTarDivService`(관광 다양성) 일일 호출 한도는
+이번 세션에서 회복돼 있었다(대표 지역 1건 사전 확인 후 10개 후보 전부 1회씩 호출, 429 없음) —
+`AreaTarDivService`를 반복 호출하는 대신 호출 한도가 없는 TourAPI `ldongCode2`로 후보의 시/도·
+시군구 코드를 먼저 특정한 뒤, 지역당 `AreaTarDivService`를 1회씩만 호출해 지역명 일치를 확인했다.
+인천광역시(`SIDO_INCHEON`, 통계청·TourAPI 코드 모두 28)·전북특별자치도(`SIDO_JEONBUK`, 모두 52)를
+이번에 처음 추가했으며, 두 체계의 시/도 코드가 정확히 일치함을 실 서비스키로 확인했다(§전남/광주
+코드 불일치 같은 사례가 아님). 10곳 전부 `REGION_SEED`·DB `Region` 테이블에 반영했고, 코드 감사
+(`npm run audit:region-codes`)에서 전체 49건 Region이 전부 정상 매핑됨을 확인했다(코드 누락·중복·
+형식 오류 0건).
+
+**⚠️ Batch 3 관광 데이터 동기화는 미완료 상태다**: `npm run sync:tourism-data`로 전체 37개 지역
+동기화를 실행했으나, 실행 중 Neon Postgres 프로젝트의 **데이터 전송(data transfer) 쿼터 초과**로
+DB 연결 자체가 차단되며 중단됐다(`Your project has exceeded the data transfer quota. Upgrade your
+plan to increase limits.` — `AreaTarDivService` API 호출 한도와는 무관한, Neon 플랜 자체의 한도).
+중단 시점까지 확인된 상태: 남해군(`SGG_NAMHAE`)은 DataSnapshot 5건·NormalizedMetric 6건·POI 214건이
+모두 반영돼 정상 동기화가 완료됐다. 나머지 9곳(옹진군·기장군·서산시·무주군·함양군·단양군·영월군·
+연수구·수성구)은 각각 DataSnapshot 1건·NormalizedMetric 2건만 반영된 채 중단됐다 — 일부 소스만
+반영된 불완전한 상태이며, 기존 SUCCESS 보존 정책상 이 상태로 잘못된 값이 완전한 것처럼 저장되지는
+않았지만 나머지 데이터 소스(체류/소비/다양성 등)는 아직 동기화되지 않았다. Neon 데이터 전송 쿼터가
+회복된 뒤(플랜 업그레이드 또는 다음 결제 주기 초기화) `npm run sync:tourism-data`를 다시 실행하면
+idempotent upsert로 안전하게 이어서 완료할 수 있다 — 이미 완료된 남해군도 다시 실행돼도 문제없다.
+신규 지역 분석·전략 3안 생성·기존 27곳 회귀 확인은 DB 접근이 막혀 이번 세션에서 실제 확인하지
+못했다 — 동기화 완료 후 재검증이 필요하다. 지원 SIGUNGU는 7 + 20 + 10 = **37곳**이다(관광 데이터
+동기화는 남해군 1곳만 완료).
 
 대구 중구(`SGG_DAEGU_JUNG`)는 표시명을 "대구 중구"로 유지하되, POI 주소 필터는
 `TOUR_INFO_ADDRESS_FILTER_OVERRIDE`(`syncService.ts`)에서 "중구"로 별도 지정한다 — 실제 주소
