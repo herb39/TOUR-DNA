@@ -62,9 +62,9 @@ export function PreLaunchValidationSection({
         <h2 className="text-sm font-semibold text-slate-900">사업 사전검증 리포트</h2>
         <span
           className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
-          title="이미 계산된 DNA·POI·이동·유사지역 비교·위험 데이터만 조합한 결정론적 규칙(CURATED)입니다."
+          title="이미 계산된 DNA·POI·이동·유사지역 비교·위험 데이터만 조합한 결정론적 규칙입니다."
         >
-          CURATED 규칙 · {report.ruleVersion}
+          정제 규칙 · {report.ruleVersion}
         </span>
       </div>
 
@@ -118,10 +118,10 @@ export function PreLaunchValidationSection({
         </p>
       ) : null}
 
-      <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-        <span className="font-medium text-slate-600">판정 기준·한계: </span>
-        {report.criteria}
-      </p>
+      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2">
+        <summary className="cursor-pointer text-[11px] font-medium text-slate-600">판정 기준·한계 보기</summary>
+        <p className="mt-1 text-[11px] text-slate-500">{report.criteria}</p>
+      </details>
     </section>
   );
 }

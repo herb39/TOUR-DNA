@@ -118,6 +118,21 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     };
   });
 
+  // 상단 핵심 요약(2026-08-08, 정보 위계 개선) — DNA 산식(dna.ts)은 건드리지 않고, 이미 계산된
+  // axisData 점수를 화면 표시용으로만 재정렬해 "가장 강한 축"/"가장 개선이 필요한 축"을 뽑는다.
+  // dna.ts의 buildStrengthsOpportunitiesCautions와 같은 정렬 기준(점수 내림/오름차순)이라 결과가
+  // analysisResult.strengths/opportunities와 항상 일치한다 — 새 점수 기준을 만들지 않는다.
+  const scoredAxes = axisData.filter(
+    (a): a is DnaAxisChartDatum & { score: number } => a.score !== null,
+  );
+  const topAxes = [...scoredAxes].sort((a, b) => b.score - a.score).slice(0, 2);
+  const topAxisKeys = new Set(topAxes.map((a) => a.axisKey));
+  const bottomAxes = [...scoredAxes]
+    .sort((a, b) => a.score - b.score)
+    .filter((a) => !topAxisKeys.has(a.axisKey))
+    .slice(0, 2);
+  const bottomAxisKeys = new Set(bottomAxes.map((a) => a.axisKey));
+
   // 헤더에는 env 상수가 아니라 이 프로젝트의 분석에 실제로 사용된 기준월(evidence에 저장된 값)을
   // 표시한다(2026-07-29) — 메인/기획 화면과 다른 소스를 쓰던 것을 바로잡는다. 지표마다 기준월이 다르면
   // 하나로 뭉개지 않고 그 사실을 알린다.
@@ -290,22 +305,72 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <p>
               분석 기준월{" "}
               <strong>{baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}</strong>
-            </p>
-            {baseYmSummary.mixed ? (
-              <p className="text-[11px] text-amber-700">
-                일부 지표는 서로 다른 기준월의 데이터를 사용합니다({baseYmSummary.all.map(formatBaseYm).join(", ")})
-              </p>
-            ) : null}
-            <p>데이터 버전 {analysisResult.dataVersion}</p>
-            <p>모델 버전 {analysisResult.modelVersion}</p>
-            <p>
+              {" · "}
               데이터 상태{" "}
               <span className="font-semibold text-slate-700">
                 {analysisResult.overallDataMode} {analysisResult.liveAxisCount}/5
               </span>
             </p>
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[11px] text-slate-400">분석 기준 보기</summary>
+              <div className="mt-1 space-y-0.5 text-[11px] text-slate-500">
+                {baseYmSummary.mixed ? (
+                  <p className="text-amber-700">
+                    일부 지표는 서로 다른 기준월의 데이터를 사용합니다({baseYmSummary.all.map(formatBaseYm).join(", ")})
+                  </p>
+                ) : null}
+                <p>데이터 버전 {analysisResult.dataVersion}</p>
+                <p>모델 버전 {analysisResult.modelVersion}</p>
+              </div>
+            </details>
           </div>
         </div>
+
+        <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-sm font-semibold text-slate-900">
+            {project.region.name}은(는){" "}
+            {topAxes[0] ? (
+              <>
+                <span className="text-emerald-700">{topAxes[0].label}</span>이 강점
+              </>
+            ) : (
+              "강점을 특정할 데이터가 부족"
+            )}
+            이고,{" "}
+            {bottomAxes[0] ? (
+              <>
+                <span className="text-amber-700">{bottomAxes[0].label}</span> 개선이 필요
+              </>
+            ) : (
+              "개선점을 특정할 데이터가 부족"
+            )}
+            합니다.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {topAxes.map((a) => (
+              <span
+                key={a.axisKey}
+                className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+              >
+                강점 · {a.label} {a.score}
+              </span>
+            ))}
+            {bottomAxes.map((a) => (
+              <span
+                key={a.axisKey}
+                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+              >
+                개선 · {a.label} {a.score}
+              </span>
+            ))}
+          </div>
+          <a
+            href="#strategies"
+            className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
+          >
+            전략 3안 확인하기 →
+          </a>
+        </section>
 
         {tourismMetricCards.length > 0 ? (
           <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -417,6 +482,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                         비교지역 내 최저
                       </span>
                     ) : null}
+                    {topAxisKeys.has(a.axisKey) ? (
+                      <span className="text-xs font-medium text-emerald-700">강점</span>
+                    ) : bottomAxisKeys.has(a.axisKey) ? (
+                      <span className="text-xs font-medium text-amber-700">개선 필요</span>
+                    ) : null}
                   </p>
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
@@ -435,25 +505,22 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <h2 className="text-base font-semibold text-slate-900">유사지역 비교</h2>
             <span
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="공공데이터 상대 비교와 사람이 정한 기획 규칙(CURATED)으로 도출한 참고 정보이며, 통계·머신러닝 예측치가 아닙니다."
+              title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 참고 정보이며, 통계·머신러닝 예측치가 아닙니다."
             >
-              CURATED 규칙 · {regionComparisonAnalysis.ruleVersion}
+              정제 규칙 · {regionComparisonAnalysis.ruleVersion}
             </span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            현재 지원 지역 데이터 기준 비교입니다(조회 시점 최신 데이터, 기준월 {regionComparisonAnalysis.comparisonBaseYm}) —
-            DNA 5축·관광 자원 구성이 현재 지원 지역 중 가장 비슷한 지역과 비교해, 이 지역의 점수가
-            상대적으로 어떤 의미인지 보여줍니다.
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400">
-            현재 지원지역 {regionComparisonAnalysis.candidatePoolSize + 1}곳 중 대상 지역을 제외한{" "}
-            {regionComparisonAnalysis.candidatePoolSize}곳을 비교했습니다 — 전국 전체가 아닌, 현재
-            데이터가 준비된 지역 내 비교 결과입니다.
+          <p
+            className="mt-1 text-xs text-slate-500"
+            title="DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교합니다. 전국 전체가 아니라 현재 데이터가 준비된 지원지역 내 비교입니다."
+          >
+            비교 후보 {regionComparisonAnalysis.candidatePoolSize}곳 중 상위 3곳(기준월{" "}
+            {regionComparisonAnalysis.comparisonBaseYm})
           </p>
           {regionComparisonAnalysis.isSmallCandidatePool && regionComparisonAnalysis.candidatePoolSize > 0 ? (
             <p className="mt-1 text-[11px] text-amber-700">
-              ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 통계적으로
-              의미 있는 &quot;유사 지역&quot;이라기보다 참고용으로만 활용해주세요.
+              ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 참고용으로만
+              활용해주세요.
             </p>
           ) : null}
           {analysisBaseYmMismatchNote ? (
@@ -492,41 +559,46 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           ) : null}
         </section>
 
-        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="text-xs font-semibold text-slate-500">강점</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-              {(analysisResult.strengths as string[]).map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
+        <details className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+            강점·기회·주의 상세 보기
+          </summary>
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500">강점</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                {(analysisResult.strengths as string[]).map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500">기회</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                {(analysisResult.opportunities as string[]).map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500">주의</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                {(analysisResult.cautions as string[]).map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="text-xs font-semibold text-slate-500">기회</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-              {(analysisResult.opportunities as string[]).map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="text-xs font-semibold text-slate-500">주의</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-              {(analysisResult.cautions as string[]).map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        </details>
 
         <section className="mt-8">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold text-slate-900">관광사업 기회 3안</h2>
             <span
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="공공데이터 상대 비교와 사람이 정한 기획 규칙(CURATED)으로 도출한 가설이며, 통계·머신러닝 예측치가 아닙니다."
+              title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 가설이며, 통계·머신러닝 예측치가 아닙니다."
             >
-              CURATED 규칙 · {opportunityAnalysis.ruleVersion}
+              정제 규칙 · {opportunityAnalysis.ruleVersion}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
@@ -562,14 +634,14 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           ) : null}
         </section>
 
-        <section className="mt-8">
+        <section id="strategies" className="mt-8 scroll-mt-6">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
             <span
               className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="사람이 정한 기획 규칙(CURATED)으로 도출한 참고 정보이며, 실제 사업비·매출 예측치가 아닙니다."
+              title="사람이 정한 기획 규칙으로 도출한 참고 정보이며, 실제 사업비·매출 예측치가 아닙니다."
             >
-              CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION}
+              정제 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">

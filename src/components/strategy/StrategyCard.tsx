@@ -93,6 +93,12 @@ export function StrategyCard({
       <h3 className="mt-2 text-base font-semibold text-slate-900">{strategy.name}</h3>
       <p className="mt-1 text-sm text-slate-600">{strategy.concept}</p>
       <p className="mt-2 text-xs text-slate-500">타깃: {strategy.targetDescription}</p>
+      {strategy.expectedEffect ? (
+        <p className="mt-1 text-xs text-slate-600">예상 효과: {strategy.expectedEffect}</p>
+      ) : null}
+      {strategy.risks[0] ? (
+        <p className="mt-1 text-xs text-amber-700">주요 위험: {strategy.risks[0]}</p>
+      ) : null}
       <p className="mt-1 text-xs font-medium text-amber-700">
         ※ 점수는 조건 적합도이며, 매출·방문객 증가 예측치가 아닙니다.
       </p>
@@ -100,10 +106,15 @@ export function StrategyCard({
       <div className="mt-3">
         <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-600">
-          {strategy.reasons.map((r, i) => (
+          {strategy.reasons.slice(0, 2).map((r, i) => (
             <li key={i}>{r}</li>
           ))}
         </ul>
+        {strategy.reasons.length > 2 ? (
+          <p className="mt-1 text-[11px] text-slate-400">
+            그 외 {strategy.reasons.length - 2}개는 아래 &quot;점수 세부·소비 접점·위험 보기&quot;에서 확인할 수 있습니다.
+          </p>
+        ) : null}
       </div>
 
       {/* 해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과는 위쪽 "전략 3안 비교" 표에 이미 나란히
@@ -112,6 +123,16 @@ export function StrategyCard({
       <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
         <summary className="cursor-pointer text-xs font-medium text-slate-700">점수 세부·소비 접점·위험 보기</summary>
         <div className="mt-2">
+          {strategy.reasons.length > 2 ? (
+            <div className="mb-3 text-xs text-slate-600">
+              <p className="font-medium text-slate-700">차별화 포인트(나머지)</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {strategy.reasons.slice(2).map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <ul className="space-y-1 text-xs text-slate-600">
             {(Object.keys(SCORE_BREAKDOWN_LABEL) as ScoreBreakdownKey[]).map((key) => (
               <li key={key}>

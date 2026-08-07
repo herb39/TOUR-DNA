@@ -68,3 +68,32 @@ describe("StrategyCard — 비교표 중복 정보 제거", () => {
     expect(screen.getByText("근거 보기")).toBeInTheDocument();
   });
 });
+
+/** 정보 위계 개선(2026-08-08) — 기본 화면에서 추천 이유(최대 2개)·예상 효과·주요 위험 1개가 바로
+ * 보여야 사용자가 펼치지 않고도 전략을 비교할 수 있다. */
+describe("StrategyCard — 정보 위계 개선(예상 효과·주요 위험 기본 노출)", () => {
+  it("예상 효과와 주요 위험 1개가 펼치지 않아도 기본 화면에 보인다", () => {
+    render(<StrategyCard strategy={strategy()} isSelected={false} onSelect={vi.fn()} />);
+    expect(screen.getByText(/예상 효과: 체류 소비 증가/)).toBeInTheDocument();
+    expect(screen.getByText(/주요 위험: 성수기 혼잡/)).toBeInTheDocument();
+  });
+
+  it("차별화 포인트가 2개를 넘으면 기본 화면에는 최대 2개만 보이고 나머지는 상세에서 확인할 수 있다", () => {
+    render(
+      <StrategyCard
+        strategy={strategy({ reasons: ["이유1", "이유2", "이유3"] })}
+        isSelected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("이유1")).toBeInTheDocument();
+    expect(screen.getByText("이유2")).toBeInTheDocument();
+    expect(screen.getByText(/그 외 1개는/)).toBeInTheDocument();
+
+    // "이유3"은 접힌 상세(<details>) 안에만 있어야 하고, 기본 화면의 차별화 포인트 목록에는 없어야 한다.
+    const visibleReasonList = screen.getByText("차별화 포인트").parentElement!;
+    expect(visibleReasonList).not.toHaveTextContent("이유3");
+    const details = screen.getByText("점수 세부·소비 접점·위험 보기").closest("details");
+    expect(details).toContainElement(screen.getByText("이유3"));
+  });
+});

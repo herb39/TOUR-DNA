@@ -638,8 +638,10 @@ export function PlanEditor({
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">운영 체크리스트</h2>
+        <details className="rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            운영 체크리스트 보기 ({operationChecklist.length}개)
+          </summary>
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
             {operationChecklist.map((c, i) => (
               <li key={i} className="flex items-center justify-between gap-2">
@@ -671,10 +673,12 @@ export function PlanEditor({
               추가
             </button>
           </div>
-        </section>
+        </details>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">위험과 대응안</h2>
+        <details className="rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            위험과 대응안 보기 ({risks.length}개)
+          </summary>
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
             {risks.map((r, i) => (
               <li key={i} className="flex items-center justify-between gap-2">
@@ -717,10 +721,10 @@ export function PlanEditor({
               </button>
             </div>
           </div>
-        </section>
+        </details>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">KPI</h2>
+        <details className="rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">KPI 보기 ({kpis.length}개)</summary>
           <ul className="mt-2 space-y-2 text-sm text-slate-600">
             {kpis.map((k, i) => (
               <li key={i} className="rounded-md border border-slate-100 bg-slate-50 p-2">
@@ -800,10 +804,11 @@ export function PlanEditor({
             onChange={(e) => setKpiMemo(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </section>
+        </details>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <label htmlFor="memo" className="block text-sm font-medium text-slate-700">
+        <details className="rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">운영 메모 보기</summary>
+          <label htmlFor="memo" className="mt-2 block text-sm font-medium text-slate-700">
             메모
           </label>
           <textarea
@@ -814,7 +819,7 @@ export function PlanEditor({
             onChange={(e) => setMemo(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </section>
+        </details>
       </div>
 
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">

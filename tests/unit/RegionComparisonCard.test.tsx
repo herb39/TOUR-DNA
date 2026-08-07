@@ -38,3 +38,17 @@ describe("RegionComparisonCard — 반복 안내문 제거", () => {
     expect(screen.getByText("수요 축이 앞섭니다.")).toBeInTheDocument();
   });
 });
+
+/** 정보 위계 개선(2026-08-08) — 핵심 공통점(strengthWeaknessSummary)은 기본 화면에 바로 보이고,
+ * 상대 위치·DNA 5축 차이표·벤치마킹 요소는 접힌 상세로 이동한다. */
+describe("RegionComparisonCard — 정보 위계 개선(기본·상세 분리)", () => {
+  it("핵심 공통점은 기본 화면에 바로 보이고, 축별 차이 상세는 기본적으로 접혀 있다", () => {
+    render(<RegionComparisonCard comparison={comparison()} rank={1} comparisonBaseYm="202606" />);
+    expect(screen.getByText("수요 축이 앞섭니다.")).toBeInTheDocument();
+
+    const details = screen.getByText(/축별 차이·벤치마킹 보기/).closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toContainElement(screen.getByText("비교 가능한 1개 축 중 A시가(가) 1개 축에서 더 높습니다."));
+  });
+});

@@ -179,9 +179,19 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
   });
 });
 
+/** 운영 체크리스트/위험/KPI/메모는 기본 화면 밀도를 줄이기 위해 <details>로 접었다(2026-08-08,
+ * 정보 위계 개선) — 기본 상태에서는 네이티브 <details>가 내용을 접근성 트리에서 숨기므로, "추가"
+ * 버튼 등을 상호작용하기 전에 해당 <summary>를 먼저 열어야 한다. */
+function openAllPlanDetails() {
+  fireEvent.click(screen.getByText(/운영 체크리스트 보기/));
+  fireEvent.click(screen.getByText(/위험과 대응안 보기/));
+  fireEvent.click(screen.getByText(/KPI 보기/));
+}
+
 describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
   it("운영 체크리스트 항목을 추가하고 삭제할 수 있다", () => {
     render(<PlanEditor plan={makePlan()} />);
+    openAllPlanDetails();
 
     fireEvent.change(screen.getByPlaceholderText("새 체크리스트 항목"), { target: { value: "우천 대비 우산 준비" } });
     // "추가" 버튼은 체크리스트(0)/위험(1)/KPI(2) 순서로 나온다
@@ -195,6 +205,7 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
 
   it("위험 요인/대응안을 추가하고 삭제할 수 있다", () => {
     render(<PlanEditor plan={makePlan()} />);
+    openAllPlanDetails();
 
     fireEvent.change(screen.getByPlaceholderText("새 위험 요인"), { target: { value: "주차 공간 부족" } });
     fireEvent.change(screen.getByPlaceholderText("대응안"), { target: { value: "인근 공영주차장 사전 안내" } });
@@ -210,6 +221,7 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
 
   it("KPI를 추가하고 삭제할 수 있다", () => {
     render(<PlanEditor plan={makePlan()} />);
+    openAllPlanDetails();
 
     fireEvent.change(screen.getByPlaceholderText("새 KPI 이름"), { target: { value: "재방문율" } });
     fireEvent.change(screen.getByPlaceholderText("측정 방법"), { target: { value: "3개월 후 설문" } });
@@ -224,6 +236,7 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
 
   it("새로 추가한 KPI도 측정 목적·연결 축·목표값 근거가 자동으로 채워진다(KPI 연결 보강)", () => {
     render(<PlanEditor plan={makePlan()} />);
+    openAllPlanDetails();
 
     fireEvent.change(screen.getByPlaceholderText("새 KPI 이름"), { target: { value: "숙박 전환율" } });
     fireEvent.change(screen.getByPlaceholderText("측정 방법"), { target: { value: "예약 데이터 비교" } });
@@ -232,6 +245,24 @@ describe("PlanEditor 운영 체크리스트/위험/KPI 편집", () => {
     expect(screen.getByText(/측정 목적:/)).toBeInTheDocument();
     expect(screen.getByText("체류(Stay)")).toBeInTheDocument();
     expect(screen.getByText(/기관 설정 필요/)).toBeInTheDocument();
+  });
+});
+
+/** 정보 위계 개선(2026-08-08) — 운영 체크리스트/위험과 대응안/KPI/메모는 기본 화면 밀도를 줄이기
+ * 위해 <details>로 접었다. 개수 요약이 summary에 보이고, 기본 상태는 닫혀 있어야 한다. */
+describe("PlanEditor — 정보 위계 개선(체크리스트·위험·KPI·메모 기본 접힘)", () => {
+  it("운영 체크리스트/위험과 대응안/KPI/메모는 기본적으로 접혀 있고 summary에 개수가 보인다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    const checklistDetails = screen.getByText(/운영 체크리스트 보기/).closest("details");
+    const riskDetails = screen.getByText(/위험과 대응안 보기/).closest("details");
+    const kpiDetails = screen.getByText(/KPI 보기/).closest("details");
+    const memoDetails = screen.getByText("운영 메모 보기").closest("details");
+
+    for (const details of [checklistDetails, riskDetails, kpiDetails, memoDetails]) {
+      expect(details).not.toBeNull();
+      expect(details).not.toHaveAttribute("open");
+    }
   });
 });
 
