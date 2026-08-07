@@ -15,6 +15,7 @@ import {
   computeNationalityKpiNotes,
   computeRoleChecklistNotes,
   computeRoleKpiNotes,
+  computeRoleRiskNotes,
   computeSeasonalRiskNotes,
   computeThemeChecklistNotes,
   normalizeMonth,
@@ -1030,7 +1031,7 @@ export function buildKpis(templateId: string, context?: AudiencePlanContext): { 
 
 export function buildRisks(templateId: string, context?: AudiencePlanContext): { risk: string; mitigation: string }[] {
   const template = getTemplateById(templateId);
-  const { travelMonth } = normalizeAudienceContext(context);
+  const { role, travelMonth } = normalizeAudienceContext(context);
   const baseRisks = template.riskTemplates.map((risk) => ({
     risk,
     mitigation: "현장 운영 담당자가 사전 확인 후 대체 동선/일정을 준비한다.",
@@ -1039,5 +1040,5 @@ export function buildRisks(templateId: string, context?: AudiencePlanContext): {
     risk,
     mitigation: "현장 운영 담당자가 사전 확인 후 대체 동선/일정을 준비한다.",
   }));
-  return [...baseRisks, ...seasonalRisks];
+  return [...baseRisks, ...seasonalRisks, ...computeRoleRiskNotes(role)];
 }

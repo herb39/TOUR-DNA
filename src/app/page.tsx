@@ -1,17 +1,121 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { getLatestDataFreshness, getDemoProject, listProjectSummaries } from "@/lib/services/projectQueries";
 import { labelForRole } from "@/lib/validation/codes";
 import { PROJECT_STATUS_LABEL, formatBaseYm, formatDateTime } from "@/lib/format";
+import {
+  ALLOWED_PAGE_SIZES,
+  clampPageToTotal,
+  computeTotalPages,
+  parsePage,
+  parsePageSize,
+  buildPageWindow,
+  type PageSize,
+} from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
-async function ProjectListSection() {
-  let projects: Awaited<ReturnType<typeof listProjectSummaries>> = [];
+function pageHref(page: number, pageSize: PageSize): string {
+  return `/?page=${page}&pageSize=${pageSize}`;
+}
+
+function PaginationControls({
+  page,
+  pageSize,
+  totalCount,
+  totalPages,
+}: {
+  page: number;
+  pageSize: PageSize;
+  totalCount: number;
+  totalPages: number;
+}) {
+  const rangeStart = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, totalCount);
+  const pageWindow = buildPageWindow(page, totalPages);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm">
+      <p className="text-xs text-slate-500">
+        전체 {totalCount}건 중 {rangeStart}–{rangeEnd}건
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div role="group" aria-label="페이지당 표시 개수" className="flex items-center gap-1 text-xs">
+          <span className="whitespace-nowrap text-slate-500">페이지당</span>
+          {ALLOWED_PAGE_SIZES.map((size) => (
+            <Link
+              key={size}
+              href={pageHref(1, size)}
+              aria-current={size === pageSize ? "true" : undefined}
+              className={`min-h-[1.75rem] rounded-md border px-2 py-1 ${
+                size === pageSize
+                  ? "border-slate-900 bg-slate-900 font-medium text-white"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {size}개씩 보기
+            </Link>
+          ))}
+        </div>
+        <nav aria-label="페이지 이동" className="flex flex-wrap items-center gap-1">
+          <Link
+            href={pageHref(Math.max(page - 1, 1), pageSize)}
+            aria-disabled={page <= 1}
+            className={`rounded-md border px-2.5 py-1 text-xs ${
+              page <= 1
+                ? "pointer-events-none border-slate-100 text-slate-300"
+                : "border-slate-300 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            이전
+          </Link>
+          {pageWindow.map((p, i) =>
+            p === "…" ? (
+              <span key={`ellipsis-${i}`} className="px-1 text-xs text-slate-400">
+                …
+              </span>
+            ) : (
+              <Link
+                key={p}
+                href={pageHref(p, pageSize)}
+                aria-current={p === page ? "page" : undefined}
+                className={`min-w-[2rem] rounded-md border px-2.5 py-1 text-center text-xs ${
+                  p === page
+                    ? "border-slate-900 bg-slate-900 font-medium text-white"
+                    : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {p}
+              </Link>
+            ),
+          )}
+          <Link
+            href={pageHref(Math.min(page + 1, totalPages), pageSize)}
+            aria-disabled={page >= totalPages}
+            className={`rounded-md border px-2.5 py-1 text-xs ${
+              page >= totalPages
+                ? "pointer-events-none border-slate-100 text-slate-300"
+                : "border-slate-300 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            다음
+          </Link>
+        </nav>
+      </div>
+    </div>
+  );
+}
+
+export async function ProjectListSection({ page, pageSize }: { page: number; pageSize: PageSize }) {
+  let projects: Awaited<ReturnType<typeof listProjectSummaries>>["projects"] = [];
+  let totalCount = 0;
   let loadError: string | null = null;
 
   try {
-    projects = await listProjectSummaries();
+    const result = await listProjectSummaries({ page, pageSize });
+    projects = result.projects;
+    totalCount = result.totalCount;
   } catch {
     loadError = "프로젝트 목록을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
   }
@@ -24,7 +128,7 @@ async function ProjectListSection() {
     );
   }
 
-  if (projects.length === 0) {
+  if (totalCount === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
         <p className="text-sm text-slate-600">아직 생성된 프로젝트가 없습니다.</p>
@@ -38,6 +142,15 @@ async function ProjectListSection() {
     );
   }
 
+  // 잘못된/범위를 벗어난 page(예: 마지막 페이지 데이터가 삭제된 경우)는 유효한 페이지로 안전하게
+  // 되돌린다. clampPageToTotal은 "더 큰 값"만 보정하므로 무한 리다이렉트 위험이 없다(보정된 page는
+  // 항상 1~totalPages 범위 안에 있고, 그 값으로 다시 조회하면 이 분기를 다시 타지 않는다).
+  const totalPages = computeTotalPages(totalCount, pageSize);
+  const clamped = clampPageToTotal(page, totalPages);
+  if (clamped.wasClamped) {
+    redirect(pageHref(clamped.page, pageSize));
+  }
+
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table className="w-full min-w-[720px] text-left text-sm">
@@ -48,7 +161,7 @@ async function ProjectListSection() {
             <th scope="col" className="px-4 py-3 font-medium">기준월</th>
             <th scope="col" className="px-4 py-3 font-medium">역할</th>
             <th scope="col" className="px-4 py-3 font-medium">선택 전략</th>
-            <th scope="col" className="px-4 py-3 font-medium">수정일</th>
+            <th scope="col" className="px-4 py-3 font-medium">생성일</th>
             <th scope="col" className="px-4 py-3 font-medium">상태</th>
           </tr>
         </thead>
@@ -75,7 +188,7 @@ async function ProjectListSection() {
                 </td>
                 <td className="px-4 py-3 text-slate-600">{labelForRole(p.role)}</td>
                 <td className="px-4 py-3 text-slate-600">{topStrategyName}</td>
-                <td className="px-4 py-3 text-slate-600">{formatDateTime(p.updatedAt)}</td>
+                <td className="px-4 py-3 text-slate-600">{formatDateTime(p.createdAt)}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
                     {PROJECT_STATUS_LABEL[p.status] ?? p.status}
@@ -86,11 +199,20 @@ async function ProjectListSection() {
           })}
         </tbody>
       </table>
+      <PaginationControls page={page} pageSize={pageSize} totalCount={totalCount} totalPages={totalPages} />
     </div>
   );
 }
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }>;
+}) {
+  const { page: pageParam, pageSize: pageSizeParam } = await searchParams;
+  const page = parsePage(pageParam);
+  const pageSize = parsePageSize(pageSizeParam);
+
   let freshness: Awaited<ReturnType<typeof getLatestDataFreshness>> = { baseYm: null, lastSyncedAt: null };
   let demoProject: Awaited<ReturnType<typeof getDemoProject>> = null;
   try {
@@ -155,7 +277,7 @@ export default async function HomePage() {
 
         <section className="mt-10">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">최근 프로젝트</h2>
-          <ProjectListSection />
+          <ProjectListSection page={page} pageSize={pageSize} />
         </section>
       </main>
     </>

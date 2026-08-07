@@ -319,6 +319,43 @@ export function computeRoleKpiNotes(role: UserRoleCode | undefined): KpiTemplate
   return [{ name: "상품 판매 전환율", method: "예약 채널별 문의 대비 실제 예약 완료 비율 추적" }];
 }
 
+export interface RoleRiskNote {
+  risk: string;
+  mitigation: string;
+}
+
+/** 역할별 위험 관점 추가(CURATED, 2026-08-08) — 템플릿 고유 위험(riskTemplates)·계절 위험은 그대로
+ * 두고, 역할마다 실제로 신경 쓰는 운영 리스크를 하나씩 더한다. 이전에는 위험 목록이 역할과 무관하게
+ * 완전히 동일했다(체크리스트/KPI는 이미 역할별로 갈리는데 위험만 갈리지 않는 비대칭이 있었음) — 지자체는
+ * 정책 보고 일정, 여행사는 예약 취소·노쇼로 인한 상품 운영 손실, 축제 기획자는 혼잡·안전 관리를
+ * 우선한다는 마스터 문서 6절 방향을 위험 관리 단계에도 동일하게 적용한다(computeRoleChecklistNotes/
+ * computeRoleKpiNotes와 같은 구조). */
+export function computeRoleRiskNotes(role: UserRoleCode | undefined): RoleRiskNote[] {
+  if (!role) return [];
+  if (role === "LOCAL_GOV") {
+    return [
+      {
+        risk: "정책 보고 시점과 실제 데이터 집계 시점이 어긋날 수 있음",
+        mitigation: "행정 보고 일정에 맞춰 지표 집계 시점을 사전에 조율한다.",
+      },
+    ];
+  }
+  if (role === "FESTIVAL_PLANNER") {
+    return [
+      {
+        risk: "행사 당일 집중 방문으로 인한 혼잡·안전 관리 부담 증가",
+        mitigation: "혼잡 예상 시간대에 안전요원과 동선 통제 계획을 사전에 배치한다.",
+      },
+    ];
+  }
+  return [
+    {
+      risk: "예약 취소·노쇼로 인한 상품 운영 손실 가능성",
+      mitigation: "예약 확정 정책과 취소 수수료 규정을 사전에 고지한다.",
+    },
+  ];
+}
+
 /** 국적별 KPI 관점 추가(CURATED) — 외국인 대상일 때만, 허위 방문객 수치 대신 측정 방법 자체를 KPI로
  * 제시한다(실측 데이터 없이 수치를 지어내지 않는다는 원칙 유지). */
 export function computeNationalityKpiNotes(nationality: NationalityCode | undefined): KpiTemplate[] {
