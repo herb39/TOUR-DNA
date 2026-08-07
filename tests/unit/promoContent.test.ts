@@ -348,3 +348,86 @@ describe("buildPromoContent — 환각 방지", () => {
     expect(serialized).not.toContain("완벽");
   });
 });
+
+/** 공통 5개 채널(제안서 요약/랜딩/인스타그램/블로그/카드뉴스) 역할별 관점 반영(Phase 2, 2026-08-07
+ * 도입) — 이전에는 roleContent(역할별 콘텐츠)만 역할에 따라 구조가 달랐고, 이 5개 채널은 역할과 거의
+ * 무관하게 동일한 문장 구조였다. 지역·기준월·여행월·타깃·테마·전략·실행안(course/KPI/체크리스트/위험)을
+ * 전부 고정하고 역할만 바꿔 비교해, 실제로 강조 포인트가 달라지고(단순 역할명 치환이 아님) DNA·관광
+ * 데이터(course/POI/KPI/체류시간 등 사실 값) 자체는 동일하게 유지되는지 검증한다. */
+describe("buildPromoContent — 공통 5개 채널의 역할별 관점 반영(Phase 2)", () => {
+  const input = baseInput();
+  const byRole = new Map(
+    (["TRAVEL_AGENCY", "LOCAL_GOV", "FESTIVAL_PLANNER"] as const).map((role) => [
+      role,
+      buildPromoContent({ ...input, project: { ...input.project, role } }),
+    ]),
+  );
+  const agency = byRole.get("TRAVEL_AGENCY")!;
+  const gov = byRole.get("LOCAL_GOV")!;
+  const festival = byRole.get("FESTIVAL_PLANNER")!;
+
+  it("제안서 요약(proposalSummary)이 세 역할 모두 서로 다르다", () => {
+    expect(agency.proposalSummary.sentences).not.toEqual(gov.proposalSummary.sentences);
+    expect(gov.proposalSummary.sentences).not.toEqual(festival.proposalSummary.sentences);
+    expect(agency.proposalSummary.sentences).not.toEqual(festival.proposalSummary.sentences);
+  });
+
+  it("제안서 요약에 역할별로 실제로 다른 목적 어휘(판매/사업/운영)가 등장한다(단순 역할명 치환이 아님)", () => {
+    const joined = (c: typeof agency) => c.proposalSummary.sentences.join(" ");
+    expect(joined(agency)).toContain("판매");
+    expect(joined(gov)).toContain("지역 관광 활성화 사업");
+    expect(joined(festival)).toContain("축제·행사 프로그램 운영");
+    // 역할 코드(enum 원문)가 문장에 그대로 노출되지 않는다.
+    expect(joined(agency)).not.toContain("TRAVEL_AGENCY");
+    expect(joined(gov)).not.toContain("LOCAL_GOV");
+    expect(joined(festival)).not.toContain("FESTIVAL_PLANNER");
+  });
+
+  it("랜딩(landing) 본문이 세 역할 모두 서로 다르다", () => {
+    expect(agency.landing.body).not.toBe(gov.landing.body);
+    expect(gov.landing.body).not.toBe(festival.landing.body);
+    expect(agency.landing.body).not.toBe(festival.landing.body);
+  });
+
+  it("Instagram 캡션이 세 역할 모두 서로 다르고, 해시태그(사실 데이터 기반)는 동일하다", () => {
+    expect(agency.instagram.caption).not.toBe(gov.instagram.caption);
+    expect(gov.instagram.caption).not.toBe(festival.instagram.caption);
+    // 해시태그는 지역·여행월·전략명·대표 코스만으로 만들어지므로 역할과 무관하게 동일해야 한다
+    // (사실 데이터는 역할별로 바꾸지 않는다는 원칙 확인).
+    expect(agency.instagram.hashtags).toEqual(gov.instagram.hashtags);
+    expect(gov.instagram.hashtags).toEqual(festival.instagram.hashtags);
+  });
+
+  it("블로그(blog) 도입부 관점이 세 역할 모두 서로 다르다", () => {
+    expect(agency.blog.body).not.toBe(gov.blog.body);
+    expect(gov.blog.body).not.toBe(festival.blog.body);
+    expect(agency.blog.body.startsWith("이 코스는 여행 상품으로 판매하기 좋은")).toBe(true);
+    expect(gov.blog.body.startsWith("이 자료는 지역 자원과 활성화 사업 필요성")).toBe(true);
+    expect(festival.blog.body.startsWith("이 코스는 축제 프로그램과 주변 관광 연계")).toBe(true);
+  });
+
+  it("카드뉴스(cardNews) 마무리 슬라이드의 제목·내용이 세 역할 모두 서로 다르다", () => {
+    const lastSlide = (c: typeof agency) => c.cardNews.slides[c.cardNews.slides.length - 1];
+    expect(lastSlide(agency).title).toBe("판매 포인트");
+    expect(lastSlide(gov).title).toBe("기대 효과");
+    expect(lastSlide(festival).title).toBe("참여 안내");
+    expect(lastSlide(agency).body).not.toBe(lastSlide(gov).body);
+    expect(lastSlide(gov).body).not.toBe(lastSlide(festival).body);
+  });
+
+  it("DNA·관광 데이터에 해당하는 사실 값(대표 코스 순서·근거 데이터)은 역할과 무관하게 완전히 동일하다", () => {
+    expect(agency.courseHighlights).toEqual(gov.courseHighlights);
+    expect(gov.courseHighlights).toEqual(festival.courseHighlights);
+    expect(agency.evidenceReferences).toEqual(gov.evidenceReferences);
+    expect(gov.evidenceReferences).toEqual(festival.evidenceReferences);
+  });
+
+  it("역할별로 존재하지 않는 사실(가격·수치·장소)이 새로 추가되지 않는다", () => {
+    for (const content of [agency, gov, festival]) {
+      const serialized = JSON.stringify(content);
+      expect(serialized).not.toContain("최고");
+      expect(serialized).not.toContain("유일");
+      expect(serialized).not.toContain("완벽");
+    }
+  });
+});

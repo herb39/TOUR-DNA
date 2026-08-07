@@ -1,5 +1,6 @@
 import type { CourseDay, MealPurpose } from "./planBuilder";
 import type { DataProvenance, EvidenceItem } from "./types";
+import type { UserRoleCode } from "./audienceContext";
 import { formatBaseYm, metricLabel } from "@/lib/format";
 import { labelForNationality } from "@/lib/validation/codes";
 
@@ -9,9 +10,21 @@ import { labelForNationality } from "@/lib/validation/codes";
  * 랜덤값을 전혀 쓰지 않는다 — 동일 입력은 항상 동일 결과를 낸다. 문구에 필요한 조사(은/는/이/가/을/를/
  * 으로)는 값의 받침에 따라 달라지므로, 변수 뒤에는 받침에 무관하게 항상 같은 형태인 조사(에서/의/등을)나
  * 라벨식 표기("데이터 근거: ...")만 붙인다 — 어색하거나 틀린 조사 조합을 만들지 않기 위함이다.
+ *
+ * Phase 2(2026-08-07): 이전에는 역할별 콘텐츠(roleContent)만 역할에 따라 구조가 달랐고, 공통 5개
+ * 채널(제안서 요약/랜딩/인스타그램/블로그/카드뉴스)은 역할과 거의 무관하게 동일한 문장 구조였다.
+ * `roleProposalPurposeClause`/`roleProposalFocusClause`/`roleLandingLeadIn`/`roleLandingClosingLine`/
+ * `roleInstagramHook`/`roleBlogAngle`/`roleCardNewsClosing` 헬퍼로 각 채널에 역할 관점(강조점·목적)을
+ * 하나씩 덧붙인다 — 기존 문장 구조·기존 데이터 조합 로직은 그대로 두고 role 분기 문구만 추가하는
+ * 최소 변경이다. 이 문구들은 [audienceContext.ts](./audienceContext.ts)의 `ROLE_GOAL_PRIORITY`·
+ * `computeRoleChecklistNotes`가 이미 정해둔 역할별 우선순위 방향(여행사=상품성·판매·체류소비,
+ * 지자체=지역경제·정책·계절분산, 축제 기획자=집객·계절분산·현장운영)과 어긋나지 않도록 같은 방향으로만
+ * 작성한다 — 역할 정의 자체(우선순위 표, 한글 라벨)는 audienceContext.ts를 그대로 재사용하고
+ * 새로 만들지 않는다.
  */
 
-export type PromoUserRole = "TRAVEL_AGENCY" | "LOCAL_GOV" | "FESTIVAL_PLANNER";
+/** 역할 코드 정의는 audienceContext.ts 하나만 둔다(중복 정의 방지) — 문자열 값은 동일하다. */
+export type PromoUserRole = UserRoleCode;
 export type PromoNationality = "DOMESTIC" | "FOREIGN";
 
 export const PROMO_CONTENT_VERSION = "promo-content-v1";
@@ -286,6 +299,64 @@ function formatEvidenceLine(ref: PromoEvidenceReference): string {
   return `${metricLabel(ref.metricCode)}: ${valuePart} (출처: ${ref.sourceCode}, 기준월 ${formatBaseYm(ref.baseYm)}${estimatedPart})`;
 }
 
+/** 제안서 요약 sentence1 끝에 붙는 역할별 목적 절(CURATED) — 여행사는 판매 가능한 상품 구성,
+ * 지자체는 지역 활성화 사업 추진, 축제 기획자는 행사 프로그램 운영을 목적으로 명시한다. 역할명을
+ * 문장에 끼워 넣는 대신(단순 치환 금지), 역할마다 실제로 다른 목적 어휘(판매/사업/운영)를 쓴다. */
+function roleProposalPurposeClause(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "지역 관광 활성화 사업 추진을 목표로 합니다.";
+  if (role === "FESTIVAL_PLANNER") return "축제·행사 프로그램 운영을 목표로 합니다.";
+  return "판매 가능한 여행 상품 구성을 목표로 합니다.";
+}
+
+/** 제안서 요약 sentence2에 붙는 역할별 강조 포인트(CURATED) — 같은 코스라도 여행사는 판매 시 강조할
+ * 매력, 지자체는 사업 추진 근거, 축제 기획자는 프로그램 구성 참고 동선으로 활용 방향이 다르다. */
+function roleProposalFocusClause(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "지역 자원 활용과 사업 추진 근거로 이 코스를 활용할 수 있습니다.";
+  if (role === "FESTIVAL_PLANNER") return "행사 프로그램 구성 시 이 코스를 참고 동선으로 활용할 수 있습니다.";
+  return "판매 시 이 코스를 핵심 매력으로 강조할 수 있습니다.";
+}
+
+/** 랜딩 본문 맨 앞에 붙는 역할별 도입 문장(CURATED) — 이 페이지를 누가, 어떤 목적으로 쓸지 먼저
+ * 밝힌다. */
+function roleLandingLeadIn(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "지역 활성화 사업으로 추진할 수 있도록 구성했습니다.";
+  if (role === "FESTIVAL_PLANNER") return "행사 프로그램 운영에 바로 활용할 수 있도록 구성했습니다.";
+  return "여행 상품으로 바로 제안할 수 있도록 구성했습니다.";
+}
+
+/** 랜딩 본문 맨 끝에 붙는 역할별 마무리 문장(CURATED, 가치 제안+안내) — 실제로 클릭 가능한 버튼이
+ * 아니라 서술형 안내 문장이라는 점을 분명히 하기 위해 "~을 확인해 주세요" 형태로 통일한다. */
+function roleLandingClosingLine(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "자세한 사업 내용은 아래 프로그램과 기대 효과를 확인해 주세요.";
+  if (role === "FESTIVAL_PLANNER") return "자세한 운영 계획은 아래 프로그램과 시간대 구성을 확인해 주세요.";
+  return "자세한 상품 구성은 아래 코스와 판매 포인트를 확인해 주세요.";
+}
+
+/** Instagram 캡션 맨 앞에 붙는 짧은 후킹 문구(CURATED) — 여행사는 소비자 친화적 소비 유도, 지자체는
+ * 기관 SNS에서도 어색하지 않은 정보형 안내, 축제 기획자는 참여·집객 유도로 톤을 구분한다. */
+function roleInstagramHook(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "지역 관광 활성화 소식입니다.";
+  if (role === "FESTIVAL_PLANNER") return "지금 참여할 수 있는 축제 소식입니다.";
+  return "여행 상품으로 바로 즐기는 코스입니다.";
+}
+
+/** 블로그 도입부에 붙는 역할별 관점 문장(CURATED) — 같은 코스·데이터를 소개하는 목적 자체가
+ * 판매/사업 설명/행사 소개로 다르다는 것을 첫 문장에서 밝힌다. */
+function roleBlogAngle(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "이 자료는 지역 자원과 활성화 사업 필요성을 중심으로 소개합니다.";
+  if (role === "FESTIVAL_PLANNER") return "이 코스는 축제 프로그램과 주변 관광 연계를 중심으로 소개합니다.";
+  return "이 코스는 여행 상품으로 판매하기 좋은 구성을 중심으로 소개합니다.";
+}
+
+/** 카드뉴스 마지막 슬라이드(마무리)의 역할별 제목과 도입 어구(CURATED) — 기존 closingBody(판매
+ * 포인트/KPI 등 이미 계산된 값)는 그대로 두고, 그 값을 어떤 관점으로 읽어야 하는지만 역할별로 다르게
+ * 붙인다(새 사실을 만들지 않는다). */
+function roleCardNewsClosing(role: PromoUserRole): { title: string; leadIn: string } {
+  if (role === "LOCAL_GOV") return { title: "기대 효과", leadIn: "사업 추진 시 기대 효과" };
+  if (role === "FESTIVAL_PLANNER") return { title: "참여 안내", leadIn: "참여 시 안내사항" };
+  return { title: "판매 포인트", leadIn: "판매 시 강조할 포인트" };
+}
+
 function buildProposalSummary(
   input: BuildPromoContentInput,
   highlightNames: string[],
@@ -306,12 +377,15 @@ function buildProposalSummary(
     `${project.travelYear}년 ${project.travelMonth}월`,
     nationalityPart,
     productNamePart,
+    roleProposalPurposeClause(project.role),
   ]);
 
-  const sentence2 =
+  const sentence2 = joinNonEmpty([
     highlightNames.length > 0
       ? `핵심 전략은 '${strategy.name}'이며, 대표 코스로 ${highlightNames.join(", ")} 등을 포함합니다.`
-      : `핵심 전략은 '${strategy.name}'이며, 현재 저장된 실행안 코스 정보를 기반으로 구성되었습니다.`;
+      : `핵심 전략은 '${strategy.name}'이며, 현재 저장된 실행안 코스 정보를 기반으로 구성되었습니다.`,
+    roleProposalFocusClause(project.role),
+  ]);
 
   const sentence3 =
     evidenceRefs.length > 0
@@ -331,11 +405,13 @@ function buildLanding(
   const title = `${project.regionName} ${strategy.name} 여행 코스`;
 
   const body = joinNonEmpty([
+    roleLandingLeadIn(project.role),
     plan.background,
     `핵심 타깃: ${plan.targetSummary}.`,
     highlightNames.length > 0 ? `대표 방문지: ${highlightNames.join(", ")} 등입니다.` : null,
     lunchName ? `점심은 ${lunchName}에서 즐길 수 있습니다.` : null,
     dinnerName ? `저녁은 ${dinnerName}에서 즐길 수 있습니다.` : null,
+    roleLandingClosingLine(project.role),
   ]);
 
   return { title, body };
@@ -347,6 +423,7 @@ function buildInstagram(
 ): InstagramContent {
   const { project, strategy } = input;
   const caption = joinNonEmpty([
+    roleInstagramHook(project.role),
     `${project.regionName} × ${strategy.name} 코스.`,
     highlightNames[0] ? `${highlightNames[0]}에서 시작하는 여행.` : null,
   ]);
@@ -367,7 +444,7 @@ function buildBlog(
     highlightNames.length > 0 ? `이번 코스는 ${highlightNames.join(", ")} 등을 둘러봅니다.` : null;
   const kpiPart = plan.kpis.length > 0 ? `${plan.kpis[0].name} 등의 성과 지표로 운영 효과를 확인할 계획입니다.` : null;
 
-  const body = joinNonEmpty([plan.conceptText, highlightPart, themesPart, kpiPart]);
+  const body = joinNonEmpty([roleBlogAngle(project.role), plan.conceptText, highlightPart, themesPart, kpiPart]);
 
   return { title, body };
 }
@@ -480,10 +557,11 @@ function buildCardNews(input: BuildPromoContentInput, highlights: PromoCourseHig
   for (const h of highlights.slice(0, 3)) {
     slides.push({ title: h.poiName, body: `${h.dayIndex}일차 ${h.timeSlot}` });
   }
-  const closingBody =
+  const closingFact =
     plan.sellingPoints.filter(isNonEmptyString)[0] ??
     (plan.kpis[0] ? `${plan.kpis[0].name} — ${plan.kpis[0].method}` : "자세한 내용은 실행안을 참고해 주세요.");
-  slides.push({ title: "핵심 포인트", body: closingBody });
+  const closing = roleCardNewsClosing(project.role);
+  slides.push({ title: closing.title, body: `${closing.leadIn}: ${closingFact}` });
   return { slides };
 }
 
