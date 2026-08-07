@@ -22,6 +22,7 @@
     "db:sync-data-sources": "tsx --env-file=.env.local scripts/sync-data-sources.ts",
     "db:generate": "prisma generate",
     "sync:tourism-data": "tsx --env-file=.env.local scripts/sync-tourism-data.ts",
+    "check:base-ym": "tsx --env-file=.env.local scripts/check-latest-base-ym.ts",
     "sync:visitor": "tsx --env-file=.env.local scripts/sync-visitor.ts",
     "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts",
     "verify:visitor-api": "tsx --env-file-if-exists=.env.local scripts/verify-visitor-api.ts",

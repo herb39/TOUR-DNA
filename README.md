@@ -115,7 +115,7 @@ http://localhost:3000 접속 → "데모 프로젝트 열기"로 대전 9월 시
 | `DATABASE_URL` | PostgreSQL 연결 문자열(Neon 권장, 풀링 연결) |
 | `DIRECT_URL` | 마이그레이션용 direct(non-pooled) 연결 문자열 |
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 공공데이터포털 서비스키. 비어 있으면 자동으로 스냅샷 모드로 동작 |
-| `TOUR_DATA_BASE_YM` | 분석에 사용할 기준월(YYYYMM). 기본값 `202606`. API가 최신월을 알려주지 않으므로 수동 유지보수 필요(운영자 체크리스트 참고) |
+| `TOUR_DATA_BASE_YM` | (선택) 분석·동기화에 사용할 기준월(YYYYMM)을 강제 지정. 비워두면 화면은 마지막으로 확인된 값(`DEFAULT_BASE_YM`, `202606`)을 표시용으로 쓰고, `sync:tourism-data`는 최신 공통월을 자동 탐색한다(운영자 체크리스트 참고) |
 | `NEXT_PUBLIC_KAKAO_MAP_KEY` | 카카오맵 JavaScript 키. 비어 있으면 좌표/주소 목록 fallback 사용 |
 | `NEXT_PUBLIC_APP_URL` | 배포 URL(운영 `https://tour-dna.lib.lc`, 로컬 `http://localhost:3000`) |
 | `DATA_MODE` | `live` \| `hybrid` \| `snapshot`. `snapshot`이면 라이브 호출을 완전히 생략 |
@@ -173,9 +173,16 @@ npm run db:sync-data-sources -- --dry-run # DB를 바꾸지 않고 CREATED/UPDAT
 ## 라이브 API 동기화
 
 ```bash
-npm run sync:tourism-data           # CLI (기본 baseYm = TOUR_DATA_BASE_YM)
-npm run sync:tourism-data 202510    # 특정 기준월 지정
+npm run check:base-ym                        # 최신 공통 기준월만 확인(DB 쓰기·전체 동기화 없음)
+npm run sync:tourism-data                    # 기준월 자동 결정(CLI 인자 → TOUR_DATA_BASE_YM → 자동 탐색)
+npm run sync:tourism-data -- --base-ym=202510  # 특정 기준월 지정(YYYYMM, 위치 인자 형식은 더 이상 지원하지 않음)
 ```
+
+기준월을 지정하지 않으면 `TAR_SVC_DEM`/`TOU_RES_DEM`이 공통으로 제공하는 최신월을 자동으로 찾는다(최근
+몇 개월만 역탐색, API 호출 한도를 아끼기 위해 무제한 탐색하지 않음). 공통월을 찾지 못하면 임의의 값을
+쓰지 않고 안내 메시지와 함께 종료한다 — 이때는 `npm run check:base-ym`으로 먼저 상태를 확인한 뒤
+`--base-ym=YYYYMM`으로 직접 지정한다. 잘못된 형식(`--base-ym=2026-06`, 알 수 없는 옵션 등)은 API
+호출·DB 쓰기 전에 즉시 거부된다. 세부 정책은 `docs/operator-checklist.md` 참고.
 
 또는 배포 환경에서:
 
@@ -353,9 +360,12 @@ npm run build
 - 문화자원수요(`AreaTarResDemService/areaCulResDemList`)·연관관광지 API는 base URL·오퍼레이션명 또는
   유효 코드값이 아직 미확인이다. 그 외(다양성·체류·소비·관광서비스수요·국문관광정보·방문자수)는 실제
   데이터로 확인됐다(docs/public-api-status.md).
-- `TOUR_DATA_BASE_YM`은 API가 자동으로 최신월을 알려주지 않아 수동으로 유지보수해야 한다 — 방치하면
-  실제로는 더 최신 데이터가 있는데도 오래된 기준월을 계속 쓰게 된다(2026-07-21에 9개월 밀려 있던 것을
-  발견해 202606으로 갱신함).
+- 화면 표시용 기본 기준월(`DEFAULT_BASE_YM`)은 API가 최신월을 알려주지 않아 여전히 수동으로
+  유지보수해야 한다 — 방치하면 실제로는 더 최신 데이터가 있는데도 오래된 기준월을 계속 쓰게 된다
+  (2026-07-21에 9개월 밀려 있던 것을 발견해 202606으로 갱신함). `sync:tourism-data` CLI는 2026-08-08부터
+  기준월을 지정하지 않으면 최신 공통월을 자동 탐색하므로 이 수동 유지보수 부담이 없다(`npm run
+  check:base-ym`으로 언제든 미리 확인 가능) — 다만 여러 화면의 표시용 기본값(`DEFAULT_BASE_YM`)까지
+  자동으로 갱신하지는 않는다.
 - `Region.apiSigunguCode`는 대전은 유성구(30200) 하나만 대표로 사용한다 — 다른 자치구 세분화는 P2.
   다만 `Region.name` 자체는 "대전광역시"라(제품명 등에 그대로 노출하기 위함), 시/군/구 드롭다운에서
   시/도와 완전히 같은 이름이 또 나와 오류처럼 보이는 문제가 있었다(2026-07-21). 드롭다운 라벨만

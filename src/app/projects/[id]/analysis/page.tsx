@@ -328,23 +328,19 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
           <p className="text-sm font-semibold text-slate-900">
-            {project.region.name}은(는){" "}
+            {project.region.name}의 강점은{" "}
             {topAxes[0] ? (
-              <>
-                <span className="text-emerald-700">{topAxes[0].label}</span>이 강점
-              </>
+              <span className="text-emerald-700">{topAxes[0].label}</span>
             ) : (
-              "강점을 특정할 데이터가 부족"
+              "특정할 데이터 부족"
             )}
-            이고,{" "}
+            이며,{" "}
             {bottomAxes[0] ? (
-              <>
-                <span className="text-amber-700">{bottomAxes[0].label}</span> 개선이 필요
-              </>
+              <span className="text-amber-700">{bottomAxes[0].label}</span>
             ) : (
-              "개선점을 특정할 데이터가 부족"
+              "특정할 데이터 부족"
             )}
-            합니다.
+            {" "}개선이 필요합니다.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {topAxes.map((a) => (
