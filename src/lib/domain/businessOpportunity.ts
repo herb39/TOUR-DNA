@@ -64,10 +64,12 @@ export interface BusinessOpportunityAnalysis {
   items: OpportunityItem[]; // 0~3개
   /** 유효한 후보가 3개 미만일 때만 채워지는 사유 설명. 3개 모두 확보되면 null. */
   note: string | null;
-  /** 이 결과를 만든 규칙 버전(OPPORTUNITY_RULE_VERSION과 동일) — 화면에 "CURATED 규칙" 표시와 함께 노출한다. */
+  /** 이 결과를 만든 규칙 버전(OPPORTUNITY_RULE_VERSION과 동일) — 화면에는 원문 노출 없이 "정제 규칙
+   * 적용" 배지로만 표시한다(2026-08-07, 내부 식별자 노출 정리). */
   ruleVersion: string;
   /** 모든 기회 카드에 공통으로 붙는 한계 안내(OPPORTUNITY_LIMITATION_SUFFIX와 동일 문구) — 카드마다
-   * 반복하지 않고 섹션에 한 번만 표시한다(2026-08-06). items가 비어 있으면 표시할 대상이 없어 null. */
+   * 반복하지 않고 섹션에 한 번만 표시한다(2026-08-06, 2026-08-07부터 페이지 전체 통합 섹션 1곳에만
+   * 표시). items가 비어 있으면 표시할 대상이 없어 null. */
   commonLimitationNote: string | null;
 }
 
@@ -111,7 +113,7 @@ function topStrengthText(scored: AxisScoreInput[]): string {
 }
 
 const OPPORTUNITY_LIMITATION_SUFFIX =
-  "이 기회는 공공데이터 기반 상대 비교와 기획 규칙(CURATED)으로 도출한 가설이며, 실제 사업성(수요조사·투자 대비 효과)은 별도 검증이 필요합니다.";
+  "이 기회는 공공데이터 기반 상대 비교와 기획 규칙으로 도출한 가설이며, 실제 사업성(수요조사·투자 대비 효과)은 별도 검증이 필요합니다.";
 
 // ── 1. 취약축 보완형 ────────────────────────────────────────────────
 
@@ -235,15 +237,15 @@ function buildSeasonalityGapOpportunity(
     category: "SEASONALITY_GAP",
     title: isOffPeak ? "비수기 수요 분산 기회" : "성수기 수용력 활용 기회",
     problem: isOffPeak
-      ? `입력한 여행월(${travelMonth}월)은 국내 관광에서 일반적으로 비수기로 분류되는 시기임(전국 통계 기반 CURATED 규칙이며 ${regionName}의 실제 월별 방문자 데이터로 확인된 것은 아님) — 이 시기 ${regionName}의 수요 확보 전략이 필요할 수 있음.`
-      : `입력한 여행월(${travelMonth}월)은 국내 관광에서 일반적으로 성수기로 분류되는 시기임(전국 통계 기반 CURATED 규칙이며 ${regionName}의 실제 월별 방문자 데이터로 확인된 것은 아님) — 이 시기 ${regionName}의 수용력·객단가 관리가 필요할 수 있음.`,
+      ? `입력한 여행월(${travelMonth}월)은 국내 관광에서 일반적으로 비수기로 분류되는 시기임(전국 통계 기반 일반적 경향이며 ${regionName}의 실제 월별 방문자 데이터로 확인된 것은 아님) — 이 시기 ${regionName}의 수요 확보 전략이 필요할 수 있음.`
+      : `입력한 여행월(${travelMonth}월)은 국내 관광에서 일반적으로 성수기로 분류되는 시기임(전국 통계 기반 일반적 경향이며 ${regionName}의 실제 월별 방문자 데이터로 확인된 것은 아님) — 이 시기 ${regionName}의 수용력·객단가 관리가 필요할 수 있음.`,
     strengthsToLeverage: topStrengthText(axisScores),
     targetAudience,
     timing: `${travelMonth}월(${isOffPeak ? "비수기" : "성수기"}) 및 전후 시기`,
     direction,
     evidence: [`입력 조건의 여행월: ${travelMonth}월(${isOffPeak ? "비수기로 분류" : "성수기로 분류"}, 기획 규칙 기준)`],
-    limitations: `이 시기 구분은 일반적으로 알려진 경향(CURATED 기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다. ${OPPORTUNITY_LIMITATION_SUFFIX}`,
-    uniqueLimitationNote: `이 시기 구분은 일반적으로 알려진 경향(CURATED 기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다.`,
+    limitations: `이 시기 구분은 일반적으로 알려진 경향(기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다. ${OPPORTUNITY_LIMITATION_SUFFIX}`,
+    uniqueLimitationNote: `이 시기 구분은 일반적으로 알려진 경향(기획 규칙)이며, ${regionName}의 실제 월별 방문자 데이터로 재검증이 필요합니다.`,
     score: isOffPeak ? 65 : 40,
   };
 }

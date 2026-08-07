@@ -55,8 +55,9 @@ export function OpportunityCard({ opportunity, rank }: { opportunity: Opportunit
       </div>
 
       {opportunity.uniqueLimitationNote ? (
+        // "한계 및 추가 확인사항" 라벨은 페이지 하단 통합 섹션에만 쓴다(2026-08-07) — 카드마다 같은
+        // 라벨을 반복하지 않고, 이 기회에만 해당하는 참고 문구만 짧게 보여준다.
         <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-          <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
           {opportunity.uniqueLimitationNote}
         </p>
       ) : null}

@@ -62,3 +62,37 @@ describe("DNA 분석 화면 — 내부 개발용 규칙 버전 문자열 미노�
     expect(source).not.toMatch(/\{[a-zA-Z.]*[Rr]uleVersion\}/);
   });
 });
+
+/** 전략 비교 화면 정보 위계 개선(2026-08-07) — "5초 안에 3안 차이를 이해한다"는 목표에 맞춰 반복
+ * 면책 문구를 통합하고, CURATED·roleFit 같은 내부 식별자를 사용자 화면에서 제거했는지 확인한다. */
+describe("전략 비교 화면 — 반복 면책 문구 통합", () => {
+  it("유사지역 비교·관광사업 기회 섹션에는 더 이상 '한계 및 추가 확인사항'을 각각 표시하지 않는다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    const occurrences = source.match(/한계 및 추가 확인사항/g) ?? [];
+    // 통합 섹션(데이터 기준 및 확인사항) 1곳에서만 이 라벨을 쓴다.
+    expect(occurrences.length).toBe(1);
+  });
+
+  it("'데이터 기준 및 확인사항'이라는 통합 섹션이 존재한다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).toContain("데이터 기준 및 확인사항");
+  });
+});
+
+describe("전략 비교 화면 — CURATED·roleFit 등 내부 식별자 미노출", () => {
+  const STRATEGY_COMPARISON_TABLE = "src/components/strategy/StrategyComparisonTable.tsx";
+  const BUSINESS_OPPORTUNITY = "src/lib/domain/businessOpportunity.ts";
+  const REGION_SIMILARITY = "src/lib/domain/regionSimilarity.ts";
+
+  it("전략 비교표 각주에 'roleFit 공식과 동일' 같은 내부 공식 설명이 더 이상 없다", () => {
+    const source = readSource(STRATEGY_COMPARISON_TABLE);
+    expect(source).not.toContain("roleFit 공식과 동일");
+    expect(source).toContain("업무 목적과의 적합성");
+  });
+
+  it("관광사업 기회·유사지역 비교 사용자 문구에 'CURATED' 원문이 더 이상 없다", () => {
+    expect(readSource(BUSINESS_OPPORTUNITY)).not.toContain("CURATED 규칙");
+    expect(readSource(BUSINESS_OPPORTUNITY)).not.toContain("(CURATED)");
+    expect(readSource(REGION_SIMILARITY)).not.toContain("CURATED 규칙");
+  });
+});

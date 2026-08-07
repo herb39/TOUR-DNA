@@ -85,9 +85,13 @@ export function StrategyCard({
       className={`flex flex-col rounded-lg border bg-white p-5 ${isSelected ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
     >
       <div className="flex items-center justify-between">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-          {strategy.rank}순위
-        </span>
+        {strategy.rank === 1 ? (
+          <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-medium text-white">추천 1순위</span>
+        ) : (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+            대안 {strategy.rank}
+          </span>
+        )}
         <span className="text-lg font-bold text-slate-900">{strategy.totalScore}점</span>
       </div>
       <h3 className="mt-2 text-base font-semibold text-slate-900">{strategy.name}</h3>
@@ -112,7 +116,7 @@ export function StrategyCard({
         </ul>
         {strategy.reasons.length > 2 ? (
           <p className="mt-1 text-[11px] text-slate-400">
-            그 외 {strategy.reasons.length - 2}개는 아래 &quot;점수 세부·소비 접점·위험 보기&quot;에서 확인할 수 있습니다.
+            그 외 {strategy.reasons.length - 2}개는 아래 상세 근거에서 확인할 수 있습니다.
           </p>
         ) : null}
       </div>

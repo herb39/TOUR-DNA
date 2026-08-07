@@ -24,22 +24,24 @@ function opportunity(overrides: Partial<OpportunityItem> = {}): OpportunityItem 
 }
 
 /** 모든 기회 카드에 동일하게 반복되는 공공데이터 한계·검증 안내는 섹션에 한 번만 표시하도록 옮겼다
- * (2026-08-06) — 기회별로 다른 한계(uniqueLimitationNote)만 카드에 남긴다. */
+ * (2026-08-06) — 기회별로 다른 한계(uniqueLimitationNote)만 카드에 남긴다. "한계 및 추가
+ * 확인사항" 라벨 자체는 페이지 하단 통합 섹션에만 두고, 카드에는 라벨 없이 문구만 짧게 표시한다
+ * (2026-08-07, 라벨 반복 제거). */
 describe("OpportunityCard — 반복 안내문 통합", () => {
-  it("uniqueLimitationNote가 없으면(공통 안내뿐이면) 카드에 한계 문단을 표시하지 않는다", () => {
+  it("uniqueLimitationNote가 없으면 카드에 한계 관련 문구를 전혀 표시하지 않는다", () => {
     render(<OpportunityCard opportunity={opportunity()} rank={1} />);
-    expect(screen.queryByText("한계 및 추가 확인사항:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/실시간이 아닌 최근 확보 데이터/)).not.toBeInTheDocument();
   });
 
-  it("uniqueLimitationNote가 있으면 그 문구만 카드에 표시한다(공통 안내 문구는 표시하지 않음)", () => {
+  it("uniqueLimitationNote가 있으면 라벨 없이 그 문구만 카드에 표시한다(공통 안내 문구는 표시하지 않음)", () => {
     render(
       <OpportunityCard
         opportunity={opportunity({ uniqueLimitationNote: "이 축은 실시간이 아닌 최근 확보 데이터를 사용해 계산됐습니다." })}
         rank={1}
       />,
     );
-    expect(screen.getByText("한계 및 추가 확인사항:")).toBeInTheDocument();
     expect(screen.getByText("이 축은 실시간이 아닌 최근 확보 데이터를 사용해 계산됐습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("한계 및 추가 확인사항:")).not.toBeInTheDocument();
     expect(screen.queryByText(/CURATED\)으로 도출한 가설/)).not.toBeInTheDocument();
   });
 

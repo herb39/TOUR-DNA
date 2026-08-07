@@ -69,6 +69,21 @@ describe("StrategyCard — 비교표 중복 정보 제거", () => {
   });
 });
 
+/** 5초 이해 UX 개선(2026-08-07) — 1순위 전략은 즉시 식별 가능해야 하고, 2·3순위는 실패한 전략처럼
+ * 보이면 안 된다("대안"으로 표현). */
+describe("StrategyCard — 추천 1순위 강조", () => {
+  it("1순위 전략에는 '추천 1순위' 배지가 표시된다", () => {
+    render(<StrategyCard strategy={strategy({ rank: 1 })} isSelected={false} onSelect={vi.fn()} />);
+    expect(screen.getByText("추천 1순위")).toBeInTheDocument();
+  });
+
+  it("2·3순위 전략에는 '대안 N' 배지가 표시되고 '순위'라는 표현은 쓰지 않는다", () => {
+    render(<StrategyCard strategy={strategy({ rank: 2 })} isSelected={false} onSelect={vi.fn()} />);
+    expect(screen.getByText("대안 2")).toBeInTheDocument();
+    expect(screen.queryByText(/2순위/)).not.toBeInTheDocument();
+  });
+});
+
 /** 정보 위계 개선(2026-08-08) — 기본 화면에서 추천 이유(최대 2개)·예상 효과·주요 위험 1개가 바로
  * 보여야 사용자가 펼치지 않고도 전략을 비교할 수 있다. */
 describe("StrategyCard — 정보 위계 개선(예상 효과·주요 위험 기본 노출)", () => {

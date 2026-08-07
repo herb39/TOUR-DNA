@@ -442,8 +442,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </div>
           </dl>
           <p className="mt-3 text-xs text-slate-400">
-            ※ 역할·국적·테마·여행월은 지역의 객관적 관광 DNA(수요 적합도/공급 적합도)를 바꾸지 않고,
-            역할 적합도·타깃 적합도·운영 적합도·시즌 적합도와 추천 근거·실행안에만 반영됩니다.
+            ※ 선택한 역할·타깃·여행 시기를 반영해 추천 전략과 실행안을 조정했습니다.
           </p>
         </section>
 
@@ -559,12 +558,6 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           {regionComparisonAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
           ) : null}
-          {regionComparisonAnalysis.commonLimitationNote ? (
-            <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-              <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
-              {regionComparisonAnalysis.commonLimitationNote}
-            </p>
-          ) : null}
         </section>
 
         <details className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
@@ -609,11 +602,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               정제 규칙 적용
             </span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            지역의 취약점·강점, 여행 시기, 타깃·테마, 관광지 공급을 조합해 지금 검토할 가치가 있는 사업
-            기회를 근거와 함께 제시합니다. 아래 전략 3안과 달리 선택·저장하지 않으며, 실제 사업성은
-            별도 검증이 필요합니다.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
           {usingLivePoiFallback ? (
             <p className="mt-1 text-xs text-slate-400">
               ※ 이 분석은 공급 격차 스냅샷 도입 이전에 생성돼 현재 시점의 지역 POI 공급량을 대신
@@ -634,12 +623,6 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           {opportunityAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
           ) : null}
-          {opportunityAnalysis.commonLimitationNote ? (
-            <p className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2 text-[11px] text-slate-500">
-              <span className="font-medium text-slate-600">한계 및 추가 확인사항: </span>
-              {opportunityAnalysis.commonLimitationNote}
-            </p>
-          ) : null}
         </section>
 
         <section id="strategies" className="mt-8 scroll-mt-6">
@@ -653,8 +636,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과·주요 위험·적합 역할을 한 화면에서
-            비교합니다. 각 항목의 세부 근거는 아래 전략 카드에서 확인할 수 있습니다.
+            핵심 방향·기대 효과·난이도·위험을 비교해 1순위 전략을 확인하세요.
           </p>
           <div className="mt-3">
             <StrategyComparisonTable rows={strategyComparisonRows} />
@@ -685,6 +667,35 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <MapOrFallback pois={mapPois} kakaoKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} />
           </div>
         </section>
+
+        {/* 유사지역 비교·관광사업 기회 각 섹션에 반복되던 "한계 및 추가 확인사항"을 여기 한 곳으로
+         * 통합한다(2026-08-07) — 삭제가 아니라 위치 이동이며, 문구 자체도 유지한다. 화면이 계속
+         * 스스로 결과를 부정하는 인상을 주지 않도록 접힌 상세 영역에 한 번만 정리해서 둔다. */}
+        {(regionComparisonAnalysis.commonLimitationNote || opportunityAnalysis.commonLimitationNote) ? (
+          <details className="mt-8 rounded-lg border border-slate-200 bg-white p-4">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+              데이터 기준 및 확인사항
+            </summary>
+            <div className="mt-3 space-y-2 text-xs text-slate-600">
+              <p>
+                추천 결과는 공공데이터와 분석 기준을 활용한 사업 검토 자료입니다. 실제 추진 전 현장
+                여건과 사업성을 함께 확인해 주세요.
+              </p>
+              {regionComparisonAnalysis.commonLimitationNote ? (
+                <p>
+                  <span className="font-medium text-slate-700">유사지역 비교: </span>
+                  {regionComparisonAnalysis.commonLimitationNote}
+                </p>
+              ) : null}
+              {opportunityAnalysis.commonLimitationNote ? (
+                <p>
+                  <span className="font-medium text-slate-700">관광사업 기회: </span>
+                  {opportunityAnalysis.commonLimitationNote}
+                </p>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
 
         <div className="mt-8 text-xs text-slate-400">
           분석 생성일 {formatDateTime(analysisResult.createdAt)} ·{" "}
