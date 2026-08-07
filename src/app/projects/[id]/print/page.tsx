@@ -34,7 +34,6 @@ import {
   describeMissingStrategyField,
   EXECUTION_DIFFICULTY_LABEL_KO,
   formatRoleFitRanking,
-  STRATEGY_RESOURCE_PLAN_RULE_VERSION,
 } from "@/lib/domain/strategyResourcePlan";
 
 export const dynamic = "force-dynamic";
@@ -266,8 +265,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold">
             유사지역 비교(요약){" "}
             <span className="text-[10px] font-normal text-slate-400">
-              (CURATED 규칙 · {regionComparisonAnalysis.ruleVersion} · 현재 지원 지역 데이터 기준,
-              기준월 {regionComparisonAnalysis.comparisonBaseYm})
+              (정제 규칙 적용 · 현재 지원 지역 데이터 기준, 기준월 {regionComparisonAnalysis.comparisonBaseYm})
             </span>
           </h2>
           {analysisBaseYmMismatchNote ? (
@@ -292,9 +290,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <section className="mt-4">
           <h2 className="text-sm font-semibold">
             관광사업 기회 3안(요약){" "}
-            <span className="text-[10px] font-normal text-slate-400">
-              (CURATED 규칙 · {opportunityAnalysis.ruleVersion})
-            </span>
+            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
           </h2>
           <ul className="mt-1 space-y-1.5">
             {opportunityAnalysis.items.map((o) => (
@@ -312,9 +308,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <section className="mt-4 border-t border-slate-300 pt-3">
           <h2 className="text-sm font-semibold">
             사업 사전검증 리포트{" "}
-            <span className="text-[10px] font-normal text-slate-400">
-              (CURATED 규칙 · {preLaunchValidation.ruleVersion})
-            </span>
+            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
           </h2>
           <p className="mt-1 text-xs font-bold text-slate-900">
             추진 권고: {preLaunchValidation.recommendationLabel}
@@ -358,9 +352,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <section className="mt-4 border-t border-slate-300 pt-3">
           <h2 className="text-sm font-semibold">
             전략 3안 비교{" "}
-            <span className="text-[10px] font-normal text-slate-400">
-              (CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION})
-            </span>
+            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
           </h2>
           <div className="mt-1.5 grid grid-cols-3 gap-2">
             {strategyComparisonRows.map((row) => (
@@ -442,9 +434,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
             <div>
               <h3 className="text-xs font-semibold text-slate-700">
                 예상 예산 항목{" "}
-                <span className="text-[10px] font-normal text-slate-400">
-                  (CURATED 규칙 · {STRATEGY_RESOURCE_PLAN_RULE_VERSION})
-                </span>
+                <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
               </h3>
               <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600">
                 {selectedStrategyBudgetItems.map((item) => (
@@ -704,13 +694,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         </section>
       ) : null}
 
-      <footer className="mt-6 flex justify-between border-t border-slate-300 pt-2 text-[10px] text-slate-400">
+      <footer className="mt-6 border-t border-slate-300 pt-2 text-[10px] text-slate-400">
         <span>
           생성일 {formatDateTime(new Date())} · 분석 기준월{" "}
           {baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}
           {baseYmSummary.mixed ? `(지표별 기준월 상이: ${baseYmSummary.all.map(formatBaseYm).join(", ")})` : ""}
         </span>
-        <span>모델 버전 {analysisResult.modelVersion}</span>
       </footer>
     </div>
   );

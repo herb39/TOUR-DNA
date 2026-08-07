@@ -39,7 +39,7 @@ import { AXIS_LABEL_KO, type DataProvenance, type DnaAxisKey } from "./types";
  *   포함한다"는 노후도 참고 문구를 판정 이유에 별도로 덧붙인다(요구사항 4 — 게이팅에는 영향 없는
  *   순수 정보성 신호).
  * - 판정 이유 문구에는 항상 "어떤 축이 어떤 provenance 때문에" 그 등급이 됐는지 구체적으로 적는다
- *   (요구사항 5) — 예: "수요(Demand)(추정값(ESTIMATED) 근거 포함)".
+ *   (요구사항 5) — 예: "수요(Demand)(추정값 근거 포함)".
  *
  * ## 추진 권고 판정 원칙(단일 점수 평균을 쓰지 않는다)
  * - 4가지 신호 중 하나라도 BLOCKER면, 나머지가 전부 좋아도 무조건 "보완 후 재검토"다(치명적 조건
@@ -81,7 +81,7 @@ export type AxisReliabilityTier = "TRUSTED" | "ESTIMATED" | "UNCLASSIFIED" | "MI
 const AXIS_TIER_REASON_KO: Record<AxisReliabilityTier, string> = {
   TRUSTED: "", // CAUTION 문구 조립에는 쓰이지 않는다(OK 축은 별도 사유를 표시하지 않음).
   MISSING: "데이터 자체가 없음",
-  ESTIMATED: "추정값(ESTIMATED) 근거 포함",
+  ESTIMATED: "추정값 근거 포함",
   UNCLASSIFIED: "출처 판정 정보가 없는 근거 포함",
 };
 
@@ -149,7 +149,7 @@ const TRAVEL_NOTICE_BLOCKER_THRESHOLD = 3;
 const MISSING_AXIS_BLOCKER_THRESHOLD = 2;
 
 const CRITERIA_TEXT =
-  "이 판정은 이미 계산된 DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인만 사용하는 결정론적 규칙(CURATED)입니다. " +
+  "이 판정은 이미 계산된 DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인만 사용하는 정해진 규칙입니다. " +
   "외부 시장조사·실제 수요 데이터는 포함되지 않으며, 네 항목 중 하나라도 치명적 문제가 있으면 다른 항목 점수가 높아도 " +
   "'보완 후 재검토'로 판단합니다(단일 평균 점수로 결론 내리지 않음).";
 
@@ -177,7 +177,7 @@ function evaluateDataReliability(
   // 노후도 참고 문구(요구사항 4) — 등급(OK/CAUTION/BLOCKER) 자체에는 영향을 주지 않는 별도 정보성 신호.
   const staleNote =
     cachedAxes.length > 0
-      ? ` (참고: ${cachedAxes.map((c) => AXIS_LABEL_KO[c.axis]).join(", ")} 축은 재사용된 이전 API 응답(CACHED_API, 노후 데이터)을 포함하지만 확인된 실제 데이터로 취급합니다.)`
+      ? ` (참고: ${cachedAxes.map((c) => AXIS_LABEL_KO[c.axis]).join(", ")} 축은 재사용된 이전 API 응답(노후 데이터)을 포함하지만 확인된 실제 데이터로 취급합니다.)`
       : "";
 
   if (missing.length >= MISSING_AXIS_BLOCKER_THRESHOLD) {
@@ -204,7 +204,7 @@ function evaluateDataReliability(
     return {
       signal: {
         status: "OK",
-        detail: `DNA 5축 모두 실시간 또는 검증된(LIVE_API/CACHED_API/CURATED) 데이터를 사용했습니다.${staleNote}`,
+        detail: `DNA 5축 모두 실시간 또는 검증된 데이터를 사용했습니다.${staleNote}`,
       },
       flaggedAxes: [],
     };

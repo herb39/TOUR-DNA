@@ -107,8 +107,7 @@ export interface RegionComparisonAnalysis {
   ruleVersion: string;
 }
 
-const LIMITATION_SUFFIX =
-  "이 비교는 공공데이터 기반 상대 비교이며, 실제 방문객 체감이나 시장 데이터와 다를 수 있습니다.";
+const LIMITATION_SUFFIX = "관광지 등록 현황 등 공공데이터를 기준으로 한 상대 비교입니다.";
 
 interface AxisDistanceResult {
   distance: number;

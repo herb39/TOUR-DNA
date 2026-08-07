@@ -76,6 +76,17 @@ export function travelSourceLabel(source: "LIVE_API" | "CACHED_API" | "ESTIMATED
   return TRAVEL_SOURCE_LABEL_KO[source ?? "ESTIMATED"];
 }
 
+/** AdminLevel(SIDO/SIGUNGU) → 사용자용 한글 라벨. 근거 테이블의 "행정단위" 열이 enum 원문을 그대로
+ * 보여주던 것을 바로잡는다(2026-08-08). */
+export const ADMIN_LEVEL_LABEL_KO: Record<"SIDO" | "SIGUNGU", string> = {
+  SIDO: "시도",
+  SIGUNGU: "시군구",
+};
+
+export function adminLevelLabel(adminLevel: string): string {
+  return ADMIN_LEVEL_LABEL_KO[adminLevel as "SIDO" | "SIGUNGU"] ?? adminLevel;
+}
+
 export function formatBaseYm(baseYm: string | null | undefined): string {
   if (!baseYm || baseYm.length !== 6) return "-";
   return `${baseYm.slice(0, 4)}년 ${Number(baseYm.slice(4, 6))}월`;

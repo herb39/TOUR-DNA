@@ -96,3 +96,48 @@ describe("전략 비교 화면 — CURATED·roleFit 등 내부 식별자 미노�
     expect(readSource(REGION_SIMILARITY)).not.toContain("CURATED 규칙");
   });
 });
+
+/** 사용자 화면 내부 기술정보 노출 마감(2026-08-07) — LIVE/HYBRID/SNAPSHOT 같은 데이터 상태 enum,
+ * 데이터·모델 버전, 해시, 내부 규칙 버전 문자열이 분석·홍보자료 화면에 그대로 출력되지 않는지 정적으로
+ * 확인한다. 산식(dna.ts의 overallDataMode 판정 등)은 그대로 두고 표시 문구만 확인 대상이다. */
+describe("사용자 화면 — 내부 기술정보(데이터 상태·버전·해시) 미노출", () => {
+  const PRINT_PAGE = "src/app/projects/[id]/print/page.tsx";
+
+  it("분석 화면이 overallDataMode(LIVE/HYBRID/SNAPSHOT) enum 원문을 그대로 보간해 출력하지 않는다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).not.toMatch(/\{analysisResult\.overallDataMode\}/);
+    expect(source).toContain("describeOverallDataMode(analysisResult.overallDataMode");
+  });
+
+  it("분석 화면에 데이터 버전(해시)·모델 버전 원문이 더 이상 노출되지 않는다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).not.toMatch(/\{analysisResult\.dataVersion\}/);
+    expect(source).not.toMatch(/\{analysisResult\.modelVersion\}/);
+  });
+
+  it("분석 화면에는 데이터 기준월 정보가 여전히 표시된다(투명성 유지)", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source).toContain("분석 기준월");
+  });
+
+  it("홍보자료(인쇄) 화면에 'CURATED 규칙'·원문 규칙 버전·모델 버전이 더 이상 노출되지 않는다", () => {
+    const source = readSource(PRINT_PAGE);
+    expect(source).not.toContain("CURATED 규칙");
+    expect(source).not.toMatch(/RULE_VERSION\}/);
+    expect(source).not.toMatch(/\{analysisResult\.modelVersion\}/);
+    expect(source).toContain("정제 규칙 적용");
+  });
+
+  it("홍보자료(인쇄) 화면에도 분석 기준월 정보는 유지된다", () => {
+    const source = readSource(PRINT_PAGE);
+    expect(source).toContain("분석 기준월");
+  });
+
+  it("사업 사전검증 리포트 문구에 LIVE_API/CACHED_API/CURATED/ESTIMATED enum 원문이 더 이상 없다", () => {
+    const source = readSource("src/lib/domain/preLaunchValidation.ts");
+    expect(source).not.toMatch(/CACHED_API, 노후 데이터/);
+    expect(source).not.toMatch(/실시간 또는 검증된\(LIVE_API/);
+    expect(source).not.toMatch(/추정값\(ESTIMATED\)/);
+    expect(source).not.toMatch(/결정론적 규칙\(CURATED\)/);
+  });
+});

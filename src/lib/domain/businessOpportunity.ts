@@ -112,8 +112,7 @@ function topStrengthText(scored: AxisScoreInput[]): string {
   return `${AXIS_LABEL_KO[top.axis]} 축(${top.score}점)이 비교군 내 상대적 강점으로 확인됨`;
 }
 
-const OPPORTUNITY_LIMITATION_SUFFIX =
-  "이 기회는 공공데이터 기반 상대 비교와 기획 규칙으로 도출한 가설이며, 실제 사업성(수요조사·투자 대비 효과)은 별도 검증이 필요합니다.";
+const OPPORTUNITY_LIMITATION_SUFFIX = "공공데이터 비교와 기획 규칙을 바탕으로 도출한 사업 아이디어입니다.";
 
 // ── 1. 취약축 보완형 ────────────────────────────────────────────────
 

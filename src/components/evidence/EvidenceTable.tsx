@@ -1,5 +1,5 @@
 import type { DataProvenance } from "@/lib/domain/types";
-import { formatBaseYm, formatDateTime, metricLabel, provenanceLabel, sourceLabel } from "@/lib/format";
+import { adminLevelLabel, formatBaseYm, formatDateTime, metricLabel, provenanceLabel, sourceLabel } from "@/lib/format";
 
 export interface EvidenceRow {
   metricCode: string;
@@ -53,7 +53,7 @@ export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
               <td className="py-1.5 pr-3">{e.rawValue}</td>
               <td className="py-1.5 pr-3">{e.normalizedValue ?? "-"}</td>
               <td className="py-1.5 pr-3">{e.unit}</td>
-              <td className="py-1.5 pr-3">{e.adminLevel}</td>
+              <td className="py-1.5 pr-3">{adminLevelLabel(e.adminLevel)}</td>
               <td className="py-1.5 pr-3">{formatBaseYm(e.baseYm)}</td>
               <td className="py-1.5 pr-3">{sourceLabel(e.sourceCode)}</td>
               <td className="py-1.5 pr-3">{formatDateTime(e.collectedAt)}</td>

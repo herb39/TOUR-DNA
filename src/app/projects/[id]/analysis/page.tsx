@@ -49,6 +49,15 @@ export const dynamic = "force-dynamic";
 
 const AXIS_ORDER: DnaAxisKey[] = ["demand", "stay", "spend", "diversity", "network"];
 
+/** overallDataMode(LIVE/HYBRID/SNAPSHOT) enum 원문을 화면에 그대로 노출하지 않고, 사용자가 실제로
+ *궁금한 "지금 몇 개 축이 최신 데이터인지"만 자연스러운 한국어로 알려준다(2026-08-07). 산식(dna.ts의
+ * overallDataMode 판정)은 그대로 두고 표시 문구만 바꾼다. */
+function describeOverallDataMode(mode: "LIVE" | "HYBRID" | "SNAPSHOT", liveAxisCount: number): string {
+  if (mode === "LIVE") return "5개 축 모두 최신 데이터";
+  if (mode === "SNAPSHOT") return "저장된 데이터 사용";
+  return `${liveAxisCount}/5축 최신 데이터`;
+}
+
 function toEvidenceRow(e: {
   metricCode: string;
   rawValue: number;
@@ -314,23 +323,15 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               분석 기준월{" "}
               <strong>{baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}</strong>
               {" · "}
-              데이터 상태{" "}
               <span className="font-semibold text-slate-700">
-                {analysisResult.overallDataMode} {analysisResult.liveAxisCount}/5
+                {describeOverallDataMode(analysisResult.overallDataMode, analysisResult.liveAxisCount)}
               </span>
             </p>
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[11px] text-slate-400">분석 기준 보기</summary>
-              <div className="mt-1 space-y-0.5 text-[11px] text-slate-500">
-                {baseYmSummary.mixed ? (
-                  <p className="text-amber-700">
-                    일부 지표는 서로 다른 기준월의 데이터를 사용합니다({baseYmSummary.all.map(formatBaseYm).join(", ")})
-                  </p>
-                ) : null}
-                <p>데이터 버전 {analysisResult.dataVersion}</p>
-                <p>모델 버전 {analysisResult.modelVersion}</p>
-              </div>
-            </details>
+            {baseYmSummary.mixed ? (
+              <p className="mt-1 text-[11px] text-amber-700">
+                일부 지표는 서로 다른 기준월의 데이터를 사용합니다({baseYmSummary.all.map(formatBaseYm).join(", ")})
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -678,7 +679,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </summary>
             <div className="mt-3 space-y-2 text-xs text-slate-600">
               <p>
-                추천 결과는 공공데이터와 분석 기준을 활용한 사업 검토 자료입니다. 실제 추진 전 현장
+                공공데이터와 지역 비교 분석을 바탕으로 도출한 사업 검토안입니다. 실제 추진 전 현장
                 여건과 사업성을 함께 확인해 주세요.
               </p>
               {regionComparisonAnalysis.commonLimitationNote ? (

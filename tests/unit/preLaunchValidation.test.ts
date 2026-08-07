@@ -214,7 +214,7 @@ describe("computePreLaunchValidation — provenance 조합별 데이터 신뢰�
     const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ demand: ["CACHED_API"] }) }));
     expect(result.dataReliability.status).toBe("OK");
     expect(result.dataReliability.detail).toContain("참고");
-    expect(result.dataReliability.detail).toContain("CACHED_API");
+    expect(result.dataReliability.detail).toContain("노후 데이터");
     expect(result.recommendation).toBe("RECOMMENDED");
   });
 
@@ -223,11 +223,11 @@ describe("computePreLaunchValidation — provenance 조합별 데이터 신뢰�
     expect(result.dataReliability.status).toBe("OK");
   });
 
-  it("ESTIMATED가 포함되면 CAUTION이고, 어떤 축이 왜(ESTIMATED) 그런지 이유에 명시된다", () => {
+  it("ESTIMATED가 포함되면 CAUTION이고, 어떤 축이 왜(추정값) 그런지 이유에 명시된다", () => {
     const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ demand: ["ESTIMATED"] }) }));
     expect(result.dataReliability.status).toBe("CAUTION");
     expect(result.dataReliability.detail).toContain("수요(Demand)");
-    expect(result.dataReliability.detail).toContain("추정값(ESTIMATED)");
+    expect(result.dataReliability.detail).toContain("추정값 근거 포함");
     expect(result.recommendation).toBe("CONDITIONAL");
   });
 
@@ -235,7 +235,7 @@ describe("computePreLaunchValidation — provenance 조합별 데이터 신뢰�
     const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ spend: [null] }) }));
     expect(result.dataReliability.status).toBe("CAUTION");
     expect(result.dataReliability.detail).toContain("출처 판정 정보가 없는");
-    expect(result.dataReliability.detail).not.toContain("추정값(ESTIMATED)");
+    expect(result.dataReliability.detail).not.toContain("추정값 근거 포함");
   });
 
   it("MISSING(evidence 없음) 1개는 CAUTION이다 — ESTIMATED와 다른 문구('데이터 자체가 없음')를 쓴다", () => {
@@ -256,7 +256,7 @@ describe("computePreLaunchValidation — provenance 조합별 데이터 신뢰�
       baseInput({ axisScores: axisScores({ demand: ["ESTIMATED"], stay: ["CACHED_API"] }) }),
     );
     expect(result.dataReliability.status).toBe("CAUTION");
-    expect(result.dataReliability.detail).toContain("수요(Demand)(추정값(ESTIMATED) 근거 포함)");
+    expect(result.dataReliability.detail).toContain("수요(Demand)(추정값 근거 포함)");
     expect(result.dataReliability.detail).not.toContain("체류(Stay)(추정값");
     expect(result.dataReliability.detail).toContain("참고");
     expect(result.dataReliability.detail).toContain("체류(Stay)");
