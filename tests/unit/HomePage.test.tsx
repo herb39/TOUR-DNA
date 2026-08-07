@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+
+const routerPush = vi.fn();
+vi.mock("next/navigation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/navigation")>();
+  return { ...actual, useRouter: () => ({ push: routerPush }) };
+});
 
 const listProjectSummaries = vi.fn();
 const getLatestDataFreshness = vi.fn(async () => ({ baseYm: "202606", lastSyncedAt: new Date("2026-08-01T00:00:00Z") }));
@@ -14,6 +20,7 @@ vi.mock("@/lib/services/projectQueries", () => ({
 }));
 
 import HomePage, { ProjectListSection } from "@/app/page";
+import { ProjectPageSizeSelect } from "@/components/project/ProjectPageSizeSelect";
 
 function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -81,17 +88,77 @@ describe("HomePage — 페이지네이션 기본값·검증", () => {
     expect(screen.getByRole("link", { name: "이전" })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("페이지당 표시 개수 선택 링크(10/30/50)가 모두 보인다", async () => {
-    render(await ProjectListSection({ page: 1, pageSize: 10 }));
-    expect(screen.getByRole("link", { name: "10개씩 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "30개씩 보기" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "50개씩 보기" })).toBeInTheDocument();
-  });
-
   it("생성일(createdAt) 기준 컬럼 헤더를 사용한다(수정일이 아님)", async () => {
     render(await ProjectListSection({ page: 1, pageSize: 10 }));
     expect(screen.getByText("생성일")).toBeInTheDocument();
     expect(screen.queryByText("수정일")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * 페이지당 표시 개수 select box(2026-08-07 버튼형에서 select로 변경).
+ * HomePage 전체를 RTL로 render하면(ProjectListSection이 비동기 컴포넌트로 트리에 섞여 있어)
+ * 트리 전체가 빈 DOM으로 렌더되는 기존 제약(HomePage.test.tsx 상단 설명 참고)이 있으므로,
+ * 이 select 자체는 별도로 render해서 값/옵션을 검증하고, HomePage가 실제로 이 컴포넌트를
+ * '최근 프로젝트' 헤딩과 같은 행에 올바른 pageSize prop으로 넣는지는 반환된 React 엘리먼트
+ * 트리를 직접 순회해 구조적으로 검증한다(DOM render에 의존하지 않음).
+ */
+describe("ProjectPageSizeSelect — select box 자체", () => {
+  beforeEach(() => {
+    routerPush.mockClear();
+  });
+
+  it("값 변경 시 page=1로 초기화하고 선택한 pageSize로 이동한다", () => {
+    render(<ProjectPageSizeSelect pageSize={10} />);
+    const select = screen.getByRole("combobox", { name: "페이지당 프로젝트 수" });
+    fireEvent.change(select, { target: { value: "30" } });
+    expect(routerPush).toHaveBeenCalledWith("/?page=1&pageSize=30");
+  });
+
+  it("pageSize=10이면 select에 10이 선택되어 있고 옵션이 10/30/50이다", () => {
+    render(<ProjectPageSizeSelect pageSize={10} />);
+    const select = screen.getByRole("combobox", { name: "페이지당 프로젝트 수" });
+    expect(select).toHaveValue("10");
+    const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
+    expect(options).toEqual(["10", "30", "50"]);
+  });
+
+  it("pageSize=30/50이면 각각 그대로 선택되어 있다", () => {
+    const { unmount } = render(<ProjectPageSizeSelect pageSize={30} />);
+    expect(screen.getByRole("combobox", { name: "페이지당 프로젝트 수" })).toHaveValue("30");
+    unmount();
+    render(<ProjectPageSizeSelect pageSize={50} />);
+    expect(screen.getByRole("combobox", { name: "페이지당 프로젝트 수" })).toHaveValue("50");
+  });
+});
+
+describe("HomePage — 헤더 영역 구조(엘리먼트 트리 검증)", () => {
+  function findHeaderRow(node: unknown): { headingText: unknown; select: unknown } | null {
+    if (node == null || typeof node !== "object") return null;
+    const el = node as { type?: unknown; props?: { children?: unknown } };
+    if (el.type === ProjectPageSizeSelect) return null;
+    const children = el.props?.children;
+    const childArray = Array.isArray(children) ? children : [children];
+    const heading = childArray.find(
+      (c) => c && typeof c === "object" && (c as { type?: unknown }).type === "h2",
+    ) as { props?: { children?: unknown } } | undefined;
+    const select = childArray.find(
+      (c) => c && typeof c === "object" && (c as { type?: unknown }).type === ProjectPageSizeSelect,
+    );
+    if (heading && select) return { headingText: heading.props?.children, select };
+    for (const child of childArray) {
+      const found = findHeaderRow(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  it("'최근 프로젝트' 헤딩과 pageSize select가 같은 헤더 행(div)에 함께 존재한다", async () => {
+    const ui = await HomePage({ searchParams: Promise.resolve({ pageSize: "30" }) });
+    const headerRow = findHeaderRow(ui);
+    expect(headerRow).not.toBeNull();
+    expect(headerRow?.headingText).toBe("최근 프로젝트");
+    expect((headerRow?.select as { props: { pageSize: number } }).props.pageSize).toBe(30);
   });
 });
 

@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
+import { ProjectPageSizeSelect } from "@/components/project/ProjectPageSizeSelect";
 import { getLatestDataFreshness, getDemoProject, listProjectSummaries } from "@/lib/services/projectQueries";
 import { labelForRole } from "@/lib/validation/codes";
 import { PROJECT_STATUS_LABEL, formatBaseYm, formatDateTime } from "@/lib/format";
 import {
-  ALLOWED_PAGE_SIZES,
   clampPageToTotal,
   computeTotalPages,
   parsePage,
@@ -36,73 +36,54 @@ function PaginationControls({
   const pageWindow = buildPageWindow(page, totalPages);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm">
-      <p className="text-xs text-slate-500">
+    <div className="border-t border-slate-200 px-4 py-3 text-sm">
+      <p className="text-center text-xs text-slate-500 sm:text-left">
         전체 {totalCount}건 중 {rangeStart}–{rangeEnd}건
       </p>
-      <div className="flex flex-wrap items-center gap-3">
-        <div role="group" aria-label="페이지당 표시 개수" className="flex items-center gap-1 text-xs">
-          <span className="whitespace-nowrap text-slate-500">페이지당</span>
-          {ALLOWED_PAGE_SIZES.map((size) => (
+      <nav aria-label="페이지 이동" className="mt-2 flex flex-wrap items-center justify-center gap-1">
+        <Link
+          href={pageHref(Math.max(page - 1, 1), pageSize)}
+          aria-disabled={page <= 1}
+          className={`rounded-md border px-2.5 py-1 text-xs ${
+            page <= 1
+              ? "pointer-events-none border-slate-100 text-slate-300"
+              : "border-slate-300 text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          이전
+        </Link>
+        {pageWindow.map((p, i) =>
+          p === "…" ? (
+            <span key={`ellipsis-${i}`} className="px-1 text-xs text-slate-400">
+              …
+            </span>
+          ) : (
             <Link
-              key={size}
-              href={pageHref(1, size)}
-              aria-current={size === pageSize ? "true" : undefined}
-              className={`min-h-[1.75rem] rounded-md border px-2 py-1 ${
-                size === pageSize
+              key={p}
+              href={pageHref(p, pageSize)}
+              aria-current={p === page ? "page" : undefined}
+              className={`min-w-[2rem] rounded-md border px-2.5 py-1 text-center text-xs ${
+                p === page
                   ? "border-slate-900 bg-slate-900 font-medium text-white"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {size}개씩 보기
+              {p}
             </Link>
-          ))}
-        </div>
-        <nav aria-label="페이지 이동" className="flex flex-wrap items-center gap-1">
-          <Link
-            href={pageHref(Math.max(page - 1, 1), pageSize)}
-            aria-disabled={page <= 1}
-            className={`rounded-md border px-2.5 py-1 text-xs ${
-              page <= 1
-                ? "pointer-events-none border-slate-100 text-slate-300"
-                : "border-slate-300 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            이전
-          </Link>
-          {pageWindow.map((p, i) =>
-            p === "…" ? (
-              <span key={`ellipsis-${i}`} className="px-1 text-xs text-slate-400">
-                …
-              </span>
-            ) : (
-              <Link
-                key={p}
-                href={pageHref(p, pageSize)}
-                aria-current={p === page ? "page" : undefined}
-                className={`min-w-[2rem] rounded-md border px-2.5 py-1 text-center text-xs ${
-                  p === page
-                    ? "border-slate-900 bg-slate-900 font-medium text-white"
-                    : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {p}
-              </Link>
-            ),
-          )}
-          <Link
-            href={pageHref(Math.min(page + 1, totalPages), pageSize)}
-            aria-disabled={page >= totalPages}
-            className={`rounded-md border px-2.5 py-1 text-xs ${
-              page >= totalPages
-                ? "pointer-events-none border-slate-100 text-slate-300"
-                : "border-slate-300 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            다음
-          </Link>
-        </nav>
-      </div>
+          ),
+        )}
+        <Link
+          href={pageHref(Math.min(page + 1, totalPages), pageSize)}
+          aria-disabled={page >= totalPages}
+          className={`rounded-md border px-2.5 py-1 text-xs ${
+            page >= totalPages
+              ? "pointer-events-none border-slate-100 text-slate-300"
+              : "border-slate-300 text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          다음
+        </Link>
+      </nav>
     </div>
   );
 }
@@ -276,7 +257,10 @@ export default async function HomePage({
         </section>
 
         <section className="mt-10">
-          <h2 className="mb-3 text-lg font-semibold text-slate-900">최근 프로젝트</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">최근 프로젝트</h2>
+            <ProjectPageSizeSelect pageSize={pageSize} />
+          </div>
           <ProjectListSection page={page} pageSize={pageSize} />
         </section>
       </main>
