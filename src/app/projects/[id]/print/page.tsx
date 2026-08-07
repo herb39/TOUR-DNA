@@ -265,7 +265,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold">
             유사지역 비교(요약){" "}
             <span className="text-[10px] font-normal text-slate-400">
-              (정제 규칙 적용 · 현재 지원 지역 데이터 기준, 기준월 {regionComparisonAnalysis.comparisonBaseYm})
+              (현재 지원 지역 데이터 기준, 기준월 {regionComparisonAnalysis.comparisonBaseYm})
             </span>
           </h2>
           {analysisBaseYmMismatchNote ? (
@@ -289,8 +289,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
       {opportunityAnalysis && opportunityAnalysis.items.length > 0 ? (
         <section className="mt-4">
           <h2 className="text-sm font-semibold">
-            관광사업 기회 3안(요약){" "}
-            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
+            관광사업 기회 3안(요약)
           </h2>
           <ul className="mt-1 space-y-1.5">
             {opportunityAnalysis.items.map((o) => (
@@ -307,8 +306,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
       {preLaunchValidation ? (
         <section className="mt-4 border-t border-slate-300 pt-3">
           <h2 className="text-sm font-semibold">
-            사업 사전검증 리포트{" "}
-            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
+            사업 사전검증 리포트
           </h2>
           <p className="mt-1 text-xs font-bold text-slate-900">
             추진 권고: {preLaunchValidation.recommendationLabel}
@@ -351,8 +349,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
       {strategyComparisonRows.length > 0 ? (
         <section className="mt-4 border-t border-slate-300 pt-3">
           <h2 className="text-sm font-semibold">
-            전략 3안 비교{" "}
-            <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
+            전략 3안 비교
           </h2>
           <div className="mt-1.5 grid grid-cols-3 gap-2">
             {strategyComparisonRows.map((row) => (
@@ -433,8 +430,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           <div className="mt-2 grid grid-cols-2 gap-3">
             <div>
               <h3 className="text-xs font-semibold text-slate-700">
-                예상 예산 항목{" "}
-                <span className="text-[10px] font-normal text-slate-400">(정제 규칙 적용)</span>
+                예상 예산 항목
               </h3>
               <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600">
                 {selectedStrategyBudgetItems.map((item) => (

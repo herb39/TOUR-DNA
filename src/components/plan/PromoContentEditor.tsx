@@ -11,22 +11,7 @@ import type {
 import type { PromoContent } from "@/lib/domain/promoContent";
 import type { PromoProjectSummary } from "@/lib/domain/promoPreview";
 import { PromoPreviewPanel } from "./promo/PromoPreviewPanel";
-import {
-  formatBlogForCopy,
-  formatCardNewsForCopy,
-  formatFullPromoContentForCopy,
-  formatInstagramForCopy,
-  formatLandingForCopy,
-  formatProposalSummaryForCopy,
-  formatRoleContentForCopy,
-  parseHashtagsInput,
-} from "@/lib/domain/promoContentFormat";
-import { ProposalSummaryEditor } from "./promo/ProposalSummaryEditor";
-import { LandingEditor } from "./promo/LandingEditor";
-import { InstagramEditor } from "./promo/InstagramEditor";
-import { BlogEditor } from "./promo/BlogEditor";
-import { CardNewsEditor } from "./promo/CardNewsEditor";
-import { RoleContentEditor } from "./promo/RoleContentEditor";
+import { formatFullPromoContentForCopy } from "@/lib/domain/promoContentFormat";
 import { PromoContentSources } from "./promo/PromoContentSources";
 
 const ERROR_MESSAGES: Record<PromoContentErrorCode, string> = {
@@ -40,16 +25,6 @@ const ERROR_MESSAGES: Record<PromoContentErrorCode, string> = {
 
 const COPY_FEEDBACK_MS = 2000;
 const SUCCESS_MESSAGE_MS = 3000;
-
-function replaceTupleAt(
-  tuple: readonly [string, string, string],
-  index: 0 | 1 | 2,
-  value: string,
-): readonly [string, string, string] {
-  const next: [string, string, string] = [tuple[0], tuple[1], tuple[2]];
-  next[index] = value;
-  return next;
-}
 
 export function PromoContentEditor({
   projectId,
@@ -211,7 +186,13 @@ export function PromoContentEditor({
         </div>
       ) : (
         <div key={generationKey} className="mt-4 space-y-4">
-          <PromoPreviewPanel content={content} project={projectSummary} />
+          <PromoPreviewPanel
+            content={content}
+            project={projectSummary}
+            updateContent={updateContent}
+            copyToClipboard={copyToClipboard}
+            copiedKey={copiedKey}
+          />
 
           <p role="status" className="text-xs">
             {dirty ? (
@@ -251,91 +232,6 @@ export function PromoContentEditor({
               {content.translationNotice}
             </div>
           ) : null}
-
-          <div className="border-t border-slate-100 pt-4">
-            <h3 className="text-sm font-semibold text-slate-900">문구 편집</h3>
-            <p className="mt-1 text-[11px] text-slate-400">
-              아래 채널은 현재 역할에서 우선 확인하도록 정렬되어 있습니다(모든 채널은 그대로 제공됩니다).
-            </p>
-          </div>
-
-          {content.channelPriority.map((channel) => {
-            if (channel === "proposalSummary") {
-              return (
-                <ProposalSummaryEditor
-                  key={channel}
-                  sentences={content.proposalSummary.sentences}
-                  onChangeSentence={(index, value) =>
-                    updateContent((prev) => ({
-                      ...prev,
-                      proposalSummary: { sentences: replaceTupleAt(prev.proposalSummary.sentences, index, value) },
-                    }))
-                  }
-                  onCopy={() => copyToClipboard("proposal", formatProposalSummaryForCopy(content.proposalSummary))}
-                  copied={copiedKey === "proposal"}
-                />
-              );
-            }
-            if (channel === "landing") {
-              return (
-                <LandingEditor
-                  key={channel}
-                  landing={content.landing}
-                  onChange={(next) => updateContent((prev) => ({ ...prev, landing: next }))}
-                  onCopy={() => copyToClipboard("landing", formatLandingForCopy(content.landing))}
-                  copied={copiedKey === "landing"}
-                />
-              );
-            }
-            if (channel === "instagram") {
-              return (
-                <InstagramEditor
-                  key={channel}
-                  instagram={content.instagram}
-                  onChangeCaption={(value) =>
-                    updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, caption: value } }))
-                  }
-                  onChangeHashtagsText={(text) =>
-                    updateContent((prev) => ({ ...prev, instagram: { ...prev.instagram, hashtags: parseHashtagsInput(text) } }))
-                  }
-                  onCopy={() => copyToClipboard("instagram", formatInstagramForCopy(content.instagram))}
-                  copied={copiedKey === "instagram"}
-                />
-              );
-            }
-            if (channel === "blog") {
-              return (
-                <BlogEditor
-                  key={channel}
-                  blog={content.blog}
-                  onChange={(next) => updateContent((prev) => ({ ...prev, blog: next }))}
-                  onCopy={() => copyToClipboard("blog", formatBlogForCopy(content.blog))}
-                  copied={copiedKey === "blog"}
-                />
-              );
-            }
-            if (channel === "cardNews") {
-              return (
-                <CardNewsEditor
-                  key={channel}
-                  cardNews={content.cardNews}
-                  onChange={(next) => updateContent((prev) => ({ ...prev, cardNews: next }))}
-                  onCopy={() => copyToClipboard("cardNews", formatCardNewsForCopy(content.cardNews))}
-                  copied={copiedKey === "cardNews"}
-                />
-              );
-            }
-            // channel === "roleContent" (PromoChannel의 마지막 케이스)
-            return (
-              <RoleContentEditor
-                key={channel}
-                roleContent={content.roleContent}
-                onChange={(next) => updateContent((prev) => ({ ...prev, roleContent: next }))}
-                onCopy={() => copyToClipboard("role", formatRoleContentForCopy(content.roleContent))}
-                copied={copiedKey === "role"}
-              />
-            );
-          })}
 
           <PromoContentSources evidenceReferences={content.evidenceReferences} courseHighlights={content.courseHighlights} />
         </div>

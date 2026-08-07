@@ -45,6 +45,8 @@ function installKakaoMock() {
   const polylineCalls: PolylineCallArgs[] = [];
   const markerCalls: MarkerCallArgs[] = [];
   const boundsExtendCalls: unknown[] = [];
+  let mapConstructorCalls = 0;
+  const setMapNullCalls: unknown[] = [];
 
   class FakeLatLng {
     lat: number;
@@ -60,6 +62,9 @@ function installKakaoMock() {
     }
   }
   class FakeMap {
+    constructor() {
+      mapConstructorCalls++;
+    }
     setBounds() {}
   }
   class FakeMarker {
@@ -74,7 +79,9 @@ function installKakaoMock() {
     constructor(opts: PolylineCallArgs) {
       polylineCalls.push(opts);
     }
-    setMap() {}
+    setMap(map: unknown) {
+      if (map === null) setMapNullCalls.push(this);
+    }
   }
 
   window.kakao = {
@@ -90,7 +97,13 @@ function installKakaoMock() {
     },
   };
 
-  return { polylineCalls, markerCalls, boundsExtendCalls };
+  return {
+    polylineCalls,
+    markerCalls,
+    boundsExtendCalls,
+    getMapConstructorCalls: () => mapConstructorCalls,
+    setMapNullCalls,
+  };
 }
 
 describe("CourseMap", () => {
@@ -204,6 +217,45 @@ describe("CourseMap", () => {
       expect(mainLine.strokeColor?.toLowerCase()).not.toBe("#000000");
       expect(haloLine.strokeColor).toBe("#ffffff");
       expect(mainLine.path).toHaveLength(3); // 실제 geometry 좌표 3개 그대로 사용(직선 2점 아님)
+    });
+
+    it("실제 경로가 늦게 도착해도 지도를 다시 만들지 않고 이전 경로선만 지운다(2026-08-08, 확대/축소 시 fallback 점선 깜빡임 원인 수정)", async () => {
+      const { polylineCalls, getMapConstructorCalls, setMapNullCalls } = installKakaoMock();
+      let resolveGeometry: (v: {
+        segments: { dayIndex: number; fromPoiId: string; toPoiId: string; path: { lat: number; lng: number }[]; source: "LIVE_ROUTE" | "FALLBACK" }[];
+      }) => void = () => {};
+      vi.mocked(fetchPlanRouteGeometryAction).mockImplementationOnce(
+        () => new Promise((resolve) => (resolveGeometry = resolve)),
+      );
+
+      render(<CourseMap days={daysWithCoords} kakaoKey="test-key" projectId="proj-1" />);
+      // 조회가 끝나기 전: fallback 점선(halo+본선 2개)이 이미 그려져 있고, 지도는 1번만 생성됐다.
+      await waitFor(() => expect(polylineCalls.length).toBe(2));
+      expect(getMapConstructorCalls()).toBe(1);
+
+      resolveGeometry({
+        segments: [
+          {
+            dayIndex: 1,
+            fromPoiId: "a",
+            toPoiId: "b",
+            path: [
+              { lat: 36.35, lng: 127.38 },
+              { lat: 36.36, lng: 127.4 },
+              { lat: 36.4, lng: 127.45 },
+            ],
+            source: "LIVE_ROUTE",
+          },
+        ],
+      });
+
+      // 실제 경로 도착 후: 이전 fallback 2개는 setMap(null)로 지워지고, 실제 경로 2개가 새로 그려진다 —
+      // 하지만 지도(kakao.maps.Map) 자체는 다시 만들어지지 않는다(생성 횟수 그대로 1).
+      await waitFor(() => {
+        expect(polylineCalls.length).toBe(4);
+        expect(setMapNullCalls.length).toBe(2);
+      });
+      expect(getMapConstructorCalls()).toBe(1);
     });
 
     it("경로 확보에 실패한 구간은 강조색 계열의 옅은 점선으로 대체되고, 화면에는 실패 사실을 알리지 않는다", async () => {

@@ -60,8 +60,9 @@ export interface PromoPosterViewModel {
 }
 
 /** roleContent variant별로 이미 존재하는 "마무리/행동 유도" 성격의 문장을 그대로 재사용한다(새 CTA
- * 문구를 만들지 않는다) — 여행사는 일정 하이라이트, 지자체는 추진 개요, 축제 기획자는 체류 유도 힌트. */
-function resolveClosingNote(roleContent: PromoContent["roleContent"]): string {
+ * 문구를 만들지 않는다) — 여행사는 일정 하이라이트, 지자체는 추진 개요, 축제 기획자는 체류 유도 힌트.
+ * 포스터 CTA뿐 아니라 랜딩 미리보기의 CTA에도 같은 문장을 재사용한다(2026-08-08). */
+export function resolveClosingNote(roleContent: PromoContent["roleContent"]): string {
   if (roleContent.role === "TRAVEL_AGENCY") return roleContent.itineraryHighlight;
   if (roleContent.role === "LOCAL_GOV") return roleContent.lead;
   return roleContent.retentionTip;
@@ -117,4 +118,79 @@ export function buildPromoCardNewsViewModel(content: PromoContent): PromoCardNew
       body: truncateAtBoundary(slide.body, CARD_BODY_PREVIEW_MAX),
     };
   });
+}
+
+export interface PromoLandingViewModel {
+  heroTitle: string;
+  /** landing.body는 이미 완결된 문단이라 자르지 않고 그대로 보여준다(포스터·카드뉴스와 달리 랜딩은
+   * "전체 복사"가 목적인 긴 텍스트 채널). */
+  valueProposition: string;
+  /** 저장된 데이터에 실제로 존재하는 역할만 채운다(TRAVEL_AGENCY의 판매 포인트) — 없는 역할은 빈
+   * 배열로 두어 섹션 자체를 생략한다(새 특징을 지어내지 않음). */
+  keyFeatures: string[];
+  courseItems: PromoPosterCourseItem[];
+  recommendedFor: string | null;
+  cta: string;
+}
+
+/** 랜딩페이지 미리보기 view model(2026-08-08) — LandingContent(title/body)만으로는 "히어로 제목/가치
+ * 제안/주요 특징/대표 코스/추천 대상/CTA" 구조를 전부 표현할 수 없어, 이미 저장된 다른 필드(courseHighlights,
+ * roleContent)를 함께 재조합한다. 새 문구를 만들지 않고, 역할별로 존재하지 않는 필드는 조용히 생략한다. */
+export function buildPromoLandingViewModel(content: PromoContent): PromoLandingViewModel {
+  const { roleContent } = content;
+  return {
+    heroTitle: content.landing.title,
+    valueProposition: content.landing.body,
+    keyFeatures: roleContent.role === "TRAVEL_AGENCY" ? [...roleContent.sellingPoints] : [],
+    courseItems: content.courseHighlights.map((h, i) => ({ order: i + 1, name: h.poiName, timeSlot: h.timeSlot })),
+    recommendedFor: roleContent.role === "TRAVEL_AGENCY" ? roleContent.targetAudience : null,
+    cta: resolveClosingNote(roleContent),
+  };
+}
+
+export interface PromoProposalViewModel {
+  businessName: string;
+  purpose: string;
+  coreStrategy: string;
+  courseItems: PromoPosterCourseItem[];
+  expectedEffects: string[];
+  risks: string[];
+}
+
+/** roleContent variant마다 "사업명"에 대응하는 필드가 다르다 — 여행사는 상품명, 지자체·축제 기획자는
+ * title. 새 이름을 짓지 않고 이미 저장된 값을 그대로 옮긴다. */
+function resolveBusinessName(roleContent: PromoContent["roleContent"]): string {
+  return roleContent.role === "TRAVEL_AGENCY" ? roleContent.productName : roleContent.title;
+}
+
+/** "기대 효과"에 직접 대응하는 필드가 있는 역할(LOCAL_GOV)은 그 값을 쓰고, 여행사는 판매 포인트를
+ * 같은 의미로 재사용한다 — 축제 기획자는 대응하는 필드가 없어 빈 배열로 두고 섹션을 생략한다. */
+function resolveExpectedEffects(roleContent: PromoContent["roleContent"]): string[] {
+  if (roleContent.role === "LOCAL_GOV") return roleContent.expectedEffects;
+  if (roleContent.role === "TRAVEL_AGENCY") return [...roleContent.sellingPoints];
+  return [];
+}
+
+/** "주요 위험"은 저장된 실행안 risks를 그대로 옮기는 축제 기획자 콘텐츠에만 있다 — 다른 역할은 빈
+ * 배열로 두고 섹션을 생략한다(새 위험 요인을 지어내지 않음). */
+function resolveProposalRisks(roleContent: PromoContent["roleContent"]): string[] {
+  return roleContent.role === "FESTIVAL_PLANNER" ? roleContent.risks : [];
+}
+
+/** 제안서 미리보기 view model(2026-08-08) — "사업명/추진 목적/핵심 전략/대표 코스/기대 효과/주요 위험"
+ * 구조로 재조합한다. 추진 목적은 이미 역할별 목적 절이 포함된 proposalSummary 첫 문장을 그대로 쓰고,
+ * 핵심 전략은 프로젝트 요약의 전략명을 쓴다 — 둘 다 새로 만들지 않고 이미 계산된 값만 재사용한다. */
+export function buildPromoProposalViewModel(
+  content: PromoContent,
+  project: PromoProjectSummary,
+): PromoProposalViewModel {
+  const { roleContent } = content;
+  return {
+    businessName: resolveBusinessName(roleContent),
+    purpose: content.proposalSummary.sentences[0],
+    coreStrategy: project.strategyName,
+    courseItems: content.courseHighlights.map((h, i) => ({ order: i + 1, name: h.poiName, timeSlot: h.timeSlot })),
+    expectedEffects: resolveExpectedEffects(roleContent),
+    risks: resolveProposalRisks(roleContent),
+  };
 }

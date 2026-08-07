@@ -120,12 +120,12 @@ describe("사용자 화면 — 내부 기술정보(데이터 상태·버전·해
     expect(source).toContain("분석 기준월");
   });
 
-  it("홍보자료(인쇄) 화면에 'CURATED 규칙'·원문 규칙 버전·모델 버전이 더 이상 노출되지 않는다", () => {
+  it("홍보자료(인쇄) 화면에 'CURATED 규칙'·원문 규칙 버전·모델 버전·'정제 규칙 적용' 배지가 더 이상 노출되지 않는다(2026-08-08)", () => {
     const source = readSource(PRINT_PAGE);
     expect(source).not.toContain("CURATED 규칙");
     expect(source).not.toMatch(/RULE_VERSION\}/);
     expect(source).not.toMatch(/\{analysisResult\.modelVersion\}/);
-    expect(source).toContain("정제 규칙 적용");
+    expect(source).not.toContain("정제 규칙 적용");
   });
 
   it("홍보자료(인쇄) 화면에도 분석 기준월 정보는 유지된다", () => {
@@ -139,5 +139,37 @@ describe("사용자 화면 — 내부 기술정보(데이터 상태·버전·해
     expect(source).not.toMatch(/실시간 또는 검증된\(LIVE_API/);
     expect(source).not.toMatch(/추정값\(ESTIMATED\)/);
     expect(source).not.toMatch(/결정론적 규칙\(CURATED\)/);
+  });
+});
+
+/** 홍보자료 UX 및 실행안 화면 신뢰도 개선(2026-08-08) — "정제 규칙 적용" 배지, 사용자를 불안하게 만드는
+ * "판정 기준·한계 보기" UI, 어색한 부족 안내 문구, 적합도 옆 절대점수 노출을 화면에서 제거했는지
+ * 확인한다. */
+describe("실행안·인쇄 화면 — 신뢰도를 낮추는 배지·UI·문구 제거(2026-08-08)", () => {
+  const PLAN_EDITOR = "src/components/plan/PlanEditor.tsx";
+  const POI_FIT_SERVICE = "src/lib/services/poiFitService.ts";
+  const PRINT_PAGE = "src/app/projects/[id]/print/page.tsx";
+
+  it("분석·인쇄·사전검증 화면 어디에도 '정제 규칙 적용' 배지가 더 이상 없다", () => {
+    expect(readSource(ANALYSIS_PAGE)).not.toContain("정제 규칙 적용");
+    expect(readSource(PRINT_PAGE)).not.toContain("정제 규칙 적용");
+    expect(readSource(PRE_LAUNCH_SECTION)).not.toContain("정제 규칙 적용");
+  });
+
+  it("사전검증 리포트(실행안 화면)에 '판정 기준·한계 보기' 접힘 UI가 더 이상 없다", () => {
+    const source = readSource(PRE_LAUNCH_SECTION);
+    expect(source).not.toContain("판정 기준·한계 보기");
+    expect(source).not.toContain("report.criteria");
+  });
+
+  it("장소 부족 안내에 '억지로 채우지 않았습니다' 같은 방어적 문구가 더 이상 없다", () => {
+    const source = readSource(POI_FIT_SERVICE);
+    expect(source).not.toContain("억지로 채우지 않았습니다");
+    expect(source).toContain("선택한 전략과 잘 맞는 장소를 우선해 코스를 구성했습니다");
+  });
+
+  it("실행안 화면의 POI 적합도 배지에 절대점수(예: 100점)가 기본 노출되지 않는다", () => {
+    const source = readSource(PLAN_EDITOR);
+    expect(source).not.toMatch(/FIT_GRADE_LABEL\[fit\.grade\]\}\(\{fit\.totalScore\}점\)/);
   });
 });

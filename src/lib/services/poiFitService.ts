@@ -127,7 +127,7 @@ export async function buildStrategyPoiFitSummary(params: {
       reasonParts.push(`전략 적합 기준에 미달한 장소 ${filteredOutCount}곳을 추천에서 제외했습니다.`);
     }
     if (reasonParts.length === 0) {
-      reasonParts.push("전략과 관련 낮은 장소로 억지로 채우지 않았습니다.");
+      reasonParts.push("선택한 전략과 잘 맞는 장소를 우선해 코스를 구성했습니다.");
     }
 
     shortage = {

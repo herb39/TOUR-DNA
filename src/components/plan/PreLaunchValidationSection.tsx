@@ -58,15 +58,7 @@ export function PreLaunchValidationSection({
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-900">사업 사전검증 리포트</h2>
-        <span
-          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
-          title="이미 계산된 DNA·POI·이동·유사지역 비교·위험 데이터만 조합한 결정론적 규칙입니다."
-        >
-          정제 규칙 적용
-        </span>
-      </div>
+      <h2 className="text-sm font-semibold text-slate-900">사업 사전검증 리포트</h2>
 
       <div className={`mt-3 rounded-lg border p-3 ${RECOMMENDATION_STYLE[report.recommendation]}`}>
         <p className="text-sm font-bold">추진 권고: {report.recommendationLabel}</p>
@@ -117,11 +109,6 @@ export function PreLaunchValidationSection({
           {weakAxisKpis.join(", ")}
         </p>
       ) : null}
-
-      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-2">
-        <summary className="cursor-pointer text-[11px] font-medium text-slate-600">판정 기준·한계 보기</summary>
-        <p className="mt-1 text-[11px] text-slate-500">{report.criteria}</p>
-      </details>
     </section>
   );
 }

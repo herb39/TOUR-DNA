@@ -62,6 +62,13 @@ beforeEach(() => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
+/** 탭으로 전환된 새 미리보기 UI(2026-08-08)에서는 편집 폼이 기본으로 숨어 있다 — 해당 탭을 열고
+ * "문구 편집"을 눌러야 textarea/input이 나타난다. */
+function openEditor(tabLabel: string) {
+  fireEvent.click(screen.getByRole("tab", { name: tabLabel }));
+  fireEvent.click(screen.getByRole("button", { name: "문구 편집" }));
+}
+
 describe("초기 상태", () => {
   it("콘텐츠가 null이면 빈 상태와 생성 버튼을 표시한다", () => {
     render(<PromoContentEditor projectId={PROJECT_ID} initial={emptyInitial()} projectSummary={PROJECT_SUMMARY} />);
@@ -69,11 +76,12 @@ describe("초기 상태", () => {
     expect(screen.getByRole("button", { name: "홍보자료 생성" })).toBeInTheDocument();
   });
 
-  it("저장된 콘텐츠가 있으면 편집 UI에 기존 값이 표시된다", () => {
+  it("저장된 콘텐츠가 있으면 미리보기에 기존 값이 표시된다", () => {
     const content = sampleContent();
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} projectSummary={PROJECT_SUMMARY} />);
-    expect(screen.getByDisplayValue(content.landing.title)).toBeInTheDocument();
-    expect(screen.getByDisplayValue(content.blog.title)).toBeInTheDocument();
+    expect(screen.getByText(content.landing.title)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "블로그" }));
+    expect(screen.getByText(content.blog.title)).toBeInTheDocument();
   });
 
   it("invalidContent를 빈 상태로 처리하지 않고 오류 메시지를 표시한다", () => {
@@ -97,7 +105,7 @@ describe("생성", () => {
     fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
 
     await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: false }));
-    expect(await screen.findByDisplayValue(content.landing.title)).toBeInTheDocument();
+    expect(await screen.findByText(content.landing.title)).toBeInTheDocument();
   });
 
   it("생성 실패 시 기존(빈) 상태를 유지한다", async () => {
@@ -135,7 +143,7 @@ describe("생성", () => {
     await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: false }));
     await waitFor(() => expect(generatePromoContentAction).toHaveBeenCalledWith(PROJECT_ID, { overwrite: true }));
     expect(generatePromoContentAction).toHaveBeenCalledTimes(2);
-    expect(await screen.findByDisplayValue(content.landing.title)).toBeInTheDocument();
+    expect(await screen.findByText(content.landing.title)).toBeInTheDocument();
   });
 
   it("빈 화면 최초 생성에서 alreadyExists 후 확인을 취소하면 계속 빈 상태를 유지한다", async () => {
@@ -190,7 +198,7 @@ describe("생성", () => {
     fireEvent.click(screen.getByRole("button", { name: "재생성" }));
 
     expect(generatePromoContentAction).not.toHaveBeenCalled();
-    expect(screen.getByDisplayValue(content.landing.title)).toBeInTheDocument();
+    expect(screen.getByText(content.landing.title)).toBeInTheDocument();
   });
 });
 
@@ -200,6 +208,7 @@ describe("편집과 저장", () => {
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} projectSummary={PROJECT_SUMMARY} />);
     expect(screen.getByText("모든 변경사항이 저장되었습니다.")).toBeInTheDocument();
 
+    openEditor("랜딩");
     fireEvent.change(screen.getByLabelText("제목", { selector: "#promo-landing-title" }), { target: { value: "수정된 제목" } });
 
     expect(screen.getByText("저장하지 않은 변경사항이 있습니다.")).toBeInTheDocument();
@@ -208,6 +217,7 @@ describe("편집과 저장", () => {
   it("역할별 discriminator가 보존된다(TRAVEL_AGENCY)", () => {
     const content = sampleContent("TRAVEL_AGENCY");
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} projectSummary={PROJECT_SUMMARY} />);
+    openEditor("제안서");
     expect(screen.getByText("여행상품 홍보자료")).toBeInTheDocument();
     expect(screen.queryByText("보도자료")).not.toBeInTheDocument();
   });
@@ -215,6 +225,7 @@ describe("편집과 저장", () => {
   it("역할별 discriminator가 보존된다(LOCAL_GOV)", () => {
     const content = sampleContent("LOCAL_GOV");
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} projectSummary={PROJECT_SUMMARY} />);
+    openEditor("제안서");
     expect(screen.getByText("보도자료")).toBeInTheDocument();
     expect(screen.queryByText("여행상품 홍보자료")).not.toBeInTheDocument();
   });
@@ -235,6 +246,7 @@ describe("편집과 저장", () => {
     savePromoContentAction.mockResolvedValue({ ok: false, code: "invalidContent", message: "bad" });
     render(<PromoContentEditor projectId={PROJECT_ID} initial={filledInitial(content)} projectSummary={PROJECT_SUMMARY} />);
 
+    openEditor("랜딩");
     fireEvent.change(screen.getByLabelText("제목", { selector: "#promo-landing-title" }), { target: { value: "사용자 수정" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 

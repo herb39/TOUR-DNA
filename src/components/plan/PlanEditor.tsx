@@ -481,7 +481,7 @@ export function PlanEditor({
                                 <span
                                   className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${FIT_GRADE_BADGE_CLASS[fit.grade]}`}
                                 >
-                                  {FIT_GRADE_LABEL[fit.grade]}({fit.totalScore}점)
+                                  {FIT_GRADE_LABEL[fit.grade]}
                                 </span>
                                 <span className="ml-1 text-slate-400">추천 근거 보기</span>
                               </summary>

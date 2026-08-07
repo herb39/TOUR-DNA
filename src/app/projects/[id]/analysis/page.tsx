@@ -509,15 +509,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </section>
 
         <section className="mt-8">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-slate-900">유사지역 비교</h2>
-            <span
-              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 참고 정보이며, 통계·머신러닝 예측치가 아닙니다."
-            >
-              정제 규칙 적용
-            </span>
-          </div>
+          <h2 className="text-base font-semibold text-slate-900">유사지역 비교</h2>
           <p
             className="mt-1 text-xs text-slate-500"
             title="DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교합니다. 전국 전체가 아니라 현재 데이터가 준비된 지원지역 내 비교입니다."
@@ -594,15 +586,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </details>
 
         <section className="mt-8">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-slate-900">관광사업 기회 3안</h2>
-            <span
-              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="공공데이터 상대 비교와 사람이 정한 기획 규칙으로 도출한 가설이며, 통계·머신러닝 예측치가 아닙니다."
-            >
-              정제 규칙 적용
-            </span>
-          </div>
+          <h2 className="text-base font-semibold text-slate-900">관광사업 기회 3안</h2>
           <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
           {usingLivePoiFallback ? (
             <p className="mt-1 text-xs text-slate-400">
@@ -627,15 +611,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </section>
 
         <section id="strategies" className="mt-8 scroll-mt-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
-            <span
-              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-              title="사람이 정한 기획 규칙으로 도출한 참고 정보이며, 실제 사업비·매출 예측치가 아닙니다."
-            >
-              정제 규칙 적용
-            </span>
-          </div>
+          <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
           <p className="mt-1 text-xs text-slate-500">
             핵심 방향·기대 효과·난이도·위험을 비교해 1순위 전략을 확인하세요.
           </p>
