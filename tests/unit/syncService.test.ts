@@ -50,7 +50,9 @@ const {
   syncLogCreate,
   DATA_SOURCES,
   REGION,
+  SIDO_REGION,
   regionFindMany,
+  regionFindUnique,
 } = vi.hoisted(() => {
   // 실제 DataSnapshot 테이블의 upsert/조회 동작을 흉내 내는 최소 인메모리 fake.
   // Phase 1-B 보완(2026-07-23)의 "기존 SUCCESS/EMPTY 보존" 정책은 upsertSnapshot()이 쓰기 전에
@@ -106,6 +108,7 @@ const {
     poiFindMany: vi.fn().mockResolvedValue([]),
     syncLogCreate: vi.fn().mockResolvedValue(undefined),
     regionFindMany: vi.fn(),
+    regionFindUnique: vi.fn(),
     DATA_SOURCES: [
       { id: "src-tar-svc-dem", code: "TAR_SVC_DEM", baseUrl: "https://example.test/tar-svc-dem" },
       { id: "src-tou-div-ix", code: "TOU_DIV_IX", baseUrl: "https://example.test/tou-div-ix" },
@@ -124,6 +127,17 @@ const {
       tourApiLdongRegnCd: "30",
       tourApiLdongSignguCd: "30200",
     },
+    SIDO_REGION: {
+      id: "region-sido-1",
+      code: "TEST_SIDO",
+      name: "테스트시도",
+      level: "SIDO",
+      apiAreaCode: "30",
+      apiSigunguCode: null,
+      tourApiAreaCode: "3",
+      tourApiLdongRegnCd: "30",
+      tourApiLdongSignguCd: null,
+    },
   };
 });
 
@@ -133,6 +147,14 @@ const {
 regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) => {
   if (args?.where?.level === "SIDO") return [];
   return [REGION];
+});
+
+// --region-code 필터(2026-08-08)가 API 호출 전에 조회하는 findUnique — 기본값은 REGION/SIDO_REGION
+// 코드만 인식하고 그 외는 존재하지 않는 지역으로 처리한다.
+regionFindUnique.mockImplementation(async (args?: { where?: { code?: string } }) => {
+  if (args?.where?.code === REGION.code) return REGION;
+  if (args?.where?.code === SIDO_REGION.code) return SIDO_REGION;
+  return null;
 });
 
 // 실제 외부 API를 호출하지 않는다 — 5개 어댑터를 전부 mock으로 대체한다.
@@ -156,7 +178,7 @@ vi.mock("@/lib/public-data/adapters/tourInfo", () => ({
 vi.mock("@/lib/db", () => ({
   prisma: {
     dataSource: { findMany: vi.fn().mockResolvedValue(DATA_SOURCES) },
-    region: { findMany: regionFindMany },
+    region: { findMany: regionFindMany, findUnique: regionFindUnique },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
     normalizedMetric: { upsert: normalizedMetricUpsert, updateMany: normalizedMetricUpdateMany },
     dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique },
@@ -799,5 +821,89 @@ describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
       );
       expect(callsForKey).toHaveLength(0);
     });
+  });
+});
+
+describe("runTourismDataSync — --region-code 지역 필터(2026-08-08 도입)", () => {
+  it("regionCode를 생략하면 기존과 동일하게 전체 SIGUNGU를 동기화한다", async () => {
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(regionFindUnique).not.toHaveBeenCalled();
+    expect(regionFindMany).toHaveBeenCalledWith({ where: { level: "SIGUNGU" } });
+    expect(result.skipped).toBe(false);
+    expect(result.results.some((r) => r.sourceCode === `TAR_SVC_DEM:${REGION.code}`)).toBe(true);
+  });
+
+  it("존재하지 않는 지역 코드는 API 호출 전에 즉시 실패한다", async () => {
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI", regionCode: "NOT_A_REAL_CODE" });
+
+    expect(result.overallStatus).toBe("FAILED");
+    expect(result.skipped).toBe(true);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].sourceCode).toBe("REGION_FILTER");
+    expect(result.results[0].errorMessage).toContain("NOT_A_REAL_CODE");
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(fetchTouDivIx).not.toHaveBeenCalled();
+    expect(fetchTouResDem).not.toHaveBeenCalled();
+    expect(fetchTourInfo).not.toHaveBeenCalled();
+    expect(syncLogCreate).not.toHaveBeenCalled();
+  });
+
+  it("SIDO 코드를 지정하면 SIGUNGU 코드가 아니라는 오류로 API 호출 전에 즉시 실패한다", async () => {
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI", regionCode: SIDO_REGION.code });
+
+    expect(result.overallStatus).toBe("FAILED");
+    expect(result.results[0].errorMessage).toContain("SIDO");
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(regionFindMany).not.toHaveBeenCalled();
+  });
+
+  it("정상 SIGUNGU 코드를 지정하면 그 지역 1곳만 대상으로 동기화한다(전체 목록 조회 없음)", async () => {
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI", regionCode: REGION.code });
+
+    expect(regionFindUnique).toHaveBeenCalledWith({ where: { code: REGION.code } });
+    // 전체 SIGUNGU 목록 조회(findMany)는 전혀 일어나지 않는다 — 지정한 지역 하나만 대상이라는 뜻이다.
+    expect(regionFindMany).not.toHaveBeenCalledWith({ where: { level: "SIGUNGU" } });
+    expect(result.overallStatus).not.toBe("FAILED");
+    expect(result.results.every((r) => !r.sourceCode.includes(SIDO_REGION.code))).toBe(true);
+    expect(fetchTarSvcDem).toHaveBeenCalledTimes(1);
+    expect(fetchTarSvcDem).toHaveBeenCalledWith(
+      expect.objectContaining({ areaCd: REGION.apiAreaCode, signguCd: REGION.apiSigunguCode }),
+    );
+  });
+
+  it("정상 SIGUNGU 코드를 지정하면 VISITOR_CNT도 그 지역만 반영하고 SIDO 집계는 건드리지 않는다", async () => {
+    vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+      status: "SUCCESS",
+      byCode: new Map([
+        [REGION.apiSigunguCode!, { code: REGION.apiSigunguCode!, name: REGION.name, localNum: 10, otherDomesticNum: 20, foreignNum: 5, visitorCnt: 25, rawItems: fullMonthRawItems("202606", "signguCode", REGION.apiSigunguCode!) }],
+      ]),
+      resultCode: "0000",
+      resultMsg: "OK",
+      rawPages: [{ dummy: true }],
+    });
+    vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
+
+    await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI", regionCode: REGION.code });
+
+    expect(normalizedMetricStore.get(`${REGION.id}|202606|visitorCnt`)).toBeDefined();
+    // SIDO 조회 자체가 일어나지 않으므로 SIDO 지역에 대한 VISITOR_CNT 반영도 없다.
+    expect(regionFindMany).not.toHaveBeenCalledWith({ where: { level: "SIDO" } });
   });
 });

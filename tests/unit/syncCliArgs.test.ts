@@ -3,15 +3,15 @@ import { parseSyncCliArgs } from "@/lib/services/syncCliArgs";
 
 describe("parseSyncCliArgs — CLI 기준월 입력 검증(2026-08-08)", () => {
   it("--base-ym=202606 형식을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606" });
+    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null });
   });
 
   it("--base-ym 202606 형식(공백 구분)을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606" });
+    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null });
   });
 
   it("인자가 없으면 명시적 CLI 지정 없음으로 처리한다(환경변수/자동탐색으로 넘어감)", () => {
-    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null });
+    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null });
   });
 
   it("구 위치 인자 형식(202606)은 더 이상 지원하지 않고 거부한다", () => {
@@ -75,5 +75,51 @@ describe("parseSyncCliArgs — CLI 기준월 입력 검증(2026-08-08)", () => {
     if (!result.ok) {
       expect(result.error).toContain("--base-ym=YYYYMM");
     }
+  });
+});
+
+describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도입)", () => {
+  it("--region-code=SGG_JECHEON만 단독으로 지정하면 baseYm 없이 regionCode만 채워진다", () => {
+    expect(parseSyncCliArgs(["--region-code=SGG_JECHEON"])).toEqual({
+      ok: true,
+      baseYm: null,
+      regionCode: "SGG_JECHEON",
+    });
+  });
+
+  it("--base-ym=202606 --region-code=SGG_JECHEON 조합을 순서와 무관하게 파싱한다", () => {
+    expect(parseSyncCliArgs(["--base-ym=202606", "--region-code=SGG_JECHEON"])).toEqual({
+      ok: true,
+      baseYm: "202606",
+      regionCode: "SGG_JECHEON",
+    });
+    expect(parseSyncCliArgs(["--region-code=SGG_JECHEON", "--base-ym=202606"])).toEqual({
+      ok: true,
+      baseYm: "202606",
+      regionCode: "SGG_JECHEON",
+    });
+  });
+
+  it("--region-code와 공백 구분 --base-ym을 함께 써도 정상 파싱한다", () => {
+    expect(parseSyncCliArgs(["--base-ym", "202606", "--region-code=SGG_JECHEON"])).toEqual({
+      ok: true,
+      baseYm: "202606",
+      regionCode: "SGG_JECHEON",
+    });
+  });
+
+  it("--region-code= 빈 값은 거부한다", () => {
+    const result = parseSyncCliArgs(["--region-code="]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--region-code를 두 번 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--region-code=SGG_JECHEON", "--region-code=SGG_YANGYANG"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--base-ym을 두 번 지정하면 거부한다(--region-code와 섞여 있어도 동일)", () => {
+    const result = parseSyncCliArgs(["--base-ym=202606", "--region-code=SGG_JECHEON", "--base-ym=202607"]);
+    expect(result.ok).toBe(false);
   });
 });

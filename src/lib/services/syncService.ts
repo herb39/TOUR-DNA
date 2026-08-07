@@ -322,11 +322,53 @@ export async function syncVisitorCnt(params: {
  * 생략하고 기존 성공 데이터를 그대로 유지한다(스냅샷 모드로 전체 데모 지속 가능). 일부 API가
  * 실패해도 다른 API의 기존 성공 데이터를 삭제하지 않는다 — 실패한 지표만 갱신을 건너뛴다.
  */
-export async function runTourismDataSync(params: { baseYm: string; triggeredBy: SyncTrigger }): Promise<SyncRunResult> {
+export async function runTourismDataSync(params: {
+  baseYm: string;
+  triggeredBy: SyncTrigger;
+  /** 지정하면 이 SIGUNGU 지역 1곳만 동기화한다(2026-08-08 도입, 로컬 개발·전국 확장 대비 CLI 옵션) —
+   * 생략하면 기존과 동일하게 전체 SIGUNGU를 동기화한다. 존재하지 않는 코드이거나 SIDO 코드면 API를
+   * 전혀 호출하지 않고 즉시 실패를 반환한다(잘못된 지역을 조용히 전체 동기화로 넘기지 않는다). */
+  regionCode?: string | null;
+}): Promise<SyncRunResult> {
   const startedAt = new Date();
   const serviceKey = process.env.TOUR_API_SERVICE_KEY;
   const dataMode = process.env.DATA_MODE ?? "hybrid";
   const results: SyncSourceResult[] = [];
+
+  let targetRegion: Awaited<ReturnType<typeof prisma.region.findUnique>> = null;
+  if (params.regionCode) {
+    targetRegion = await prisma.region.findUnique({ where: { code: params.regionCode } });
+    if (!targetRegion) {
+      return {
+        baseYm: params.baseYm,
+        skipped: true,
+        overallStatus: "FAILED",
+        results: [
+          {
+            sourceCode: "REGION_FILTER",
+            status: "FAILED",
+            itemCount: 0,
+            errorMessage: `지역 코드를 찾을 수 없습니다: "${params.regionCode}" — src/lib/fixtures/regions.ts의 REGION_SEED에 등록된 코드인지 확인하세요.`,
+          },
+        ],
+      };
+    }
+    if (targetRegion.level !== "SIGUNGU") {
+      return {
+        baseYm: params.baseYm,
+        skipped: true,
+        overallStatus: "FAILED",
+        results: [
+          {
+            sourceCode: "REGION_FILTER",
+            status: "FAILED",
+            itemCount: 0,
+            errorMessage: `"${params.regionCode}"은(는) SIDO(시/도) 코드입니다 — --region-code에는 SIGUNGU(시/군/구) 코드만 지정할 수 있습니다.`,
+          },
+        ],
+      };
+    }
+  }
 
   if (!serviceKey || dataMode === "snapshot") {
     const result: SyncRunResult = {
@@ -359,15 +401,17 @@ export async function runTourismDataSync(params: { baseYm: string; triggeredBy: 
 
   const dataSources = await prisma.dataSource.findMany();
   const sourceByCode = new Map(dataSources.map((d) => [d.code, d]));
-  const regions = await prisma.region.findMany({ where: { level: "SIGUNGU" } });
+  const regions = targetRegion ? [targetRegion] : await prisma.region.findMany({ where: { level: "SIGUNGU" } });
 
   // VISITOR_CNT(DataLabService)는 지역 필터가 없는 API라, 지역마다 반복 호출하지 않고 이번 baseYm의
   // 전국 응답을 시군구/광역 각각 1회만 조회한 뒤(syncVisitorCnt 내부에서 페이지네이션·날짜 완전성 검사·
   // 지역 매핑을 모두 처리) 결과를 붙인다(2026-07-28). SIDO는 위 regions(SIGUNGU 전용)에 없으므로 별도
-  // 조회한다.
+  // 조회한다. targetRegion(단일 지역 필터)이 있으면 그 지역과 무관한 SIDO 집계 행을 건드리지 않도록
+  // SIDO는 아예 대상에서 뺀다(2026-08-08) — API 호출 자체는 전국 응답 1회로 동일하지만, DB 갱신은
+  // 요청한 지역 하나로만 좁힌다.
   const visitorSource = sourceByCode.get("VISITOR_CNT");
   if (visitorSource) {
-    const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
+    const sidoRegions = targetRegion ? [] : await prisma.region.findMany({ where: { level: "SIDO" } });
     results.push(
       ...(await syncVisitorCnt({
         baseYm: params.baseYm,
