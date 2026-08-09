@@ -915,6 +915,58 @@ describe("runTourismDataSync — --region-code 지역 필터(2026-08-08 도입)"
   });
 });
 
+describe("runTourismDataSync — 통계청 코드(apiAreaCode/apiSigunguCode) 미설정 지역(2026-08-09, 전남광주통합 사례)", () => {
+  // 전남광주통합특별시 27곳처럼 TourAPI 법정동 코드(tourApiLdongRegnCd)는 있지만 통계청 코드가 아직
+  // 검증되지 않아 null인 지역을 흉내낸다.
+  const NO_STAT_CODE_REGION = {
+    ...REGION,
+    code: "SGG_NO_STAT_CODE",
+    name: "통계청코드없음지역",
+    apiAreaCode: null,
+    apiSigunguCode: null,
+    tourApiLdongRegnCd: "12",
+    tourApiLdongSignguCd: "110",
+  };
+
+  it("apiAreaCode/apiSigunguCode가 없어도 TOUR_INFO는 시도한다(통계청 코드를 쓰지 않는 소스이므로)", async () => {
+    regionFindMany.mockImplementationOnce(async (args?: { where?: { level?: string } }) => {
+      if (args?.where?.level === "SIDO") return [];
+      return [NO_STAT_CODE_REGION];
+    });
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트장소", addr1: "통계청코드없음지역 어딘가", contenttypeid: "12", mapx: 127, mapy: 36 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+    const tourInfoResult = result.results.find((r) => r.sourceCode === `TOUR_INFO:${NO_STAT_CODE_REGION.code}`);
+    expect(tourInfoResult?.status).toBe("SUCCESS");
+  });
+
+  it("apiAreaCode/apiSigunguCode가 없으면 TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM은 각각 SKIPPED로 개별 기록되고 실제 호출은 하지 않는다", async () => {
+    regionFindMany.mockImplementationOnce(async (args?: { where?: { level?: string } }) => {
+      if (args?.where?.level === "SIDO") return [];
+      return [NO_STAT_CODE_REGION];
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(fetchTouDivIx).not.toHaveBeenCalled();
+    expect(fetchTouResDem).not.toHaveBeenCalled();
+    for (const code of ["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM"]) {
+      const r = result.results.find((r) => r.sourceCode === `${code}:${NO_STAT_CODE_REGION.code}`);
+      expect(r?.status).toBe("SKIPPED");
+      expect(r?.errorMessage).toContain("apiAreaCode/apiSigunguCode");
+    }
+  });
+});
+
 describe("runTourismDataSync — 원격 DB 안전장치 통합(2026-08-08)", () => {
   it("DATABASE_URL이 원격 호스트면 어떤 DB 조회·API 호출도 하지 않고 즉시 실패한다", async () => {
     process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
@@ -977,7 +1029,7 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
     tourApiLdongSignguCd: "31200",
   };
 
-  function mockRegions(regions: typeof REGION[]) {
+  function mockRegions(regions: Array<Omit<typeof REGION, "apiAreaCode" | "apiSigunguCode"> & { apiAreaCode: string | null; apiSigunguCode: string | null }>) {
     regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) => {
       if (args?.where?.level === "SIDO") return [];
       return regions;
@@ -1175,5 +1227,52 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
     expect(logs).not.toContain("super-secret-password");
     expect(JSON.stringify(result)).not.toContain("super-secret-password");
     logSpy.mockRestore();
+  });
+
+  // 전남광주통합특별시 27곳처럼 apiAreaCode/apiSigunguCode가 null인 지역도 이 배치 대상에 포함되어야
+  // 한다(2026-08-09 검증) — TOUR_INFO는 그 코드를 쓰지 않으므로 정상 시도되고, 통계청 3개 소스만
+  // 개별적으로 건너뛴다.
+  const NO_STAT_CODE_REGION = {
+    ...REGION,
+    id: "region-no-stat",
+    code: "SGG_NO_STAT_CODE",
+    name: "통계청코드없음지역",
+    apiAreaCode: null,
+    apiSigunguCode: null,
+    tourApiLdongRegnCd: "12",
+    tourApiLdongSignguCd: "110",
+  };
+
+  it("apiAreaCode/apiSigunguCode가 없는 지역도 배치 대상에 포함되고, TOUR_INFO는 정상 시도된다", async () => {
+    mockRegions([NO_STAT_CODE_REGION]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트장소", addr1: "통계청코드없음지역 어딘가", contenttypeid: "12", mapx: 127, mapy: 36 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+    const tourInfoResult = result.results.find((r) => r.sourceCode === `TOUR_INFO:${NO_STAT_CODE_REGION.code}`);
+    expect(tourInfoResult?.status).toBe("SUCCESS");
+    expect(result.completed).toBeGreaterThan(0);
+  });
+
+  it("apiAreaCode/apiSigunguCode가 없는 지역은 통계청 계열 3개 소스만 개별 SKIPPED로 기록되고 실제 호출은 하지 않는다", async () => {
+    mockRegions([NO_STAT_CODE_REGION]);
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(fetchTouDivIx).not.toHaveBeenCalled();
+    expect(fetchTouResDem).not.toHaveBeenCalled();
+    for (const code of ["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM"]) {
+      const r = result.results.find((r) => r.sourceCode === `${code}:${NO_STAT_CODE_REGION.code}`);
+      expect(r?.status).toBe("SKIPPED");
+      expect(r?.errorMessage).toContain("apiAreaCode/apiSigunguCode");
+    }
   });
 });

@@ -683,29 +683,52 @@ export async function runTourismDataSync(params: {
   }
 
   for (const region of regions) {
-    if (!region.apiAreaCode || !region.apiSigunguCode) {
-      results.push({
-        sourceCode: `REGION:${region.code}`,
-        status: "SKIPPED",
-        itemCount: 0,
-        errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 이 지역은 라이브 동기화에서 제외",
-      });
-      continue;
-    }
+    // 통계청 코드(apiAreaCode/apiSigunguCode)가 필요한 3개 소스만 여기서 건너뛴다 — TOUR_INFO는
+    // 이 코드를 쓰지 않으므로(위 STAT_CODE_SOURCE_CODES 주석 참고) 코드 유무와 무관하게 항상 시도한다
+    // (2026-08-09 전남광주통합 27곳 검증에서 발견한 과잉 차단 수정 — 예전에는 이 지역 전체를
+    // "REGION:code SKIPPED" 한 줄로 건너뛰어 TOUR_INFO까지 불필요하게 막았었다).
+    const hasStatCode = !!(region.apiAreaCode && region.apiSigunguCode);
 
     const svcSource = sourceByCode.get("TAR_SVC_DEM");
     if (svcSource) {
-      results.push(await syncTarSvcDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: svcSource }));
+      results.push(
+        hasStatCode
+          ? await syncTarSvcDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: svcSource })
+          : {
+              sourceCode: `TAR_SVC_DEM:${region.code}`,
+              status: "SKIPPED",
+              itemCount: 0,
+              errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 통계청 계열 소스 제외",
+            },
+      );
     }
 
     const divSource = sourceByCode.get("TOU_DIV_IX");
     if (divSource) {
-      results.push(await syncTouDivIxForRegion({ region, baseYm: params.baseYm, serviceKey, source: divSource }));
+      results.push(
+        hasStatCode
+          ? await syncTouDivIxForRegion({ region, baseYm: params.baseYm, serviceKey, source: divSource })
+          : {
+              sourceCode: `TOU_DIV_IX:${region.code}`,
+              status: "SKIPPED",
+              itemCount: 0,
+              errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 통계청 계열 소스 제외",
+            },
+      );
     }
 
     const resDemSource = sourceByCode.get("TOU_RES_DEM");
     if (resDemSource) {
-      results.push(await syncTouResDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: resDemSource }));
+      results.push(
+        hasStatCode
+          ? await syncTouResDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: resDemSource })
+          : {
+              sourceCode: `TOU_RES_DEM:${region.code}`,
+              status: "SKIPPED",
+              itemCount: 0,
+              errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 통계청 계열 소스 제외",
+            },
+      );
     }
 
     const tourInfoSource = sourceByCode.get("TOUR_INFO");
@@ -741,6 +764,13 @@ export async function runTourismDataSync(params: {
  * POI_RELATION은 실 서비스가 없어 항상 SKIPPED이므로 둘 다 이 배치의 "대상 지역/완료/건너뜀/실패/
  * 남은 항목" 집계에서 제외한다(둘 다 결과 자체는 SyncLog·results 배열에는 그대로 남긴다). */
 const RESUMABLE_SOURCE_CODES = ["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM", "TOUR_INFO"] as const;
+
+/** 통계청 행정표준코드(region.apiAreaCode/apiSigunguCode)가 실제로 필요한 소스만 여기 속한다
+ * (2026-08-09 전남광주통합 27곳 검증에서 확인 — tarSvcDem.ts/touDivIx.ts/touResDem.ts 어댑터 파라미터
+ * 타입이 모두 areaCd/signguCd를 필수로 요구한다). TOUR_INFO(tourInfo.ts)는 이 코드를 전혀 쓰지 않고
+ * region.tourApiLdongRegnCd/tourApiLdongSignguCd만 쓰므로 여기 포함하지 않는다 — 포함시키면 통계청
+ * 코드가 없다는 이유만으로 TOUR_INFO까지 불필요하게 건너뛰게 된다(과거 버그, 이번에 분리). */
+const STAT_CODE_SOURCE_CODES: ReadonlySet<string> = new Set(["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM"]);
 
 /**
  * `fetchPublicDataJson`(client.ts)은 HTTP 429를 받으면 `errorMessage`에 문자열 `"HTTP 429"`만 남기고
@@ -863,11 +893,12 @@ export async function runResumableLocalBatchSync(params: {
   let processedRegions = 0;
   let stoppedDueToQuota = false;
 
-  // 지역별 "단위 수" — 설정 미비 지역은 REGION 스킵 항목 1개, 정상 지역은 실제 사용 가능한 소스 수만큼.
-  // 남은 항목(remaining)을 어디서 멈추든 정확히 계산하기 위해 미리 총합을 구해 둔다(하드코딩 없음).
-  const unitsForRegion = (region: { apiAreaCode: string | null; apiSigunguCode: string | null }): number =>
-    !region.apiAreaCode || !region.apiSigunguCode ? 1 : activeSourceCodes.length;
-  const totalUnits = regions.reduce((sum, r) => sum + unitsForRegion(r), 0);
+  // 지역별 "단위 수" = 실제 사용 가능한 소스 수(activeSourceCodes.length)로 지역마다 동일하다
+  // (2026-08-09 수정 — 예전에는 통계청 코드 미설정 지역을 "REGION 스킵 항목 1개"로 뭉뚱그렸는데, 그
+  // 지역의 TOUR_INFO까지 함께 세지 못했다. 이제 각 소스는 자신에게 필요한 코드가 있는지 개별적으로
+  // 판단하므로(아래 루프), 지역당 단위 수는 언제나 activeSourceCodes.length다). 남은 항목(remaining)을
+  // 어디서 멈추든 정확히 계산하기 위해 미리 총합을 구해 둔다(하드코딩 없음).
+  const totalUnits = regions.length * activeSourceCodes.length;
 
   const visitorSource = sourceByCode.get("VISITOR_CNT");
   if (visitorSource) {
@@ -896,21 +927,26 @@ export async function runResumableLocalBatchSync(params: {
       break;
     }
 
-    if (!region.apiAreaCode || !region.apiSigunguCode) {
-      results.push({
-        sourceCode: `REGION:${region.code}`,
-        status: "SKIPPED",
-        itemCount: 0,
-        errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 이 지역은 라이브 동기화에서 제외",
-      });
-      skipped++;
-      continue;
-    }
-
     let regionAttempted = false;
 
     for (const sourceCode of activeSourceCodes) {
       const source = sourceByCode.get(sourceCode)!;
+
+      // 통계청 코드가 필요한 소스인데 이 지역에 없으면(예: 전남광주통합 27곳) 그 소스만 건너뛴다 —
+      // TOUR_INFO는 STAT_CODE_SOURCE_CODES에 없으므로 이 분기를 타지 않고 항상 시도한다(2026-08-09
+      // 수정, 예전에는 지역 전체를 건너뛰어 TOUR_INFO까지 막았었다).
+      if (STAT_CODE_SOURCE_CODES.has(sourceCode) && (!region.apiAreaCode || !region.apiSigunguCode)) {
+        console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 건너뜀(apiAreaCode/apiSigunguCode 미설정)`);
+        results.push({
+          sourceCode: `${sourceCode}:${region.code}`,
+          status: "SKIPPED",
+          itemCount: 0,
+          errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 통계청 계열 소스 제외",
+        });
+        skipped++;
+        continue;
+      }
+
       const existingStatus = await getExistingSnapshotStatus(source.id, region.id, baseYm);
       if (existingStatus === "SUCCESS" || existingStatus === "EMPTY") {
         console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 건너뜀(이미 완료)`);

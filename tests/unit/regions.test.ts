@@ -34,10 +34,16 @@ describe("REGION_SEED — 무결성", () => {
   /** 세종특별자치시(SGG_SEJONG)는 예외다 — TourAPI ldongCode2가 시/도 목록 단계에서 이미 세종을
    * 5자리 전체 코드("36110")로 반환하고, 그 코드로 하위 목록을 다시 조회해도 자기 자신만 돌아온다
    * (실 서비스키로 확인, 2026-08-09). 즉 세종은 시군구 하위분류 자체가 없는 TourAPI 조회 단위라
-   * apiSigunguCode(36110)를 apiAreaCode(36) + 시군구 3자리로 분해할 수 없다(뒤 3자리가 없음). 다른
-   * 모든 지역은 이 동일성이 성립해야 한다. */
-  it("apiSigunguCode가 있으면 apiAreaCode + 뒤 3자리가 일치한다(통계청 코드 체계 자체 검증, 세종 예외)", () => {
-    for (const r of REGION_SEED.filter((r) => r.level === "SIGUNGU" && r.code !== "SGG_SEJONG")) {
+   * apiSigunguCode(36110)를 apiAreaCode(36) + 시군구 3자리로 분해할 수 없다(뒤 3자리가 없음).
+   *
+   * 전남광주통합 산하 검증된 2곳(SGG_JEONNAM_GWANGJU_110=목포시, SGG_JEONNAM_GWANGJU_210=동구)도
+   * 예외다 — TourAPI 통합체계(tourApiLdongRegnCd=12)가 실제 통계청 코드(각각 46/29)와 완전히 다른
+   * 번호 체계를 쓴다는 것이 2026-08-09 baseYm=202606 실 서비스키 검증으로 확인됐다(동구의
+   * tourApiLdongSignguCd="210" ≠ 통계청 코드 뒤 3자리 "110" — regions.ts의 SGG_JEONNAM_GWANGJU_210
+   * 주석 참고). 다른 모든 지역은 이 동일성이 성립해야 한다. */
+  it("apiSigunguCode가 있으면 apiAreaCode + 뒤 3자리가 일치한다(통계청 코드 체계 자체 검증, 세종·전남광주통합 예외)", () => {
+    const EXCEPTIONS = new Set(["SGG_SEJONG", "SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"]);
+    for (const r of REGION_SEED.filter((r) => r.level === "SIGUNGU" && !EXCEPTIONS.has(r.code))) {
       if (r.apiSigunguCode && r.apiAreaCode) {
         expect(r.apiSigunguCode.startsWith(r.apiAreaCode)).toBe(true);
         expect(r.apiSigunguCode.slice(r.apiAreaCode.length)).toBe(r.tourApiLdongSignguCd);
@@ -51,9 +57,16 @@ describe("REGION_SEED — 무결성", () => {
     expect(sejong?.tourApiLdongSignguCd).toBeNull();
   });
 
-  it("tourApiLdongRegnCd는 apiAreaCode와 항상 같다(문서에 기록된 코드 체계 동일성 전제, 세종 예외)", () => {
+  it("tourApiLdongRegnCd는 apiAreaCode와 항상 같다(문서에 기록된 코드 체계 동일성 전제, 세종·전남광주통합 예외)", () => {
+    const EXCEPTIONS = new Set([
+      "SIDO_SEJONG",
+      "SGG_SEJONG",
+      "SIDO_JEONNAM_GWANGJU",
+      "SGG_JEONNAM_GWANGJU_110",
+      "SGG_JEONNAM_GWANGJU_210",
+    ]);
     for (const r of REGION_SEED) {
-      if (r.code === "SIDO_SEJONG" || r.code === "SGG_SEJONG") continue;
+      if (EXCEPTIONS.has(r.code)) continue;
       if (r.apiAreaCode && r.tourApiLdongRegnCd) {
         expect(r.tourApiLdongRegnCd).toBe(r.apiAreaCode);
       }
@@ -117,20 +130,40 @@ describe("REGION_SEED — 무결성", () => {
     );
   });
 
-  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27곳은 알려진 예외다 — TourAPI ldongCode2가
+  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27곳 중 25곳은 알려진 예외다 — TourAPI ldongCode2가
    * 반환하는 시/도 코드(12)가 통계청 API에서는 항상 빈 응답을 내고, 실제 통계청 코드(전남 46/
-   * 광주 29)는 아직 개별 검증되지 않아 "코드를 추측하지 않는다"는 원칙에 따라 null로 남겨뒀다
+   * 광주 29)는 개별 검증 전까지 "코드를 추측하지 않는다"는 원칙에 따라 null로 남겨뒀다
    * (docs/public-api-status.md에 이미 문서화된 사실, regions.ts의 SIDO_JEONNAM_GWANGJU 주석 참고).
-   * 그 외 모든 SIGUNGU는 여전히 누락이 없어야 한다. */
-  it("전남광주통합 27곳을 제외한 모든 SIGUNGU에 apiAreaCode/apiSigunguCode(통계청 코드)가 채워져 있다", () => {
+   * 표본 2곳(구 광주 동구·구 전남 목포시)은 2026-08-09에 baseYm=202606 실 서비스키로 개별 검증해
+   * 값을 채웠다. 그 외 모든 SIGUNGU는 여전히 누락이 없어야 한다. */
+  it("전남광주통합 미검증 25곳을 제외한 모든 SIGUNGU에 apiAreaCode/apiSigunguCode(통계청 코드)가 채워져 있다", () => {
     const missing = REGION_SEED.filter(
       (r) => r.level === "SIGUNGU" && r.parentCode !== "SIDO_JEONNAM_GWANGJU" && (!r.apiAreaCode || !r.apiSigunguCode),
     );
     expect(missing).toEqual([]);
 
+    const jeonnamGwangjuVerified = REGION_SEED.filter(
+      (r) => r.parentCode === "SIDO_JEONNAM_GWANGJU" && r.apiAreaCode && r.apiSigunguCode,
+    );
+    expect(jeonnamGwangjuVerified.map((r) => r.code).sort()).toEqual(
+      ["SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"].sort(),
+    );
+
     const jeonnamGwangjuMissing = REGION_SEED.filter(
       (r) => r.parentCode === "SIDO_JEONNAM_GWANGJU" && (!r.apiAreaCode || !r.apiSigunguCode),
     );
-    expect(jeonnamGwangjuMissing).toHaveLength(27);
+    expect(jeonnamGwangjuMissing).toHaveLength(25);
+  });
+
+  it("검증된 2곳(구 광주 동구·구 전남 목포시)의 통계청 코드가 정확히 반영되어 있다", () => {
+    const dongGu = REGION_SEED.find((r) => r.code === "SGG_JEONNAM_GWANGJU_210");
+    expect(dongGu?.name).toBe("동구");
+    expect(dongGu?.apiAreaCode).toBe("29");
+    expect(dongGu?.apiSigunguCode).toBe("29110");
+
+    const mokpo = REGION_SEED.find((r) => r.code === "SGG_JEONNAM_GWANGJU_110");
+    expect(mokpo?.name).toBe("목포시");
+    expect(mokpo?.apiAreaCode).toBe("46");
+    expect(mokpo?.apiSigunguCode).toBe("46110");
   });
 });

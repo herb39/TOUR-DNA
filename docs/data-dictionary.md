@@ -129,21 +129,34 @@ Region 마스터 자체가 전국을 커버해야 했다. 실 서비스키로 To
   `SGG_SEJONG` 하나로 표현하며 `tourApiLdongSignguCd`는 null이다.
 - **전남광주통합특별시(TourAPI `ldongRegnCd=12`)**: 2026-08-07에 이미 문서화된 "TourAPI ↔ 통계청
   코드 체계 불일치"(위 §2026-08-07 지역 확장 참고 — 통계청 코드는 전남 46/광주 29로 분리)가 전국
-  확장 시에도 그대로 발견됐다. 이번에는 "후보 제외" 대신 Region 마스터에는 27개 SIGUNGU 전부
-  등록하되(`tourApiLdongRegnCd`/`tourApiLdongSignguCd`는 실 응답으로 채움), 검증되지 않은 통계청
-  코드(`apiAreaCode`/`apiSigunguCode`)는 null로 남겨뒀다 — "코드를 추측하지 않는다"는 원칙을 그대로
-  따른 것이다. `syncService.ts`의 기존 `REGION:code SKIPPED` 분기가 이 27곳을 자동으로 건너뛴다
-  (TOUR_INFO/POI 포함 5개 소스 전부 미수집). **실제 전남/광주 통계청 코드(46/29) 검증은 후속 작업
-  으로 남아 있다** — 새 Region을 만들거나 지우지 않고 기존 27개 행의 `apiAreaCode`/`apiSigunguCode`
-  만 채우면 된다.
+  확장 시에도 그대로 발견됐다. Region 마스터에는 27개 SIGUNGU 전부 등록하되(`tourApiLdongRegnCd`/
+  `tourApiLdongSignguCd`는 실 응답으로 채움), 검증되지 않은 통계청 코드(`apiAreaCode`/
+  `apiSigunguCode`)는 null로 남겨 "코드를 추측하지 않는다"는 원칙을 따랐다.
+
+  **2026-08-09 후속 검증(TOUR_INFO 의존성 버그 수정 + 대표 표본 2곳 코드 확인)**: `syncService.ts`가
+  `apiAreaCode`/`apiSigunguCode`가 없는 지역 전체를 `REGION:code SKIPPED`로 건너뛰던 것이 버그였다 —
+  TOUR_INFO(`tourInfo.ts`)는 이 통계청 코드를 전혀 쓰지 않고 `tourApiLdongRegnCd`/
+  `tourApiLdongSignguCd`만 쓰는데도 함께 막히고 있었다. `STAT_CODE_SOURCE_CODES`(TAR_SVC_DEM/
+  TOU_DIV_IX/TOU_RES_DEM만 포함, TOUR_INFO 제외)로 분리해 이제 이 27곳도 TOUR_INFO는 정상 시도된다.
+  또한 대표 표본 2곳(구 광주 동구=`SGG_JEONNAM_GWANGJU_210`, 구 전남 목포시=
+  `SGG_JEONNAM_GWANGJU_110`)을 baseYm=202606(전남광주통합 출범 2026-07-01 이전 시점) 기준으로 4개
+  통계 소스(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT) 전부 실 서비스키로 조회해 `areaCd=29
+  signguCd=29110`(동구)·`areaCd=46 signguCd=46110`(목포시) 조합이 실제 데이터를 반환함을 확인하고
+  두 곳의 `apiAreaCode`/`apiSigunguCode`를 채웠다. 단, 동구의 TourAPI 통합체계 코드
+  (`tourApiLdongSignguCd="210"`)와 통계청 코드 뒤 3자리(`"110"`)가 서로 다르다는 것도 함께 확인됐다 —
+  다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 전남광주통합에는 적용되지 않으므로, 나머지
+  25곳(광주 3개 자치구·전남 21개 시/군)의 통계청 코드는 이 관계로 유추하지 않고 **개별 검증이
+  남아 있다**(후속 작업 — 새 Region을 만들거나 지우지 않고 기존 25개 행의 `apiAreaCode`/
+  `apiSigunguCode`만 채우면 된다). VISITOR_CNT(DataLabService)도 같은 46/29 분리 체계를 쓰는 것으로
+  확인됐다(SIDO 집계에 통합코드 `12`는 존재하지 않고 `29`=광주광역시/`46`=전라남도로만 존재).
 - 그 외 12개 기존 SIDO(대전·충북·강원·경북·제주·경남·경기·충남·부산·대구·인천·전북)는 이미
   등록된 37개 SIGUNGU와 실 API 코드가 전부 일치함을 확인했고(재검증 목적 대조, 불일치 0건), 나머지
   전국 시군구 191곳을 추가로 등록했다.
 
 무결성은 `src/lib/services/regionMasterIntegrity.ts`(API 호출 없이 REGION_SEED 배열 자체만 검사하는
 순수 함수, `tests/unit/regionMasterIntegrity.test.ts`)로 코드 중복·부모 연결·통계청 코드 누락·같은
-SIDO 안 시군구 코드 중복을 확인한다 — 전남광주통합 27곳의 통계청 코드 누락은 "알려진 예외"로 취급해
-회귀 테스트가 명시적으로 그 목록과 일치하는지 검증한다(조용히 다른 결함이 숨지 않도록).
+SIDO 안 시군구 코드 중복을 확인한다 — 전남광주통합 미검증 25곳의 통계청 코드 누락은 "알려진 예외"로
+취급해 회귀 테스트가 명시적으로 그 목록과 일치하는지 검증한다(조용히 다른 결함이 숨지 않도록).
 
 **이번 확장에서는 실제 전국 관광 데이터 동기화를 실행하지 않았다** — Region 마스터 등록만 반영했고,
 `npm run sync:tourism-data -- --base-ym=<YYYYMM> --all-regions --max-regions=<N>`로 실제 수집을

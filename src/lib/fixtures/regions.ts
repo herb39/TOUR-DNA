@@ -885,16 +885,26 @@ export const REGION_SEED: RegionSeed[] = [
     tourApiLdongSignguCd: "740",
   },
   // 전남광주통합특별시(TourAPI ldongRegnCd=12)는 통계청 API(AreaTarDemDsService/AreaTarDivService/
-  // AreaTarResDemService)에 areaCd=12를 그대로 쓰면 항상 빈 응답이 온다 — 전남/광주는 통계청 코드가
-  // 각각 46/29로 별도 분리돼 있다(2026-08-07 Batch 1+2 스크리닝 중 실 서비스키로 이미 확인·문서화됨,
-  // docs/public-api-status.md "TourAPI ↔ 통계청 코드 체계가 항상 같지는 않다" 참고). 이 SIDO와 산하
-  // 27개 SIGUNGU는 그 원칙("코드 추측을 하지 않는다")을 그대로 따라 apiAreaCode/apiSigunguCode를
-  // null로 둔다 — 실제 46/29 체계의 시군구 3자리 코드까지 개별 검증하기 전에는 채우지 않는다.
-  // tourApiLdongRegnCd/tourApiLdongSignguCd(TOUR_INFO/POI용)는 ldongCode2 실 응답으로 확인됐으므로
-  // 정상 값이지만, syncService.ts의 지역 루프는 apiAreaCode/apiSigunguCode가 없으면 그 지역 전체를
-  // "REGION:code SKIPPED"로 건너뛴다(TOUR_INFO를 포함한 5개 소스 전부 미수집 — 새 코드 경로 추가
-  // 없이 기존 분기가 그대로 처리한다). 즉 이 27곳은 통계청 46/29 코드가 확인되기 전까지는 어떤
-  // 관광 데이터도 실제로 수집되지 않는다 — Region 마스터에는 등록하되 데이터 수집은 후속 작업이다.
+  // AreaTarResDemService/DataLabService)에 areaCd=12를 그대로 쓰면 항상 빈 응답이 온다 — 전남/광주는
+  // 통계청 코드가 각각 46/29로 별도 분리돼 있다(2026-08-07 Batch 1+2에서 이미 확인·문서화됨,
+  // docs/public-api-status.md "TourAPI ↔ 통계청 코드 체계가 항상 같지는 않다" 참고). "코드를 추측하지
+  // 않는다"는 원칙에 따라 개별 검증되지 않은 SIGUNGU는 apiAreaCode/apiSigunguCode를 null로 둔다.
+  //
+  // **코드 검증 결과(2026-08-09, baseYm=202606 실 서비스키 조회)**: 대표 표본 2곳(구 광주 동구·구
+  // 전남 목포시)을 4개 통계 소스 전부(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT) 및 202606
+  // 기준월로 직접 조회해 전부 SUCCESS를 확인했다 — areaCd=29+signguCd=29110(동구), areaCd=46+
+  // signguCd=46110(목포시), 둘 다 areaNm/signguNm이 실제로 일치했다. 단, TourAPI 통합체계의
+  // tourApiLdongSignguCd(동구="210")와 통계청 코드 뒤 3자리("110")가 서로 다르다는 것도 함께
+  // 확인됐다 — 다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 전남광주통합에는 적용되지 않는다는
+  // 뜻이다. 따라서 이 두 표본에서 확인한 값(동구=29110, 목포시=46110)만 아래에 반영했고, 나머지
+  // 25곳(광주 3개 자치구·전남 21개 시/군)은 각각 개별 검증 전까지 apiAreaCode/apiSigunguCode를 null로
+  // 남겨둔다 — 표본 2곳의 성공이 나머지 25곳의 코드를 보장하지 않는다(추정 금지 원칙).
+  //
+  // TOUR_INFO(POI)는 애초에 apiAreaCode/apiSigunguCode를 쓰지 않고 tourApiLdongRegnCd/
+  // tourApiLdongSignguCd만 사용하는데(tourInfo.ts 참고), syncService.ts가 예전에는 지역 하나를
+  // 통째로 "REGION:code SKIPPED" 시켜 TOUR_INFO까지 함께 막고 있었다 — 이 27곳 전부에서 TOUR_INFO를
+  // 막을 근거가 없는 버그였다. 2026-08-09에 STAT_CODE_SOURCE_CODES로 분리해 수정했다(syncService.ts
+  // 참고) — 이제 이 27곳은 apiAreaCode/apiSigunguCode 유무와 무관하게 TOUR_INFO가 정상 시도된다.
   {
     code: "SIDO_JEONNAM_GWANGJU",
     name: "전남광주통합특별시",
@@ -907,12 +917,14 @@ export const REGION_SEED: RegionSeed[] = [
     tourApiLdongSignguCd: null,
   },
   {
+    // 2026-08-09 통계청 코드 검증(§SIDO_JEONNAM_GWANGJU 코드 검증 결과 참고) — areaCd=46(전라남도)+
+    // signguCd=46110 조합이 baseYm=202606 실 데이터(areaNm="전라남도", signguNm="목포시")로 확인됐다.
     code: "SGG_JEONNAM_GWANGJU_110",
     name: "목포시",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46110",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "110",
@@ -962,12 +974,17 @@ export const REGION_SEED: RegionSeed[] = [
     tourApiLdongSignguCd: "190",
   },
   {
+    // 2026-08-09 통계청 코드 검증(§SIDO_JEONNAM_GWANGJU 코드 검증 결과 참고) — areaCd=29(광주광역시)+
+    // signguCd=29110 조합이 baseYm=202606 실 데이터(areaNm="광주광역시", signguNm="동구")로 확인됐다.
+    // 주의: TourAPI 통합체계의 tourApiLdongSignguCd("210")와 통계청 코드 뒤 3자리("110")가 다르다 —
+    // 다른 모든 SIDO와 달리 두 체계가 완전히 별개로 번호를 매겼다는 뜻이다(추정 금지 원칙에 따라
+    // 나머지 26곳은 개별 검증 없이 이 관계를 적용하지 않는다, docs/public-api-status.md 참고).
     code: "SGG_JEONNAM_GWANGJU_210",
     name: "동구",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "29",
+    apiSigunguCode: "29110",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "210",

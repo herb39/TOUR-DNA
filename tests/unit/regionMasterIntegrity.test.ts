@@ -97,20 +97,24 @@ describe("checkRegionMasterIntegrity — 합성 데이터로 각 결함 유형�
 });
 
 describe("checkRegionMasterIntegrity — 실제 REGION_SEED 전국 무결성(2026-08-09 전국 확장)", () => {
-  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27개 SIGUNGU는 예외다 — TourAPI ldongCode2가
+  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27개 SIGUNGU 중 25개는 예외다 — TourAPI ldongCode2가
    * 반환하는 시/도 코드(12)를 통계청 API(AreaTarDemDsService 등)에 그대로 쓰면 항상 빈 응답이 온다
    * (실제 통계청 코드는 전남 46/광주 29로 분리, 2026-08-07 Batch 1+2에서 실 서비스키로 이미 확인·
    * docs/public-api-status.md에 문서화됨). "코드를 추측하지 않는다"는 이 프로젝트의 원칙에 따라
-   * apiAreaCode/apiSigunguCode를 null로 남겨뒀으므로, 이 27곳은 sigunguMissingStatCode에 정상적으로
-   * 잡혀야 한다 — 여기서 빈 배열을 기대하면 오히려 그 사실을 놓친 것이다. */
-  it("실제 REGION_SEED는 알려진 예외(전남광주통합 27곳)를 제외하면 모든 무결성 검사를 통과한다", () => {
+   * 개별 검증되지 않은 25곳은 apiAreaCode/apiSigunguCode를 null로 남겨뒀으므로 sigunguMissingStatCode에
+   * 정상적으로 잡혀야 한다. 나머지 2곳(구 광주 동구·구 전남 목포시)은 2026-08-09에 baseYm=202606
+   * 실 서비스키로 개별 검증해 값을 채웠으므로 missing 목록에 없어야 한다. */
+  it("실제 REGION_SEED는 알려진 예외(전남광주통합 미검증 25곳)를 제외하면 모든 무결성 검사를 통과한다", () => {
     const result = checkRegionMasterIntegrity(REGION_SEED);
     const jeonnamGwangjuSigungu = REGION_SEED.filter((r) => r.parentCode === "SIDO_JEONNAM_GWANGJU").map((r) => r.code);
     expect(jeonnamGwangjuSigungu).toHaveLength(27);
+    const verified = ["SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"]; // 목포시, 동구
+    const stillMissing = jeonnamGwangjuSigungu.filter((code) => !verified.includes(code));
+    expect(stillMissing).toHaveLength(25);
 
     expect(result.duplicateRegionCodes).toEqual([]);
     expect(result.sigunguWithoutValidParent).toEqual([]);
-    expect(result.sigunguMissingStatCode.sort()).toEqual([...jeonnamGwangjuSigungu].sort());
+    expect(result.sigunguMissingStatCode.sort()).toEqual([...stillMissing].sort());
     expect(result.duplicateSigunguCodeWithinSido).toEqual([]);
     expect(result.duplicateApiSigunguCode).toEqual([]);
     // sigunguMissingStatCode에 알려진 예외만 있고 그 외에는 없으므로, health 판정 자체는 "이 알려진
