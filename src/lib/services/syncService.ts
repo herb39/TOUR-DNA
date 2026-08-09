@@ -799,6 +799,52 @@ async function getExistingSnapshotStatus(
   return existing?.status ?? null;
 }
 
+/**
+ * VISITOR_CNT는 지역 필터 없는 전국 1회 호출이라(syncVisitorCnt 참고) 위 `getExistingSnapshotStatus`의
+ * 지역×소스 단위 스킵 모델을 그대로 쓸 수 없다 — 대신 "이번 배치의 대상 지역 전체가 이미 이 baseYm에
+ * 대해 SUCCESS/EMPTY인가"를 한 번의 쿼리로 확인한다(2026-08-10 도입). 전국 배치는 매번 sigunguRegions에
+ * 전체 SIGUNGU를, sidoRegions에 전체 SIDO를 그대로 넘기므로(--max-regions와 무관), 처음 한 번
+ * 완전히 성공하면 그 이후의 모든 배치 실행에서 이 함수가 true를 반환해 전국 API 재호출 자체를
+ * 생략할 수 있다.
+ *
+ * apiAreaCode/apiSigunguCode가 없는 지역(예: 전남광주통합 SIDO)은 애초에 `upsertVisitorCntForRegion`이
+ * 항상 SKIPPED만 반환하고 DataSnapshot을 아예 만들지 않는다 — 이런 지역까지 "SUCCESS/EMPTY 스냅샷이
+ * 있어야 완료"로 요구하면 영원히 완료 판정이 나지 않으므로, 코드가 없는 지역은 애초에 대상에서 뺀다.
+ */
+async function isVisitorCntComplete(
+  visitorSourceId: string,
+  baseYm: string,
+  sigunguRegions: Array<{ id: string; apiSigunguCode: string | null }>,
+  sidoRegions: Array<{ id: string; apiAreaCode: string | null }>,
+): Promise<boolean> {
+  const eligibleIds = [
+    ...sigunguRegions.filter((r) => r.apiSigunguCode).map((r) => r.id),
+    ...sidoRegions.filter((r) => r.apiAreaCode).map((r) => r.id),
+  ];
+  if (eligibleIds.length === 0) return true;
+
+  const snapshots = await prisma.dataSnapshot.findMany({
+    where: { dataSourceId: visitorSourceId, baseYm, regionId: { in: eligibleIds }, status: { in: ["SUCCESS", "EMPTY"] } },
+    select: { regionId: true },
+  });
+  const completedIds = new Set(snapshots.map((s) => s.regionId));
+  return eligibleIds.every((id) => completedIds.has(id));
+}
+
+/** `isVisitorCntComplete`가 true일 때 실제 API를 부르지 않고 채우는 결과 — 코드가 있는 지역은 "이미
+ * 완료돼 재호출 생략", 코드가 없는 지역은 `upsertVisitorCntForRegion`이 항상 만들어내는 것과 정확히
+ * 같은 SKIPPED 메시지를 그대로 재현해 결과의 의미를 왜곡하지 않는다. */
+function skippedVisitorCntResult(region: { code: string }, hasCode: boolean): SyncSourceResult {
+  return {
+    sourceCode: `VISITOR_CNT:${region.code}`,
+    status: "SKIPPED",
+    itemCount: 0,
+    errorMessage: hasCode
+      ? "이미 완료된 baseYm — 전국 API 재호출 생략(기존 SUCCESS/EMPTY 유지)"
+      : "apiAreaCode/apiSigunguCode 미설정 — 방문자수 매핑 제외",
+  };
+}
+
 export interface LocalBatchSyncResult {
   baseYm: string;
   /** 실제 DB 조회로 확인한 전체 SIGUNGU 지역 수(하드코딩 없음). */
@@ -918,7 +964,17 @@ async function runResumableLocalBatchSyncImpl(
   const visitorSource = sourceByCode.get("VISITOR_CNT");
   if (visitorSource) {
     const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
-    const visitorResults = await syncVisitorCnt({ baseYm, serviceKey, visitorSource, sigunguRegions: regions, sidoRegions });
+    const alreadyComplete = await isVisitorCntComplete(visitorSource.id, baseYm, regions, sidoRegions);
+    let visitorResults: SyncSourceResult[];
+    if (alreadyComplete) {
+      console.log(`[sync-batch] VISITOR_CNT — 대상 지역 전부 이미 완료(SUCCESS/EMPTY) — 전국 API 재호출 생략`);
+      visitorResults = [
+        ...regions.map((r) => skippedVisitorCntResult(r, !!r.apiSigunguCode)),
+        ...sidoRegions.map((r) => skippedVisitorCntResult(r, !!r.apiAreaCode)),
+      ];
+    } else {
+      visitorResults = await syncVisitorCnt({ baseYm, serviceKey, visitorSource, sigunguRegions: regions, sidoRegions });
+    }
     results.push(...visitorResults);
     const visitorQuotaHit = visitorResults.some((r) => r.status === "FAILED" && isQuotaOrRateLimitSignal(r.errorMessage));
     if (visitorQuotaHit) {

@@ -42,6 +42,7 @@ const {
   dataSnapshotStore,
   dataSnapshotUpsert,
   dataSnapshotFindUnique,
+  dataSnapshotFindMany,
   normalizedMetricStore,
   normalizedMetricUpsert,
   normalizedMetricUpdateMany,
@@ -81,6 +82,30 @@ const {
       const k = keyOf(where.dataSourceId_regionId_baseYm);
       return store.get(k) ?? null;
     }),
+    // VISITOR_CNT 완료 여부를 한 번에 확인하는 isVisitorCntComplete()가 쓰는 findMany — 실제 Prisma의
+    // where 절(dataSourceId/baseYm/regionId in [...]/status in [...])을 그대로 흉내 낸다. store의 키
+    // (`dataSourceId|regionId|baseYm`)에서 regionId를 역으로 파싱해 select:{regionId:true} 모양을 맞춘다.
+    dataSnapshotFindMany: vi.fn(
+      async ({
+        where,
+      }: {
+        where: { dataSourceId: string; baseYm: string; regionId: { in: string[] }; status: { in: string[] } };
+      }) => {
+        const matches: Array<{ regionId: string }> = [];
+        for (const [key, value] of store) {
+          const [dataSourceId, regionId, baseYm] = key.split("|");
+          if (
+            dataSourceId === where.dataSourceId &&
+            baseYm === where.baseYm &&
+            where.regionId.in.includes(regionId) &&
+            where.status.in.includes(value.status)
+          ) {
+            matches.push({ regionId });
+          }
+        }
+        return matches;
+      },
+    ),
     normalizedMetricStore: metricStore,
     normalizedMetricUpsert: vi.fn(async ({ where, update, create }: { where: { regionId_baseYm_metricCode: { regionId: string; baseYm: string; metricCode: string } }; update: Record<string, unknown>; create: Record<string, unknown> }) => {
       const k = metricKeyOf(where.regionId_baseYm_metricCode);
@@ -181,7 +206,7 @@ vi.mock("@/lib/db", () => ({
     region: { findMany: regionFindMany, findUnique: regionFindUnique },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
     normalizedMetric: { upsert: normalizedMetricUpsert, updateMany: normalizedMetricUpdateMany },
-    dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique },
+    dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique, findMany: dataSnapshotFindMany },
     syncLog: { create: syncLogCreate },
   },
 }));
@@ -1274,6 +1299,128 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
       expect(r?.status).toBe("SKIPPED");
       expect(r?.errorMessage).toContain("apiAreaCode/apiSigunguCode");
     }
+  });
+
+  // 2026-08-10 VISITOR_CNT 반복 호출 최소화 — 실전 배치에서 지역 수와 무관하게 매번 전국 API가
+  // 27회씩 다시 호출되는 문제를 확인했다(원인: syncVisitorCnt가 대상 지역의 기존 완료 여부를 전혀
+  // 확인하지 않고 매번 무조건 호출). isVisitorCntComplete()가 대상 지역 전체의 VISITOR_CNT
+  // SUCCESS/EMPTY 여부를 한 번의 쿼리로 확인해, 전부 완료된 경우에만 전국 API 호출 자체를 건너뛴다.
+  describe("VISITOR_CNT — 대상 지역이 이미 전국 완료 상태면 재호출하지 않는다(2026-08-10)", () => {
+    function mockCompleteVisitorResponses() {
+      vi.mocked(fetchLocgoRegnVisitr).mockResolvedValue({
+        status: "SUCCESS",
+        byCode: new Map([
+          [
+            "30200",
+            {
+              code: "30200",
+              name: "유성구",
+              localNum: 1000,
+              otherDomesticNum: 12000,
+              foreignNum: 345,
+              visitorCnt: 12345,
+              rawItems: fullMonthRawItems("202606", "signguCode", "30200"),
+            },
+          ],
+        ]),
+        resultCode: "0000",
+        resultMsg: "OK",
+        rawPages: [{ dummy: true }],
+      });
+      vi.mocked(fetchMetcoRegnVisitr).mockResolvedValue(metcoFullMonthSuccess("202606"));
+    }
+
+    it("첫 실행 후 같은 baseYm으로 재실행하면 전국 API를 다시 호출하지 않는다(0회)", async () => {
+      mockRegions([REGION]);
+      mockCompleteVisitorResponses();
+
+      await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      expect(fetchLocgoRegnVisitr).toHaveBeenCalledTimes(1);
+      expect(fetchMetcoRegnVisitr).toHaveBeenCalledTimes(1);
+
+      vi.mocked(fetchLocgoRegnVisitr).mockClear();
+      vi.mocked(fetchMetcoRegnVisitr).mockClear();
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const second = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+      expect(fetchLocgoRegnVisitr).not.toHaveBeenCalled();
+      expect(fetchMetcoRegnVisitr).not.toHaveBeenCalled();
+      expect(second.requestCounts.byDataSource.VISITOR_CNT ?? 0).toBe(0);
+      const visitorResult = second.results.find((r) => r.sourceCode === `VISITOR_CNT:${REGION.code}`);
+      expect(visitorResult?.status).toBe("SKIPPED");
+      expect(visitorResult?.errorMessage).toContain("이미 완료된 baseYm");
+      const logs = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(logs).toContain("전국 API 재호출 생략");
+      logSpy.mockRestore();
+    });
+
+    it("재호출 생략 시 다른 데이터소스(TAR_SVC_DEM 등)의 실행은 영향받지 않는다", async () => {
+      mockRegions([REGION]);
+      mockCompleteVisitorResponses();
+      vi.mocked(fetchTarSvcDem).mockResolvedValue({
+        status: "SUCCESS",
+        items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+        resultCode: "0000",
+        resultMsg: "OK",
+        raw: { stay: { dummy: true }, spend: null },
+      });
+
+      await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      vi.mocked(fetchTarSvcDem).mockClear();
+
+      const second = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+      // TAR_SVC_DEM은 이미 SUCCESS라 재개형 스킵 로직으로 건너뛴다(VISITOR_CNT 변경과 무관하게 그대로).
+      expect(fetchTarSvcDem).not.toHaveBeenCalled();
+      const tarResult = second.results.find((r) => r.sourceCode === `TAR_SVC_DEM:${REGION.code}`);
+      expect(tarResult?.status).toBe("SKIPPED");
+    });
+
+    it("일부 지역만 VISITOR_CNT가 완료돼 있으면 전국 API를 다시 호출한다(부분 완료는 완료로 치지 않음)", async () => {
+      const REGION_C = {
+        ...REGION,
+        id: "region-visitor-incomplete",
+        code: "TEST_REGION_C",
+        name: "테스트지역C",
+        apiAreaCode: "32",
+        apiSigunguCode: "32100",
+        tourApiLdongRegnCd: "32",
+        tourApiLdongSignguCd: "32100",
+      };
+      mockRegions([REGION, REGION_C]);
+      mockCompleteVisitorResponses();
+
+      // REGION만 먼저 완료시켜 둔다(REGION_C는 아직 스냅샷이 없는 상태로 남겨둠).
+      dataSnapshotStore.set(`src-visitor-cnt|${REGION.id}|202606`, {
+        status: "SUCCESS",
+        resultCode: "0000",
+        resultMsg: "OK",
+        itemCount: 1,
+        rawPayload: {},
+      });
+
+      await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+      // REGION_C가 아직 완료되지 않았으므로 "전부 완료"가 아니라 전국 API를 그대로 호출해야 한다.
+      expect(fetchLocgoRegnVisitr).toHaveBeenCalledTimes(1);
+      expect(fetchMetcoRegnVisitr).toHaveBeenCalledTimes(1);
+    });
+
+    it("재호출을 생략해도 기존 SUCCESS DataSnapshot을 다시 쓰지 않는다(회귀 없음)", async () => {
+      mockRegions([REGION]);
+      mockCompleteVisitorResponses();
+
+      await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      dataSnapshotUpsert.mockClear();
+
+      await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+      const visitorUpsertCalls = dataSnapshotUpsert.mock.calls.filter(
+        (c) => c[0].where.dataSourceId_regionId_baseYm.dataSourceId === "src-visitor-cnt",
+      );
+      expect(visitorUpsertCalls).toHaveLength(0);
+    });
   });
 
   // 2026-08-10 API 호출량 계측 도입 — 실제 fetch() 기준 집계 자체는 tests/unit/requestCounter.test.ts가
