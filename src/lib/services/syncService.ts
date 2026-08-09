@@ -318,6 +318,243 @@ export async function syncVisitorCnt(params: {
   return results;
 }
 
+// apiAreaCode/apiSigunguCode는 null 가능(Region 스키마 그대로)이지만, 호출부가 이미 둘 다 채워진
+// 지역만 골라 이 타입을 쓰는 함수들에 넘긴다(runTourismDataSync/runResumableLocalBatchSync의 null 체크
+// 참고) — 어댑터 호출 시점에는 항상 실제 문자열이다.
+type SigunguForSync = {
+  id: string;
+  code: string;
+  name: string;
+  level: RegionLevel;
+  apiAreaCode: string | null;
+  apiSigunguCode: string | null;
+  tourApiLdongRegnCd: string | null;
+  tourApiLdongSignguCd: string | null;
+};
+
+/**
+ * region×데이터소스 1건에 대한 실 API 호출·저장 로직을 하나씩 담당하는 함수들(2026-08-09 추출) —
+ * `runTourismDataSync`의 기존 인라인 루프 본문을 그대로 옮긴 것으로 동작을 바꾸지 않았다(회귀
+ * 테스트로 확인). `runResumableLocalBatchSync`(재개 가능한 전국 배치)가 지역별 스킵 판정 후 실제
+ * 호출이 필요한 조합에서만 이 함수들을 호출해 재사용한다 — API 호출·저장 로직을 중복 구현하지
+ * 않기 위함이다.
+ */
+async function syncTarSvcDemForRegion(params: {
+  region: SigunguForSync;
+  baseYm: string;
+  serviceKey: string;
+  source: { id: string; baseUrl: string };
+}): Promise<SyncSourceResult> {
+  const { region, baseYm, serviceKey, source } = params;
+  const res = await fetchTarSvcDem({
+    serviceKey,
+    baseUrl: source.baseUrl,
+    areaCd: region.apiAreaCode!,
+    signguCd: region.apiSigunguCode!,
+    baseYm,
+  });
+  if (res.status === "SUCCESS") {
+    for (const item of res.items) {
+      if (item.tarSjrnDsIxVal !== undefined) {
+        await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.STAY, item.tarSjrnDsIxVal, "지수", source.id, "LIVE_API");
+      }
+      if (item.tarExpDsIxVal !== undefined) {
+        await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.SPEND, item.tarExpDsIxVal, "지수", source.id, "LIVE_API");
+      }
+    }
+  }
+  if (res.raw.stay !== null || res.raw.spend !== null) {
+    const outcome = await upsertSnapshot({
+      dataSourceId: source.id,
+      regionId: region.id,
+      baseYm,
+      status: res.status,
+      resultCode: res.resultCode,
+      resultMsg: res.resultMsg,
+      itemCount: res.items.length,
+      rawPayload: res.raw,
+    });
+    if (outcome === "PRESERVED") {
+      await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.STAY, METRIC_CODES.SPEND]);
+    }
+  }
+  return {
+    sourceCode: `TAR_SVC_DEM:${region.code}`,
+    status: res.status === "SUCCESS" ? "SUCCESS" : res.status === "EMPTY" ? "SUCCESS" : "FAILED",
+    itemCount: res.items.length,
+    errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+  };
+}
+
+async function syncTouDivIxForRegion(params: {
+  region: SigunguForSync;
+  baseYm: string;
+  serviceKey: string;
+  source: { id: string; baseUrl: string };
+}): Promise<SyncSourceResult> {
+  const { region, baseYm, serviceKey, source } = params;
+  const res = await fetchTouDivIx({
+    serviceKey,
+    baseUrl: source.baseUrl,
+    areaCd: region.apiAreaCode!,
+    signguCd: region.apiSigunguCode!,
+    baseYm,
+  });
+  if (res.status === "SUCCESS" && res.composite !== null) {
+    await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", source.id, "LIVE_API");
+  }
+  const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
+  if (hasRealDivData) {
+    const outcome = await upsertSnapshot({
+      dataSourceId: source.id,
+      regionId: region.id,
+      baseYm,
+      status: res.status,
+      resultCode: null,
+      resultMsg: null,
+      itemCount: res.itemCount,
+      rawPayload: res.raw,
+    });
+    if (outcome === "PRESERVED") {
+      await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.DIVERSITY]);
+    }
+  }
+  return {
+    sourceCode: `TOU_DIV_IX:${region.code}`,
+    status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+    itemCount: res.status === "ERROR" ? 0 : 1,
+    errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+  };
+}
+
+async function syncTouResDemForRegion(params: {
+  region: SigunguForSync;
+  baseYm: string;
+  serviceKey: string;
+  source: { id: string; baseUrl: string };
+}): Promise<SyncSourceResult> {
+  const { region, baseYm, serviceKey, source } = params;
+  const res = await fetchTouResDem({
+    serviceKey,
+    baseUrl: source.baseUrl,
+    areaCd: region.apiAreaCode!,
+    signguCd: region.apiSigunguCode!,
+    baseYm,
+  });
+  if (res.status === "SUCCESS") {
+    for (const item of res.items) {
+      if (item.tarSvcDemIxVal !== undefined) {
+        await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", source.id, "LIVE_API");
+      }
+    }
+  }
+  if (res.raw !== null) {
+    const outcome = await upsertSnapshot({
+      dataSourceId: source.id,
+      regionId: region.id,
+      baseYm,
+      status: res.status,
+      resultCode: res.resultCode,
+      resultMsg: res.resultMsg,
+      itemCount: res.items.length,
+      rawPayload: res.raw as object,
+    });
+    if (outcome === "PRESERVED") {
+      await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.DEMAND_SERVICE]);
+    }
+  }
+  return {
+    sourceCode: `TOU_RES_DEM:${region.code}`,
+    status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+    itemCount: res.items.length,
+    errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+  };
+}
+
+async function syncTourInfoForRegion(params: {
+  region: SigunguForSync;
+  baseYm: string;
+  serviceKey: string;
+  source: { id: string; baseUrl: string } | undefined;
+}): Promise<SyncSourceResult> {
+  const { region, baseYm, serviceKey, source } = params;
+  if (!source || !region.tourApiLdongRegnCd) {
+    return {
+      sourceCode: `TOUR_INFO:${region.code}`,
+      status: "SKIPPED",
+      itemCount: 0,
+      errorMessage: "tourApiLdongRegnCd 미설정 — fixture POI 데이터 사용 중",
+    };
+  }
+  const res = await fetchTourInfo({
+    serviceKey,
+    baseUrl: source.baseUrl,
+    lDongRegnCd: region.tourApiLdongRegnCd,
+    lDongSignguCd: region.tourApiLdongSignguCd ?? undefined,
+  });
+  let upserted = 0;
+  if (res.status === "SUCCESS") {
+    const existing = await prisma.poi.findMany({
+      where: { regionId: region.id },
+      select: { name: true, sourceType: true },
+    });
+    const existingByName = new Map(existing.map((e) => [e.name, e.sourceType]));
+    const addressKeyword = tourInfoAddressFilterKeyword(region);
+
+    for (const item of res.items) {
+      if (!item.title || !item.addr1 || item.mapx === undefined || item.mapy === undefined) continue;
+      if (!item.addr1.includes(addressKeyword)) continue;
+      const category = mapContentTypeToPoiCategory(item.contenttypeid);
+      if (!category) continue;
+      if (existingByName.get(item.title) === "FIXTURE") continue;
+
+      await prisma.poi.upsert({
+        where: { regionId_name: { regionId: region.id, name: item.title } },
+        update: {
+          category,
+          address: item.addr1,
+          lat: item.mapy,
+          lng: item.mapx,
+          sourceType: "API",
+          sourceId: source.id,
+          rawPayload: item,
+        },
+        create: {
+          externalId: item.contentid,
+          regionId: region.id,
+          name: item.title,
+          category,
+          address: item.addr1,
+          lat: item.mapy,
+          lng: item.mapx,
+          sourceType: "API",
+          sourceId: source.id,
+          rawPayload: item,
+        },
+      });
+      upserted++;
+    }
+  }
+  if (res.raw.pages.length > 0) {
+    await upsertSnapshot({
+      dataSourceId: source.id,
+      regionId: region.id,
+      baseYm,
+      status: res.status,
+      resultCode: res.resultCode,
+      resultMsg: res.resultMsg,
+      itemCount: res.items.length,
+      rawPayload: res.raw,
+    });
+  }
+  return {
+    sourceCode: `TOUR_INFO:${region.code}`,
+    status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+    itemCount: upserted,
+    errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
+  };
+}
+
 /**
  * 6개 공공데이터 API를 동기화한다. DATA_MODE=snapshot이거나 서비스키가 없으면 라이브 호출을
  * 생략하고 기존 성공 데이터를 그대로 유지한다(스냅샷 모드로 전체 데모 지속 가능). 일부 API가
@@ -458,207 +695,21 @@ export async function runTourismDataSync(params: {
 
     const svcSource = sourceByCode.get("TAR_SVC_DEM");
     if (svcSource) {
-      const res = await fetchTarSvcDem({
-        serviceKey,
-        baseUrl: svcSource.baseUrl,
-        areaCd: region.apiAreaCode,
-        signguCd: region.apiSigunguCode,
-        baseYm: params.baseYm,
-      });
-      if (res.status === "SUCCESS") {
-        for (const item of res.items) {
-          if (item.tarSjrnDsIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.STAY, item.tarSjrnDsIxVal, "지수", svcSource.id, "LIVE_API");
-          }
-          if (item.tarExpDsIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.SPEND, item.tarExpDsIxVal, "지수", svcSource.id, "LIVE_API");
-          }
-        }
-      }
-      // 실제로 받은 본문이 하나라도 있으면(네트워크 실패로 둘 다 없는 경우는 제외) snapshot을 남긴다.
-      if (res.raw.stay !== null || res.raw.spend !== null) {
-        const outcome = await upsertSnapshot({
-          dataSourceId: svcSource.id,
-          regionId: region.id,
-          baseYm: params.baseYm,
-          status: res.status,
-          resultCode: res.resultCode,
-          resultMsg: res.resultMsg,
-          itemCount: res.items.length,
-          rawPayload: res.raw,
-        });
-        // 이번 응답이 ERROR였고 마지막 정상 스냅샷을 보존했다면 = "최신 호출 실패, 이전 성공값 재사용"
-        // = CACHED_API의 정의를 이 실행 컨텍스트에서 실제로 확인한 유일한 순간이다.
-        if (outcome === "PRESERVED") {
-          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.STAY, METRIC_CODES.SPEND]);
-        }
-      }
-      results.push({
-        sourceCode: `TAR_SVC_DEM:${region.code}`,
-        status: res.status === "SUCCESS" ? "SUCCESS" : res.status === "EMPTY" ? "SUCCESS" : "FAILED",
-        itemCount: res.items.length,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
-      });
+      results.push(await syncTarSvcDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: svcSource }));
     }
 
     const divSource = sourceByCode.get("TOU_DIV_IX");
     if (divSource) {
-      const res = await fetchTouDivIx({
-        serviceKey,
-        baseUrl: divSource.baseUrl,
-        areaCd: region.apiAreaCode,
-        signguCd: region.apiSigunguCode,
-        baseYm: params.baseYm,
-      });
-      // 연령대별 방문객/소비 다양성 + 국적 다양성을 조합한 종합 점수(touDivIx.ts의 evenness 산식 참고).
-      if (res.status === "SUCCESS" && res.composite !== null) {
-        await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", divSource.id, "LIVE_API");
-      }
-      // 13개 코드 호출 중 실제 본문을 하나라도 받았으면 snapshot을 남긴다. 13개를 합친 값이라 하나의
-      // resultCode/resultMsg로 대표할 수 없으므로 null로 둔다(있지도 않은 대표값을 지어내지 않음).
-      const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
-      if (hasRealDivData) {
-        const outcome = await upsertSnapshot({
-          dataSourceId: divSource.id,
-          regionId: region.id,
-          baseYm: params.baseYm,
-          status: res.status,
-          resultCode: null,
-          resultMsg: null,
-          itemCount: res.itemCount,
-          rawPayload: res.raw,
-        });
-        if (outcome === "PRESERVED") {
-          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.DIVERSITY]);
-        }
-      }
-      results.push({
-        sourceCode: `TOU_DIV_IX:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
-        itemCount: res.status === "ERROR" ? 0 : 1,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
-      });
+      results.push(await syncTouDivIxForRegion({ region, baseYm: params.baseYm, serviceKey, source: divSource }));
     }
 
     const resDemSource = sourceByCode.get("TOU_RES_DEM");
     if (resDemSource) {
-      const res = await fetchTouResDem({
-        serviceKey,
-        baseUrl: resDemSource.baseUrl,
-        areaCd: region.apiAreaCode,
-        signguCd: region.apiSigunguCode,
-        baseYm: params.baseYm,
-      });
-      if (res.status === "SUCCESS") {
-        for (const item of res.items) {
-          // areaTarSvcDemList("관광 서비스 수요")가 실제 METRIC_CODES.DEMAND_SERVICE의 출처였다(touResDem.ts 참고).
-          if (item.tarSvcDemIxVal !== undefined) {
-            await upsertMetric(region.id, region.level, params.baseYm, METRIC_CODES.DEMAND_SERVICE, item.tarSvcDemIxVal, "지수", resDemSource.id, "LIVE_API");
-          }
-        }
-      }
-      if (res.raw !== null) {
-        const outcome = await upsertSnapshot({
-          dataSourceId: resDemSource.id,
-          regionId: region.id,
-          baseYm: params.baseYm,
-          status: res.status,
-          resultCode: res.resultCode,
-          resultMsg: res.resultMsg,
-          itemCount: res.items.length,
-          rawPayload: res.raw as object,
-        });
-        if (outcome === "PRESERVED") {
-          await markMetricsAsCached(region.id, params.baseYm, [METRIC_CODES.DEMAND_SERVICE]);
-        }
-      }
-      results.push({
-        sourceCode: `TOU_RES_DEM:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
-        itemCount: res.items.length,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
-      });
+      results.push(await syncTouResDemForRegion({ region, baseYm: params.baseYm, serviceKey, source: resDemSource }));
     }
 
     const tourInfoSource = sourceByCode.get("TOUR_INFO");
-    if (tourInfoSource && region.tourApiLdongRegnCd) {
-      const res = await fetchTourInfo({
-        serviceKey,
-        baseUrl: tourInfoSource.baseUrl,
-        lDongRegnCd: region.tourApiLdongRegnCd,
-        lDongSignguCd: region.tourApiLdongSignguCd ?? undefined,
-      });
-      let upserted = 0;
-      if (res.status === "SUCCESS") {
-        // 이미 있는 장소(특히 큐레이션된 FIXTURE 데모 데이터)는 덮어쓰지 않는다 — 이름이 우연히
-        // 겹치면 라이브 데이터(운영시간/휴무일 정보 없음)가 데모용 큐레이션 정보를 지워버릴 수 있다.
-        const existing = await prisma.poi.findMany({
-          where: { regionId: region.id },
-          select: { name: true, sourceType: true },
-        });
-        const existingByName = new Map(existing.map((e) => [e.name, e.sourceType]));
-        const addressKeyword = tourInfoAddressFilterKeyword(region);
-
-        for (const item of res.items) {
-          if (!item.title || !item.addr1 || item.mapx === undefined || item.mapy === undefined) continue;
-          if (!item.addr1.includes(addressKeyword)) continue;
-          const category = mapContentTypeToPoiCategory(item.contenttypeid);
-          if (!category) continue;
-          if (existingByName.get(item.title) === "FIXTURE") continue;
-
-          await prisma.poi.upsert({
-            where: { regionId_name: { regionId: region.id, name: item.title } },
-            update: {
-              category,
-              address: item.addr1,
-              lat: item.mapy,
-              lng: item.mapx,
-              sourceType: "API",
-              sourceId: tourInfoSource.id,
-              rawPayload: item,
-            },
-            create: {
-              externalId: item.contentid,
-              regionId: region.id,
-              name: item.title,
-              category,
-              address: item.addr1,
-              lat: item.mapy,
-              lng: item.mapx,
-              sourceType: "API",
-              sourceId: tourInfoSource.id,
-              rawPayload: item,
-            },
-          });
-          upserted++;
-        }
-      }
-      if (res.raw.pages.length > 0) {
-        await upsertSnapshot({
-          dataSourceId: tourInfoSource.id,
-          regionId: region.id,
-          baseYm: params.baseYm,
-          status: res.status,
-          resultCode: res.resultCode,
-          resultMsg: res.resultMsg,
-          itemCount: res.items.length,
-          rawPayload: res.raw,
-        });
-      }
-      results.push({
-        sourceCode: `TOUR_INFO:${region.code}`,
-        status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
-        itemCount: upserted,
-        errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
-      });
-    } else {
-      results.push({
-        sourceCode: `TOUR_INFO:${region.code}`,
-        status: "SKIPPED",
-        itemCount: 0,
-        errorMessage: "tourApiLdongRegnCd 미설정 — fixture POI 데이터 사용 중",
-      });
-    }
+    results.push(await syncTourInfoForRegion({ region, baseYm: params.baseYm, serviceKey, source: tourInfoSource }));
     results.push({
       sourceCode: `POI_RELATION:${region.code}`,
       status: "SKIPPED",
@@ -683,4 +734,262 @@ export async function runTourismDataSync(params: {
   });
 
   return { baseYm: params.baseYm, skipped: false, overallStatus, results };
+}
+
+/** 실제 지역별 API 호출을 하는 4개 소스만 재개 가능한 전국 배치의 스킵 판정 대상이다. VISITOR_CNT는
+ * 지역 필터 없는 전국 1회 호출(위 syncVisitorCnt 참고)이라 지역×소스 단위 스킵 모델에 맞지 않고,
+ * POI_RELATION은 실 서비스가 없어 항상 SKIPPED이므로 둘 다 이 배치의 "대상 지역/완료/건너뜀/실패/
+ * 남은 항목" 집계에서 제외한다(둘 다 결과 자체는 SyncLog·results 배열에는 그대로 남긴다). */
+const RESUMABLE_SOURCE_CODES = ["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM", "TOUR_INFO"] as const;
+
+/**
+ * `fetchPublicDataJson`(client.ts)은 HTTP 429를 받으면 `errorMessage`에 문자열 `"HTTP 429"`만 남기고
+ * (구조화된 상태 코드를 별도로 넘기지 않는다), `parsePublicDataEnvelope`(types.ts)는 HTTP 200이지만
+ * 본문 resultCode가 실패인 경우를 그대로 통과시킨다(이 코드베이스에 quota 전용 resultCode 상수는
+ * 정의돼 있지 않다 — 실제 확인된 것은 HTTP 429뿐이다, docs/public-api-status.md 참고). 따라서 quota/
+ * 호출한도 신호는 이 문자열들을 통해서만 감지할 수 있다. "LIMITED_NUMBER_OF_SERVICE_REQUESTS"는
+ * 공공데이터포털이 흔히 쓰는 오류 문구를 방어적으로 함께 검사한 것으로, 이 프로젝트에서 실제로 관측된
+ * 사례는 아니다 — 두 신호 모두 만족 시 안전하게 종료하는 것이 놓치는 것보다 낫다는 판단이다.
+ */
+function isQuotaOrRateLimitSignal(message: string | undefined): boolean {
+  if (!message) return false;
+  return /HTTP\s*429|rate limit|too many requests|LIMITED_NUMBER_OF_SERVICE_REQUESTS/i.test(message);
+}
+
+async function getExistingSnapshotStatus(
+  dataSourceId: string,
+  regionId: string,
+  baseYm: string,
+): Promise<"SUCCESS" | "EMPTY" | "ERROR" | null> {
+  const existing = await prisma.dataSnapshot.findUnique({
+    where: { dataSourceId_regionId_baseYm: { dataSourceId, regionId, baseYm } },
+    select: { status: true },
+  });
+  return existing?.status ?? null;
+}
+
+export interface LocalBatchSyncResult {
+  baseYm: string;
+  /** 실제 DB 조회로 확인한 전체 SIGUNGU 지역 수(하드코딩 없음). */
+  totalRegions: number;
+  /** 이번 실행에서 실제로 새 API 호출을 1건 이상 시도한 지역 수(--max-regions 예산 소비 기준). */
+  processedRegions: number;
+  /** 이번 실행에서 새로 성공한 지역×소스 조합 수. */
+  completed: number;
+  /** 이미 완료돼 재호출하지 않았거나(SUCCESS/EMPTY 보존) 설정 미비로 건너뛴 지역×소스 조합 수. */
+  skipped: number;
+  /** 이번 실행에서 실패한 지역×소스 조합 수. */
+  failed: number;
+  /** 이번 실행에서 아직 시도조차 하지 못한 지역×소스 조합 수(예산 도달 또는 quota 중단으로 인한). */
+  remaining: number;
+  /** quota/429 감지로 중단됐는지 여부. */
+  stoppedDueToQuota: boolean;
+  results: SyncSourceResult[];
+}
+
+/**
+ * 재개 가능한 전국 순차 로컬 배치 동기화(2026-08-09 도입). 같은 baseYm에 이미 SUCCESS/EMPTY
+ * DataSnapshot이 있는 (지역, 데이터소스) 조합은 재호출하지 않는다 — EMPTY는 "API 호출은 성공했지만
+ * 실제로 0건"이라는, 과거 확정된 달에 대해서는 다시 불러도 바뀌지 않는 사실이므로(schema.prisma의
+ * SnapshotStatus 주석 "API 성공 응답이지만 0건" 참고) SUCCESS와 동일하게 "이미 완료"로 취급해 재호출
+ * 대상에서 뺀다. ERROR나 스냅샷이 아예 없는 조합만 이번 실행의 재호출 대상이 된다.
+ *
+ * `--max-regions`는 실제로 새 API 호출을 시도한 지역 수를 기준으로 예산을 소비한다 — 이미 완료돼
+ * 건너뛰기만 하는 지역은 API를 전혀 부르지 않으므로 예산을 쓰지 않고 무료로 통과한다. 지역 순회
+ * 도중 한 소스라도 quota/429 신호(`isQuotaOrRateLimitSignal`)를 감지하면 그 지역의 남은 소스와 이후
+ * 지역은 전혀 호출하지 않고 즉시 멈춘다(트랜잭션 롤백 없음 — 이미 저장된 SUCCESS/EMPTY 스냅샷은 그대로
+ * 남는다). 다음 실행에서 같은 `--base-ym`으로 다시 호출하면 이미 완료된 조합은 건너뛰고 이어서
+ * 진행된다.
+ *
+ * VISITOR_CNT(전국 지역 필터 없는 1회 호출)와 POI_RELATION(fixture 전용, 실 서비스 없음)은 이 배치의
+ * 지역×소스 재개 모델과 맞지 않아 "대상 지역/완료/건너뜀/실패/남은 항목" 집계에서 제외한다(VISITOR_CNT는
+ * 그대로 한 번 호출해 결과를 남기고, 거기서도 quota 신호가 나오면 지역 순회 자체를 시작하지 않고
+ * 즉시 종료한다).
+ */
+export async function runResumableLocalBatchSync(params: {
+  baseYm: string;
+  triggeredBy: SyncTrigger;
+  /** 이번 실행에서 실제 API 호출을 시도할 최대 지역 수. 기본값을 추정하지 않으므로 호출부(CLI)가
+   * 항상 명시적으로 넘겨야 한다. */
+  maxRegions: number;
+}): Promise<LocalBatchSyncResult> {
+  const { baseYm, triggeredBy, maxRegions } = params;
+  const startedAt = new Date();
+  const serviceKey = process.env.TOUR_API_SERVICE_KEY;
+  const dataMode = process.env.DATA_MODE ?? "hybrid";
+  const results: SyncSourceResult[] = [];
+
+  const emptyResult = (overrides: Partial<LocalBatchSyncResult>): LocalBatchSyncResult => ({
+    baseYm,
+    totalRegions: 0,
+    processedRegions: 0,
+    completed: 0,
+    skipped: 0,
+    failed: 0,
+    remaining: 0,
+    stoppedDueToQuota: false,
+    results,
+    ...overrides,
+  });
+
+  const targetCheck = checkDataSyncTarget(process.env.DATABASE_URL, process.env[ALLOW_REMOTE_DATA_SYNC_ENV]);
+  console.log(`[sync-batch] ${targetCheck.targetLabel}`);
+  if (!targetCheck.allowed) {
+    results.push({ sourceCode: "DATA_SYNC_TARGET_GUARD", status: "FAILED", itemCount: 0, errorMessage: targetCheck.blockedReason });
+    return emptyResult({});
+  }
+
+  if (!serviceKey || dataMode === "snapshot") {
+    const errorMessage = !serviceKey
+      ? "TOUR_API_SERVICE_KEY 미설정 — 라이브 호출 생략, 기존 스냅샷 유지"
+      : "DATA_MODE=snapshot — 라이브 호출 생략, 기존 스냅샷 유지";
+    console.log(`[sync-batch] ${errorMessage}`);
+    results.push({ sourceCode: "ALL", status: "SKIPPED", itemCount: 0, errorMessage });
+    await prisma.syncLog.create({
+      data: { baseYm, triggeredBy, overallStatus: "SUCCESS", results: results as unknown as object, startedAt, endedAt: new Date() },
+    });
+    return emptyResult({});
+  }
+
+  const dataSources = await prisma.dataSource.findMany();
+  const sourceByCode = new Map(dataSources.map((d) => [d.code, d]));
+  const regions = await prisma.region.findMany({ where: { level: "SIGUNGU" }, orderBy: { code: "asc" } });
+  const totalRegions = regions.length;
+  const activeSourceCodes = RESUMABLE_SOURCE_CODES.filter((code) => sourceByCode.has(code));
+
+  let completed = 0;
+  let skipped = 0;
+  let failed = 0;
+  let processedRegions = 0;
+  let stoppedDueToQuota = false;
+
+  // 지역별 "단위 수" — 설정 미비 지역은 REGION 스킵 항목 1개, 정상 지역은 실제 사용 가능한 소스 수만큼.
+  // 남은 항목(remaining)을 어디서 멈추든 정확히 계산하기 위해 미리 총합을 구해 둔다(하드코딩 없음).
+  const unitsForRegion = (region: { apiAreaCode: string | null; apiSigunguCode: string | null }): number =>
+    !region.apiAreaCode || !region.apiSigunguCode ? 1 : activeSourceCodes.length;
+  const totalUnits = regions.reduce((sum, r) => sum + unitsForRegion(r), 0);
+
+  const visitorSource = sourceByCode.get("VISITOR_CNT");
+  if (visitorSource) {
+    const sidoRegions = await prisma.region.findMany({ where: { level: "SIDO" } });
+    const visitorResults = await syncVisitorCnt({ baseYm, serviceKey, visitorSource, sigunguRegions: regions, sidoRegions });
+    results.push(...visitorResults);
+    const visitorQuotaHit = visitorResults.some((r) => r.status === "FAILED" && isQuotaOrRateLimitSignal(r.errorMessage));
+    if (visitorQuotaHit) {
+      console.log(`[sync-batch] VISITOR_CNT에서 quota/429 감지 — 지역 순회를 시작하지 않고 즉시 종료`);
+      stoppedDueToQuota = true;
+      console.log(
+        `[sync-batch] 종료 — 대상 지역: ${totalRegions}, 완료: 0, 건너뜀: 0, 실패: 0, 남은 항목: ${totalUnits}, quota 중단: 예`,
+      );
+      await prisma.syncLog.create({
+        data: { baseYm, triggeredBy, overallStatus: "PARTIAL", results: results as unknown as object, startedAt, endedAt: new Date() },
+      });
+      return emptyResult({ totalRegions, remaining: totalUnits, stoppedDueToQuota: true });
+    }
+  }
+
+  outer: for (let idx = 0; idx < regions.length; idx++) {
+    const region = regions[idx];
+
+    if (processedRegions >= maxRegions) {
+      console.log(`[sync-batch] 예산(--max-regions=${maxRegions}) 도달 — 지역 순회 중단`);
+      break;
+    }
+
+    if (!region.apiAreaCode || !region.apiSigunguCode) {
+      results.push({
+        sourceCode: `REGION:${region.code}`,
+        status: "SKIPPED",
+        itemCount: 0,
+        errorMessage: "apiAreaCode/apiSigunguCode 미설정 — 이 지역은 라이브 동기화에서 제외",
+      });
+      skipped++;
+      continue;
+    }
+
+    let regionAttempted = false;
+
+    for (const sourceCode of activeSourceCodes) {
+      const source = sourceByCode.get(sourceCode)!;
+      const existingStatus = await getExistingSnapshotStatus(source.id, region.id, baseYm);
+      if (existingStatus === "SUCCESS" || existingStatus === "EMPTY") {
+        console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 건너뜀(이미 완료)`);
+        results.push({
+          sourceCode: `${sourceCode}:${region.code}`,
+          status: "SKIPPED",
+          itemCount: 0,
+          errorMessage: "이미 완료된 지역×데이터소스 — 재호출하지 않음",
+        });
+        skipped++;
+        continue;
+      }
+
+      let sourceResult: SyncSourceResult;
+      switch (sourceCode) {
+        case "TAR_SVC_DEM":
+          sourceResult = await syncTarSvcDemForRegion({ region, baseYm, serviceKey, source });
+          break;
+        case "TOU_DIV_IX":
+          sourceResult = await syncTouDivIxForRegion({ region, baseYm, serviceKey, source });
+          break;
+        case "TOU_RES_DEM":
+          sourceResult = await syncTouResDemForRegion({ region, baseYm, serviceKey, source });
+          break;
+        case "TOUR_INFO":
+          sourceResult = await syncTourInfoForRegion({ region, baseYm, serviceKey, source });
+          break;
+      }
+      results.push(sourceResult);
+
+      if (sourceResult.status === "SKIPPED") {
+        // TOUR_INFO가 tourApiLdongRegnCd 미설정으로 API 자체를 부르지 않은 경우 — 실제 호출이 없었으므로
+        // regionAttempted를 켜지 않는다(다른 소스가 이미 켰다면 그대로 유지).
+        console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 건너뜀(${sourceResult.errorMessage ?? "설정 미비"})`);
+        skipped++;
+        continue;
+      }
+
+      regionAttempted = true;
+
+      if (sourceResult.status === "FAILED") {
+        console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 실패${sourceResult.errorMessage ? `: ${sourceResult.errorMessage}` : ""}`);
+        failed++;
+        if (isQuotaOrRateLimitSignal(sourceResult.errorMessage)) {
+          console.log(`[sync-batch] ${region.name} - ${sourceCode}에서 quota/429 감지 — 이후 호출을 멈추고 안전 종료(이미 수집된 데이터는 보존됨)`);
+          stoppedDueToQuota = true;
+          if (regionAttempted) processedRegions++;
+          break outer;
+        }
+      } else {
+        console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 수집 완료`);
+        completed++;
+      }
+    }
+
+    if (regionAttempted) processedRegions++;
+  }
+
+  const remaining = Math.max(0, totalUnits - (completed + skipped + failed));
+
+  console.log(
+    `[sync-batch] 종료 — 대상 지역: ${totalRegions}, 완료: ${completed}, 건너뜀: ${skipped}, 실패: ${failed}, ` +
+      `남은 항목: ${remaining}, quota 중단: ${stoppedDueToQuota ? "예" : "아니오"}`,
+  );
+
+  const overallStatus: SyncRunResult["overallStatus"] = failed === 0 ? "SUCCESS" : completed > 0 || skipped > 0 ? "PARTIAL" : "FAILED";
+  await prisma.syncLog.create({
+    data: { baseYm, triggeredBy, overallStatus, results: results as unknown as object, startedAt, endedAt: new Date() },
+  });
+
+  return {
+    baseYm,
+    totalRegions,
+    processedRegions,
+    completed,
+    skipped,
+    failed,
+    remaining,
+    stoppedDueToQuota,
+    results,
+  };
 }

@@ -5,12 +5,16 @@ export const SYNC_CLI_USAGE =
   '       또는: npm run sync:tourism-data -- --base-ym YYYYMM\n' +
   '       특정 지역 1곳만 동기화하려면: npm run sync:tourism-data -- --base-ym=202606 --region-code=SGG_JECHEON\n' +
   "(--region-code는 SIGUNGU 코드만 지정할 수 있습니다 — src/lib/fixtures/regions.ts의 REGION_SEED 참고)\n" +
+  '       전국을 재개 가능한 배치로 나눠 돌리려면: npm run sync:tourism-data -- --base-ym=202606 --all-regions --max-regions=20\n' +
+  "(--all-regions는 --region-code와 함께 쓸 수 없고, --max-regions(이번 실행에서 실제 API를 호출할 최대 지역 수, 양의 정수)를 반드시 함께 지정해야 합니다 — 기본값을 임의로 추정하지 않습니다. 이미 성공/빈 응답으로 완료된 지역×데이터소스는 자동으로 건너뛰고, quota/429가 감지되면 그 시점까지의 결과를 보존한 채 안전하게 종료합니다. 다음 실행에서 같은 옵션으로 다시 실행하면 이어서 진행됩니다.)\n" +
   "인자를 생략하면 TOUR_DATA_BASE_YM 환경변수 → 최신 공통월 자동 탐색 순으로 사용합니다.";
 
 export type ParsedSyncCliArgs =
   // baseYm이 null이면 CLI에서 명시적으로 지정하지 않음(env/자동 탐색으로 넘어감).
   // regionCode가 null이면 지역 필터 없음(기존과 동일하게 전체 SIGUNGU 동기화).
-  | { ok: true; baseYm: string | null; regionCode: string | null }
+  // allRegions가 true면 재개 가능한 전국 순차 배치 모드(2026-08-09 도입) — 이때만 maxRegions가 채워진다.
+  | { ok: true; baseYm: string | null; regionCode: string | null; allRegions: false; maxRegions: null }
+  | { ok: true; baseYm: string | null; regionCode: null; allRegions: true; maxRegions: number }
   | { ok: false; error: string };
 
 /**
@@ -20,15 +24,22 @@ export type ParsedSyncCliArgs =
  * 넘게 쌓인 사고가 있었다. 이 함수는 API 호출·DB 쓰기 전에 순수하게 인자만 검증하므로 부작용이 전혀
  * 없다(단위테스트로 전수 검증 가능).
  *
- * 지원 형식: `--base-ym=YYYYMM`, `--base-ym YYYYMM`(공백 구분), `--region-code=<코드>`(둘과 조합
- * 가능), 인자 없음(생략). 그 외(구 위치 인자 형식 포함, 알 수 없는 옵션, 중첩된 플래그 문자열, 같은
- * 옵션 중복 지정 등)는 전부 명시적으로 거부한다 — 잘못된 입력을 DEFAULT_BASE_YM 등으로 조용히
- * 대체하지 않는다. `--region-code` 값이 실제 존재하는 SIGUNGU 코드인지는 여기서 확인하지 않는다(DB
- * 조회가 필요해 순수 함수 밖의 일이다) — `runTourismDataSync`가 API 호출 전에 확인한다.
+ * 지원 형식: `--base-ym=YYYYMM`, `--base-ym YYYYMM`(공백 구분), `--region-code=<코드>`, `--all-regions`,
+ * `--max-regions=<N>`(조합 가능한 조건은 아래 참고), 인자 없음(생략). 그 외(구 위치 인자 형식 포함,
+ * 알 수 없는 옵션, 중첩된 플래그 문자열, 같은 옵션 중복 지정 등)는 전부 명시적으로 거부한다 — 잘못된
+ * 입력을 DEFAULT_BASE_YM 등으로 조용히 대체하지 않는다. `--region-code` 값이 실제 존재하는 SIGUNGU
+ * 코드인지는 여기서 확인하지 않는다(DB 조회가 필요해 순수 함수 밖의 일이다) — `runTourismDataSync`가
+ * API 호출 전에 확인한다.
+ *
+ * `--all-regions`(2026-08-09 도입, 재개 가능한 전국 순차 배치 모드)는 `--region-code`와 함께 쓸 수
+ * 없고, `--max-regions=<양의 정수>`를 반드시 함께 지정해야 한다 — 공공 API 일일 호출 한도는 이
+ * 코드베이스가 알 수 없으므로 기본값을 임의로 추정하지 않고 사용자가 매번 명시하게 한다.
  */
 export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
   let baseYmRaw: string | null = null;
   let regionCode: string | null = null;
+  let allRegions = false;
+  let maxRegionsRaw: string | null = null;
   let i = 0;
 
   while (i < argv.length) {
@@ -72,6 +83,24 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
       continue;
     }
 
+    if (token === "--all-regions") {
+      if (allRegions) {
+        return { ok: false, error: `--all-regions를 두 번 이상 지정할 수 없습니다.\n${SYNC_CLI_USAGE}` };
+      }
+      allRegions = true;
+      i += 1;
+      continue;
+    }
+
+    if (token.startsWith("--max-regions=")) {
+      if (maxRegionsRaw !== null) {
+        return { ok: false, error: `--max-regions를 두 번 이상 지정할 수 없습니다.\n${SYNC_CLI_USAGE}` };
+      }
+      maxRegionsRaw = token.slice("--max-regions=".length);
+      i += 1;
+      continue;
+    }
+
     if (token.startsWith("--")) {
       return { ok: false, error: `알 수 없는 옵션입니다: "${token}"\n${SYNC_CLI_USAGE}` };
     }
@@ -93,5 +122,31 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
     baseYm = validated.baseYm;
   }
 
-  return { ok: true, baseYm, regionCode };
+  if (allRegions && regionCode !== null) {
+    return { ok: false, error: `--all-regions와 --region-code는 함께 지정할 수 없습니다.\n${SYNC_CLI_USAGE}` };
+  }
+
+  if (maxRegionsRaw !== null && !allRegions) {
+    return { ok: false, error: `--max-regions는 --all-regions와 함께 지정해야 합니다.\n${SYNC_CLI_USAGE}` };
+  }
+
+  if (allRegions && maxRegionsRaw === null) {
+    return {
+      ok: false,
+      error: `--all-regions를 사용하려면 --max-regions=<이번 실행에서 처리할 최대 지역 수>를 반드시 함께 지정해야 합니다(공공 API 일일 호출 한도를 고려해 값을 직접 정하세요 — 기본값을 임의로 추정하지 않습니다).\n${SYNC_CLI_USAGE}`,
+    };
+  }
+
+  let maxRegions: number | null = null;
+  if (maxRegionsRaw !== null) {
+    if (!/^[0-9]+$/.test(maxRegionsRaw) || Number(maxRegionsRaw) <= 0) {
+      return { ok: false, error: `--max-regions 값은 1 이상의 정수여야 합니다: "${maxRegionsRaw}"\n${SYNC_CLI_USAGE}` };
+    }
+    maxRegions = Number(maxRegionsRaw);
+  }
+
+  if (allRegions) {
+    return { ok: true, baseYm, regionCode: null, allRegions: true, maxRegions: maxRegions as number };
+  }
+  return { ok: true, baseYm, regionCode, allRegions: false, maxRegions: null };
 }

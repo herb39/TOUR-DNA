@@ -186,7 +186,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-import { runTourismDataSync } from "@/lib/services/syncService";
+import { runTourismDataSync, runResumableLocalBatchSync } from "@/lib/services/syncService";
 import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
 import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
@@ -962,5 +962,218 @@ describe("runTourismDataSync — 원격 DB 안전장치 통합(2026-08-08)", () 
 
     expect(result.overallStatus).not.toBe("FAILED");
     expect(regionFindMany).toHaveBeenCalledWith({ where: { level: "SIGUNGU" } });
+  });
+});
+
+describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-09 도입)", () => {
+  const REGION_B = {
+    ...REGION,
+    id: "region-2",
+    code: "TEST_REGION_B",
+    name: "테스트지역B",
+    apiAreaCode: "31",
+    apiSigunguCode: "31200",
+    tourApiLdongRegnCd: "31",
+    tourApiLdongSignguCd: "31200",
+  };
+
+  function mockRegions(regions: typeof REGION[]) {
+    regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) => {
+      if (args?.where?.level === "SIDO") return [];
+      return regions;
+    });
+  }
+
+  it("totalRegions는 실제 조회된 지역 수를 그대로 사용한다(하드코딩 없음)", async () => {
+    mockRegions([REGION, REGION_B]);
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+    expect(result.totalRegions).toBe(2);
+  });
+
+  it("이미 SUCCESS로 완료된 지역×데이터소스는 API를 재호출하지 않고 건너뛴다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tar-svc-dem|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 1,
+      rawPayload: {},
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    const tarResult = result.results.find((r) => r.sourceCode === `TAR_SVC_DEM:${REGION.code}`);
+    expect(tarResult?.status).toBe("SKIPPED");
+    const logs = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logs).toContain(`${REGION.name} - TAR_SVC_DEM 건너뜀(이미 완료)`);
+    logSpy.mockRestore();
+  });
+
+  it("이미 EMPTY로 완료된 지역×데이터소스도 SUCCESS와 동일하게 건너뛴다(과거 확정월은 재조회해도 바뀌지 않음)", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tar-svc-dem|${REGION.id}|202606`, {
+      status: "EMPTY",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 0,
+      rawPayload: {},
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(result.results.find((r) => r.sourceCode === `TAR_SVC_DEM:${REGION.code}`)?.status).toBe("SKIPPED");
+  });
+
+  it("스냅샷이 아예 없는 지역×데이터소스는 이번 실행의 대상에 포함되어 실제로 호출된다", async () => {
+    mockRegions([REGION]);
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).toHaveBeenCalledTimes(1);
+    expect(result.completed).toBeGreaterThan(0);
+    const logs = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logs).toContain(`${REGION.name} - TAR_SVC_DEM 수집 완료`);
+    logSpy.mockRestore();
+  });
+
+  it("ERROR로 남아 있던 지역×데이터소스는 재시도 대상에 포함된다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tar-svc-dem|${REGION.id}|202606`, {
+      status: "ERROR",
+      resultCode: "NETWORK_ERROR",
+      resultMsg: "이전 실행 실패",
+      itemCount: 0,
+      rawPayload: {},
+    });
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).toHaveBeenCalledTimes(1);
+  });
+
+  it("--max-regions로 지정한 예산을 넘어서면 이후 지역은 이번 실행에서 아예 호출하지 않는다", async () => {
+    mockRegions([REGION, REGION_B]);
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 1 });
+
+    expect(result.processedRegions).toBe(1);
+    // VISITOR_CNT는 지역 필터 없는 전국 1회 호출이라 REGION_B의 VISITOR_CNT 항목도 결과에 남는다(설계상
+    // 정상) — 여기서는 지역별로 실제 예산·quota 제어 대상인 4개 재개형 소스만 확인한다.
+    expect(
+      result.results.some(
+        (r) => r.sourceCode.includes(REGION_B.code) && !r.sourceCode.startsWith("VISITOR_CNT:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("이미 전부 완료된(무료로 건너뛰는) 지역은 --max-regions 예산을 소비하지 않는다", async () => {
+    mockRegions([REGION, REGION_B]);
+    for (const code of ["src-tar-svc-dem", "src-tou-div-ix", "src-tou-res-dem", "src-tour-info"]) {
+      dataSnapshotStore.set(`${code}|${REGION.id}|202606`, {
+        status: "SUCCESS",
+        resultCode: "0000",
+        resultMsg: "OK",
+        itemCount: 1,
+        rawPayload: {},
+      });
+    }
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 1 });
+
+    // REGION은 전부 SUCCESS라 예산을 쓰지 않고 무료로 통과하고, 남은 예산 1로 REGION_B가 처리된다.
+    expect(result.processedRegions).toBe(1);
+    expect(result.results.some((r) => r.sourceCode.includes(REGION_B.code))).toBe(true);
+  });
+
+  it("quota/429 신호를 감지하면 그 지역의 남은 소스와 이후 지역을 전혀 호출하지 않고 안전 종료한다", async () => {
+    mockRegions([REGION, REGION_B]);
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "ERROR",
+      items: [],
+      resultCode: "429",
+      resultMsg: "HTTP 429",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.stoppedDueToQuota).toBe(true);
+    // TAR_SVC_DEM에서 멈췄으므로 같은 지역의 나머지 소스(TOU_DIV_IX 등)조차 호출되지 않는다.
+    expect(fetchTouDivIx).not.toHaveBeenCalled();
+    expect(fetchTouResDem).not.toHaveBeenCalled();
+    // 이후 지역(REGION_B)은 전혀 손대지 않는다 — 이미 성공한 데이터도 그대로 보존된다(롤백 없음).
+    // VISITOR_CNT는 지역 필터 없는 전국 1회 호출이라 REGION_B의 VISITOR_CNT 항목도 결과에 남는다(설계상
+    // 정상) — 여기서는 지역별로 실제 예산·quota 제어 대상인 4개 재개형 소스만 확인한다.
+    expect(
+      result.results.some(
+        (r) => r.sourceCode.includes(REGION_B.code) && !r.sourceCode.startsWith("VISITOR_CNT:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("중단 후 같은 옵션으로 재실행하면 이미 성공한 지역×소스는 건너뛰고 이어서 진행한다(재개 시나리오)", async () => {
+    mockRegions([REGION]);
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+    expect(fetchTarSvcDem).toHaveBeenCalledTimes(1);
+
+    vi.mocked(fetchTarSvcDem).mockClear();
+    const secondRun = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(secondRun.results.find((r) => r.sourceCode === `TAR_SVC_DEM:${REGION.code}`)?.status).toBe("SKIPPED");
+  });
+
+  it("원격 DATABASE_URL이면 지역 조회·API 호출 없이 즉시 차단한다", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.results[0].sourceCode).toBe("DATA_SYNC_TARGET_GUARD");
+    expect(regionFindMany).not.toHaveBeenCalled();
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+  });
+
+  it("차단 로그·결과 어디에도 DATABASE_URL 비밀번호가 노출되지 않는다", async () => {
+    process.env.DATABASE_URL = "postgresql://myuser:super-secret-password@some-remote-host.example.com/proddb";
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    const logs = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logs).not.toContain("super-secret-password");
+    expect(JSON.stringify(result)).not.toContain("super-secret-password");
+    logSpy.mockRestore();
   });
 });

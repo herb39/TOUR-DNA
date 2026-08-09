@@ -3,15 +3,15 @@ import { parseSyncCliArgs } from "@/lib/services/syncCliArgs";
 
 describe("parseSyncCliArgs — CLI 기준월 입력 검증(2026-08-08)", () => {
   it("--base-ym=202606 형식을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null });
+    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null });
   });
 
   it("--base-ym 202606 형식(공백 구분)을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null });
+    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null });
   });
 
   it("인자가 없으면 명시적 CLI 지정 없음으로 처리한다(환경변수/자동탐색으로 넘어감)", () => {
-    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null });
+    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null, allRegions: false, maxRegions: null });
   });
 
   it("구 위치 인자 형식(202606)은 더 이상 지원하지 않고 거부한다", () => {
@@ -84,6 +84,8 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       ok: true,
       baseYm: null,
       regionCode: "SGG_JECHEON",
+      allRegions: false,
+      maxRegions: null,
     });
   });
 
@@ -92,11 +94,15 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       ok: true,
       baseYm: "202606",
       regionCode: "SGG_JECHEON",
+      allRegions: false,
+      maxRegions: null,
     });
     expect(parseSyncCliArgs(["--region-code=SGG_JECHEON", "--base-ym=202606"])).toEqual({
       ok: true,
       baseYm: "202606",
       regionCode: "SGG_JECHEON",
+      allRegions: false,
+      maxRegions: null,
     });
   });
 
@@ -105,6 +111,8 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       ok: true,
       baseYm: "202606",
       regionCode: "SGG_JECHEON",
+      allRegions: false,
+      maxRegions: null,
     });
   });
 
@@ -120,6 +128,71 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
 
   it("--base-ym을 두 번 지정하면 거부한다(--region-code와 섞여 있어도 동일)", () => {
     const result = parseSyncCliArgs(["--base-ym=202606", "--region-code=SGG_JECHEON", "--base-ym=202607"]);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배치 옵션(2026-08-09 도입)", () => {
+  it("--all-regions --max-regions=20을 정상 파싱한다", () => {
+    expect(parseSyncCliArgs(["--base-ym=202606", "--all-regions", "--max-regions=20"])).toEqual({
+      ok: true,
+      baseYm: "202606",
+      regionCode: null,
+      allRegions: true,
+      maxRegions: 20,
+    });
+  });
+
+  it("옵션 순서와 무관하게 파싱한다", () => {
+    expect(parseSyncCliArgs(["--max-regions=5", "--all-regions", "--base-ym=202606"])).toEqual({
+      ok: true,
+      baseYm: "202606",
+      regionCode: null,
+      allRegions: true,
+      maxRegions: 5,
+    });
+  });
+
+  it("--all-regions와 --region-code를 함께 쓰면 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=10", "--region-code=SGG_JECHEON"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--all-regions 없이 --max-regions만 쓰면 거부한다", () => {
+    const result = parseSyncCliArgs(["--max-regions=10"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--all-regions만 있고 --max-regions가 없으면 거부한다(기본값을 추정하지 않음)", () => {
+    const result = parseSyncCliArgs(["--all-regions"]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("--max-regions");
+    }
+  });
+
+  it("--max-regions=0은 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=0"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--max-regions=-5는 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=-5"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--max-regions=abc(정수 아님)는 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=abc"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--all-regions를 두 번 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--all-regions", "--max-regions=10"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--max-regions를 두 번 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=10", "--max-regions=20"]);
     expect(result.ok).toBe(false);
   });
 });

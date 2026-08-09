@@ -1,4 +1,4 @@
-import { runTourismDataSync } from "../src/lib/services/syncService";
+import { runTourismDataSync, runResumableLocalBatchSync } from "../src/lib/services/syncService";
 import { parseSyncCliArgs, SYNC_CLI_USAGE, type ParsedSyncCliArgs } from "../src/lib/services/syncCliArgs";
 import { validateBaseYmFormat } from "../src/lib/services/baseYm";
 import { findLatestCommonBaseYm } from "../src/lib/services/latestCommonBaseYm";
@@ -64,6 +64,17 @@ async function main() {
   const baseYm = await resolveBaseYm(cliResult);
   if (!baseYm) {
     process.exitCode = 1;
+    return;
+  }
+
+  if (cliResult.allRegions) {
+    console.log(`[sync-cli] 전국 재개형 배치 모드 — 최대 ${cliResult.maxRegions}개 지역까지 처리`);
+    console.log(`[sync-cli] baseYm=${baseYm} 배치 동기화 시작`);
+    const result = await runResumableLocalBatchSync({ baseYm, triggeredBy: "CLI", maxRegions: cliResult.maxRegions });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.failed > 0 && result.completed === 0 && result.skipped === 0) {
+      process.exitCode = 1;
+    }
     return;
   }
 
