@@ -114,6 +114,41 @@ idempotent upsert로 안전하게 이어서 완료할 수 있다 — 이미 완�
 못했다 — 동기화 완료 후 재검증이 필요하다. 지원 SIGUNGU는 7 + 20 + 10 = **37곳**이다(관광 데이터
 동기화는 남해군 1곳만 완료).
 
+**2026-08-09 전국 Region 마스터 확장(지원 SIGUNGU 37 → 255곳, SIDO 12 → 16곳)**: `--all-regions`
+재개형 배치 동기화(위 §관광 데이터 재개형 동기화 참고)가 실제로 전국을 대상으로 돌 수 있으려면
+Region 마스터 자체가 전국을 커버해야 했다. 실 서비스키로 TourAPI `ldongCode2`(시/도 목록 1회 +
+16개 시/도별 시군구 목록 각 1회, 총 17회 — 호출 한도 없는 오퍼레이션만 사용)를 호출해 얻은 원본
+목록만 등록했다(추측 없음). 청주시·수원시·창원시 등 "구" 단위로 분할된 시는 통계청 API로 실제
+확인한 결과(`checkStatCode`) 상위 "시" 코드가 항상 EMPTY를 반환해 하위 "구" 코드만 등록했다.
+
+- **서울특별시(11)**: 25개 자치구 전부 등록.
+- **울산광역시(31)**: 5개 구/군 전부 등록(기존에 SIDO 자체가 없었음).
+- **세종특별자치시**: TourAPI `ldongCode2`가 시/도 목록 단계에서 이미 5자리 전체 코드(`36110`)로
+  반환하고, 그 코드로 재조회해도 자기 자신만 돌아온다 — 시군구 하위분류가 없는 단일 조회 단위다.
+  통계청 API도 `areaCd=36, signguCd=36110` 조합으로 실제 데이터가 확인됐다(`checkStatCode` PASS).
+  `SGG_SEJONG` 하나로 표현하며 `tourApiLdongSignguCd`는 null이다.
+- **전남광주통합특별시(TourAPI `ldongRegnCd=12`)**: 2026-08-07에 이미 문서화된 "TourAPI ↔ 통계청
+  코드 체계 불일치"(위 §2026-08-07 지역 확장 참고 — 통계청 코드는 전남 46/광주 29로 분리)가 전국
+  확장 시에도 그대로 발견됐다. 이번에는 "후보 제외" 대신 Region 마스터에는 27개 SIGUNGU 전부
+  등록하되(`tourApiLdongRegnCd`/`tourApiLdongSignguCd`는 실 응답으로 채움), 검증되지 않은 통계청
+  코드(`apiAreaCode`/`apiSigunguCode`)는 null로 남겨뒀다 — "코드를 추측하지 않는다"는 원칙을 그대로
+  따른 것이다. `syncService.ts`의 기존 `REGION:code SKIPPED` 분기가 이 27곳을 자동으로 건너뛴다
+  (TOUR_INFO/POI 포함 5개 소스 전부 미수집). **실제 전남/광주 통계청 코드(46/29) 검증은 후속 작업
+  으로 남아 있다** — 새 Region을 만들거나 지우지 않고 기존 27개 행의 `apiAreaCode`/`apiSigunguCode`
+  만 채우면 된다.
+- 그 외 12개 기존 SIDO(대전·충북·강원·경북·제주·경남·경기·충남·부산·대구·인천·전북)는 이미
+  등록된 37개 SIGUNGU와 실 API 코드가 전부 일치함을 확인했고(재검증 목적 대조, 불일치 0건), 나머지
+  전국 시군구 191곳을 추가로 등록했다.
+
+무결성은 `src/lib/services/regionMasterIntegrity.ts`(API 호출 없이 REGION_SEED 배열 자체만 검사하는
+순수 함수, `tests/unit/regionMasterIntegrity.test.ts`)로 코드 중복·부모 연결·통계청 코드 누락·같은
+SIDO 안 시군구 코드 중복을 확인한다 — 전남광주통합 27곳의 통계청 코드 누락은 "알려진 예외"로 취급해
+회귀 테스트가 명시적으로 그 목록과 일치하는지 검증한다(조용히 다른 결함이 숨지 않도록).
+
+**이번 확장에서는 실제 전국 관광 데이터 동기화를 실행하지 않았다** — Region 마스터 등록만 반영했고,
+`npm run sync:tourism-data -- --base-ym=<YYYYMM> --all-regions --max-regions=<N>`로 실제 수집을
+시작하는 것은 후속 작업이다.
+
 대구 중구(`SGG_DAEGU_JUNG`)는 표시명을 "대구 중구"로 유지하되, POI 주소 필터는
 `TOUR_INFO_ADDRESS_FILTER_OVERRIDE`(`syncService.ts`)에서 "중구"로 별도 지정한다 — 실제 주소
 ("대구광역시 중구 ...")가 표시명 "대구 중구"를 부분 문자열로 포함하지 않아 필터에 표시명을 그대로
