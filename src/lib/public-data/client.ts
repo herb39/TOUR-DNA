@@ -1,3 +1,5 @@
+import { recordApiRequest } from "./requestCounter";
+
 export interface FetchJsonOptions {
   timeoutMs?: number;
   maxRetries?: number;
@@ -38,6 +40,9 @@ export async function fetchPublicDataJson(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      // 실제로 네트워크에 나가는 시점 — 성공/실패/재시도 여부와 무관하게 "요청을 시도했다"는
+      // 사실 자체를 기준으로 집계한다(withRequestCounter 컨텍스트 밖이면 아무 효과 없음).
+      recordApiRequest(sourceCode);
       const res = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
       clearTimeout(timer);
 

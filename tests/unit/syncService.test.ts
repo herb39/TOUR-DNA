@@ -1275,4 +1275,37 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
       expect(r?.errorMessage).toContain("apiAreaCode/apiSigunguCode");
     }
   });
+
+  // 2026-08-10 API 호출량 계측 도입 — 실제 fetch() 기준 집계 자체는 tests/unit/requestCounter.test.ts가
+  // client.ts와 직접 연동해 엄밀히 검증한다(단일/다중 소스, pagination, retry, quota, 컨텍스트 격리).
+  // 여기서는 이 스위트가 어댑터 자체를 mock하므로(client.ts를 거치지 않음) requestCounts가 항상 0으로
+  // 나올 수밖에 없지만, 그 구조가 모든 반환 경로에 정상적으로 붙는지(누락·크래시 없음)만 확인한다.
+  describe("requestCounts — 배치 결과에 API 요청 집계가 항상 붙는다", () => {
+    it("정상 실행 결과에 requestCounts 구조가 포함된다", async () => {
+      mockRegions([REGION]);
+      const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      expect(result.requestCounts).toEqual({ byDataSource: expect.any(Object), total: expect.any(Number) });
+    });
+
+    it("원격 DB 차단으로 조기 종료해도 requestCounts가 0으로 채워진 채 반환된다", async () => {
+      process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
+      const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      expect(result.requestCounts).toEqual({ byDataSource: {}, total: 0 });
+    });
+
+    it("quota 감지로 지역 순회 중 중단돼도 requestCounts가 누락 없이 반환된다", async () => {
+      mockRegions([REGION]);
+      vi.mocked(fetchTarSvcDem).mockResolvedValue({
+        status: "ERROR",
+        items: [],
+        resultCode: "429",
+        resultMsg: "HTTP 429",
+        raw: { stay: { dummy: true }, spend: null },
+      });
+      const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+      expect(result.stoppedDueToQuota).toBe(true);
+      expect(result.requestCounts).toBeDefined();
+      expect(typeof result.requestCounts.total).toBe("number");
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
+import { withRequestCounter, type RequestCountSnapshot } from "@/lib/public-data/requestCounter";
 import { enforceCombinedDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
 import { checkDataSyncTarget, ALLOW_REMOTE_DATA_SYNC_ENV } from "@/lib/services/dataSyncTargetGuard";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
@@ -814,6 +815,9 @@ export interface LocalBatchSyncResult {
   remaining: number;
   /** quota/429 감지로 중단됐는지 여부. */
   stoppedDueToQuota: boolean;
+  /** 이번 실행에서 실제로 시도된 외부 API 요청 수(재시도 포함, 데이터소스별 — requestCounter.ts
+   * 참고). 조기 종료(원격 DB 차단, quota 중단)여도 그 시점까지의 실제 값이 들어간다. */
+  requestCounts: RequestCountSnapshot;
   results: SyncSourceResult[];
 }
 
@@ -836,20 +840,31 @@ export interface LocalBatchSyncResult {
  * 그대로 한 번 호출해 결과를 남기고, 거기서도 quota 신호가 나오면 지역 순회 자체를 시작하지 않고
  * 즉시 종료한다).
  */
-export async function runResumableLocalBatchSync(params: {
+interface RunResumableLocalBatchSyncParams {
   baseYm: string;
   triggeredBy: SyncTrigger;
   /** 이번 실행에서 실제 API 호출을 시도할 최대 지역 수. 기본값을 추정하지 않으므로 호출부(CLI)가
    * 항상 명시적으로 넘겨야 한다. */
   maxRegions: number;
-}): Promise<LocalBatchSyncResult> {
+}
+
+/**
+ * `runResumableLocalBatchSync`의 실제 구현. `requestCounts`를 뺀 결과를 반환하고, 바깥의
+ * `withRequestCounter`가 이 함수 실행 동안의 실제 API 요청 집계를 붙여 최종 결과를 만든다 —
+ * 계측 로직과 기존 배치 로직을 분리해 회귀 위험 없이 관측 기능만 얹은 것이다.
+ */
+async function runResumableLocalBatchSyncImpl(
+  params: RunResumableLocalBatchSyncParams,
+): Promise<Omit<LocalBatchSyncResult, "requestCounts">> {
   const { baseYm, triggeredBy, maxRegions } = params;
   const startedAt = new Date();
   const serviceKey = process.env.TOUR_API_SERVICE_KEY;
   const dataMode = process.env.DATA_MODE ?? "hybrid";
   const results: SyncSourceResult[] = [];
 
-  const emptyResult = (overrides: Partial<LocalBatchSyncResult>): LocalBatchSyncResult => ({
+  const emptyResult = (
+    overrides: Partial<Omit<LocalBatchSyncResult, "requestCounts">>,
+  ): Omit<LocalBatchSyncResult, "requestCounts"> => ({
     baseYm,
     totalRegions: 0,
     processedRegions: 0,
@@ -1028,4 +1043,25 @@ export async function runResumableLocalBatchSync(params: {
     stoppedDueToQuota,
     results,
   };
+}
+
+/** 종료 요약에 표시할 5개 데이터소스 — 사용자가 실제로 보고 싶어 하는 구분과 정확히 일치시킨다. */
+const REPORTED_DATA_SOURCE_CODES = ["TAR_SVC_DEM", "TOU_DIV_IX", "TOU_RES_DEM", "VISITOR_CNT", "TOUR_INFO"] as const;
+
+function logRequestCounts(counts: RequestCountSnapshot): void {
+  const parts = REPORTED_DATA_SOURCE_CODES.map((code) => `${code}: ${counts.byDataSource[code] ?? 0}회`);
+  console.log(`[sync-batch] API 요청 집계 — ${parts.join(", ")}, 합계: ${counts.total}회`);
+}
+
+/**
+ * 전국 재개형 로컬 배치 동기화(공개 API) — 실제 로직은 `runResumableLocalBatchSyncImpl`에 그대로
+ * 있고, 이 함수는 그 실행 전체를 `withRequestCounter`로 감싸 실제 외부 API 요청 수(재시도 포함)를
+ * 데이터소스별로 집계해 결과에 붙이기만 한다(2026-08-10 도입). 원격 DB 차단이나 quota 중단처럼
+ * 도중에 끝나는 경우도 그 시점까지의 실제 집계값이 그대로 반영된다 — impl 내부의 어떤 return
+ * 경로를 타든 항상 여기서 한 번만 로그를 남기므로 누락 걱정이 없다.
+ */
+export async function runResumableLocalBatchSync(params: RunResumableLocalBatchSyncParams): Promise<LocalBatchSyncResult> {
+  const { result, requestCounts } = await withRequestCounter(() => runResumableLocalBatchSyncImpl(params));
+  logRequestCounts(requestCounts);
+  return { ...result, requestCounts };
 }
