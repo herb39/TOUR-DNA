@@ -5,6 +5,7 @@ import {
   REGION_SIMILARITY_RULE_VERSION,
   type RegionAxisProfile,
 } from "@/lib/domain/regionSimilarity";
+import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 import type { AxisStatus, DnaAxisKey } from "@/lib/domain/types";
 
 function profile(
@@ -248,5 +249,63 @@ describe("resolveAnalysisBaseYmMismatchNote — 분석 기준월과 비교 기�
     const note = resolveAnalysisBaseYmMismatchNote(null, "202606");
     expect(note).toContain("202606");
     expect(note).toContain("기준월 정보가 없어");
+  });
+});
+
+/** 2026-08-10 — DNA 카드/레이더는 사용자 표시지수(toDisplayDnaScore, 10~90)를 쓰는데 유사지역
+ * 비교는 내부 원점수(0~100)를 그대로 노출해 같은 축인데 화면마다 숫자가 다르게 보이는 문제가 있었다.
+ * axisDifferences에 표시값 필드(targetDisplayScore/candidateDisplayScore/displayDiff)를 추가해
+ * 화면 렌더링은 이 값을 쓰도록 고쳤다 — 유사도 계산(distance)·정렬·강점 판정은 여전히 원점수만
+ * 쓴다(아래 "유사도 계산 회귀 없음" 테스트가 확인한다). */
+describe("axisDifferences — 사용자 표시지수(2026-08-10 도입)", () => {
+  it("targetDisplayScore/candidateDisplayScore가 toDisplayDnaScore와 정확히 같다(공통 함수를 그대로 재사용)", () => {
+    const target = profile("A", "A시", { demand: 56, stay: 55, spend: 89, diversity: 41, network: 80 });
+    const candidate = profile("B", "B시", { demand: 13, stay: 48, spend: 54, diversity: 53, network: 62 });
+    const result = computeRegionSimilarityComparisons(target, [target, candidate]);
+    const diffs = result.comparisons[0].axisDifferences;
+
+    for (const d of diffs) {
+      expect(d.targetDisplayScore).toBe(toDisplayDnaScore(d.targetScore));
+      expect(d.candidateDisplayScore).toBe(toDisplayDnaScore(d.candidateScore));
+      expect(d.displayDiff).toBe(d.targetDisplayScore - d.candidateDisplayScore);
+    }
+  });
+
+  it("경계값(0/25/50/75/100)에서도 표시값이 dnaDisplayScore.ts의 결과와 일치한다", () => {
+    const target = profile("A", "A시", { demand: 0, stay: 25, spend: 50, diversity: 75, network: 100 });
+    const candidate = profile("B", "B시", { demand: 50, stay: 50, spend: 50, diversity: 50, network: 50 });
+    const result = computeRegionSimilarityComparisons(target, [target, candidate]);
+    const byAxis = new Map(result.comparisons[0].axisDifferences.map((d) => [d.axis, d]));
+
+    expect(byAxis.get("demand")?.targetDisplayScore).toBe(toDisplayDnaScore(0));
+    expect(byAxis.get("stay")?.targetDisplayScore).toBe(toDisplayDnaScore(25));
+    expect(byAxis.get("spend")?.targetDisplayScore).toBe(toDisplayDnaScore(50));
+    expect(byAxis.get("diversity")?.targetDisplayScore).toBe(toDisplayDnaScore(75));
+    expect(byAxis.get("network")?.targetDisplayScore).toBe(toDisplayDnaScore(100));
+  });
+
+  it("벤치마킹 문구·강점요약 문구는 원점수가 아니라 표시지수 숫자를 담는다", () => {
+    const target = profile("A", "A시", { demand: 60, stay: 60, spend: 60, diversity: 60, network: 60 });
+    const candidate = profile("B", "B시", { demand: 61, stay: 85, spend: 60, diversity: 60, network: 60 }); // stay 25점 격차(원점수)
+    const result = computeRegionSimilarityComparisons(target, [target, candidate]);
+    const stayDiff = result.comparisons[0].axisDifferences.find((d) => d.axis === "stay")!;
+
+    // 벤치마킹 문구에 원점수(target=60, candidate=85)가 아니라 표시지수가 들어간다.
+    const benchmarkText = result.comparisons[0].benchmarkPoints[0];
+    expect(benchmarkText).toContain(String(stayDiff.candidateDisplayScore));
+    expect(benchmarkText).toContain(String(stayDiff.targetDisplayScore));
+    expect(benchmarkText).not.toContain("85점");
+    expect(benchmarkText).not.toContain("60점");
+  });
+
+  it("유사도 계산(정렬 순서)은 표시값 도입 이전과 동일하게 내부 원점수만으로 결정된다(회귀 없음)", () => {
+    // dnaDisplayScore.ts의 압축(10~90)은 순위를 보존하는 단조 변환이지만, 실제 계산 자체가 원점수를
+    // 쓰는지(표시값으로 잘못 바뀌지 않았는지)를 극단값으로 확인한다 — 표시값을 썼다면 0/100 근방이
+    // 10/90으로 뭉개져 근접 순위가 달라질 수 있다.
+    const target = profile("A", "A시", { demand: 0, stay: 0, spend: 0, diversity: 0, network: 0 });
+    const near = profile("B", "B시", { demand: 5, stay: 5, spend: 5, diversity: 5, network: 5 });
+    const far = profile("C", "C시", { demand: 50, stay: 50, spend: 50, diversity: 50, network: 50 });
+    const result = computeRegionSimilarityComparisons(target, [target, near, far]);
+    expect(result.comparisons.map((c) => c.regionCode)).toEqual(["B", "C"]);
   });
 });

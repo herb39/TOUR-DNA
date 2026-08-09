@@ -48,11 +48,14 @@ export function RegionComparisonCard({
                 {comparison.axisDifferences.map((a) => (
                   <tr key={a.axis} className="border-b border-slate-100 last:border-0">
                     <td className="py-1 pr-2 text-slate-500">{a.axisLabel}</td>
+                    {/* DNA 카드·레이더 차트와 동일한 사용자 표시지수(10~90)로 보여준다 — 내부 원점수
+                     * (targetScore/candidateScore/diff)는 유사도 계산·강점 판정에만 쓰고 화면에는
+                     * 노출하지 않는다(2026-08-10, 화면마다 다른 숫자로 보이던 문제 수정). */}
                     <td className="py-1 text-right text-slate-700">
-                      {a.targetScore} vs {a.candidateScore}
+                      {a.targetDisplayScore} vs {a.candidateDisplayScore}
                     </td>
                     <td className={`py-1 pl-2 text-right ${a.diff > 0 ? "text-emerald-600" : a.diff < 0 ? "text-red-600" : "text-slate-400"}`}>
-                      {a.diff > 0 ? `+${a.diff}` : a.diff}
+                      {a.displayDiff > 0 ? `+${a.displayDiff}` : a.displayDiff}
                     </td>
                   </tr>
                 ))}

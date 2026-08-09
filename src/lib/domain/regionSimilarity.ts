@@ -1,5 +1,6 @@
 import { AXIS_LABEL_KO, DNA_AXES, type AxisStatus, type DnaAxisKey } from "./types";
 import type { PoiCategoryCode } from "./strategyTemplates";
+import { toDisplayDnaScore } from "./dnaDisplayScore";
 
 /**
  * 유사지역 비교(README 로드맵 "유사지역 비교", 2026-08-02). 분석 지역과 DNA 5축·관광 자원 구성이
@@ -58,10 +59,20 @@ export interface RegionAxisProfile {
 export interface AxisDifference {
   axis: DnaAxisKey;
   axisLabel: string;
+  /** 내부 분석점수(0~100, dna.ts 산식 결과 그대로) — 유사도 거리 계산·정렬·강점 판정에 쓰는 원본값.
+   * 화면에 그대로 노출하지 않는다(사용자 표시지수와 혼용되어 같은 축인데 다른 숫자로 보이는 문제가
+   * 있었다, 2026-08-10). */
   targetScore: number;
   candidateScore: number;
-  /** targetScore - candidateScore. 양수면 대상 지역이 더 높음. */
+  /** targetScore - candidateScore(내부 원점수 기준). 양수면 대상 지역이 더 높음. */
   diff: number;
+  /** 사용자 표시지수(10~90, dnaDisplayScore.ts의 toDisplayDnaScore와 완전히 동일한 값) — DNA 5축
+   * 카드·레이더 차트와 같은 화면에서 같은 축은 항상 이 값으로 보여준다. */
+  targetDisplayScore: number;
+  candidateDisplayScore: number;
+  /** targetDisplayScore - candidateDisplayScore. 문구에 "몇 점 앞선다"처럼 표시할 때는 반드시 이
+   * 값을 쓴다(diff를 그대로 쓰면 카드 숫자와 어긋난다). */
+  displayDiff: number;
 }
 
 export interface ComparedRegion {
@@ -120,12 +131,17 @@ function computeAxisDistance(target: RegionAxisProfile, candidate: RegionAxisPro
     const t = target.axisScores[axis];
     const c = candidate.axisScores[axis];
     if (t.score === null || c.score === null) continue;
+    const targetDisplayScore = toDisplayDnaScore(t.score)!;
+    const candidateDisplayScore = toDisplayDnaScore(c.score)!;
     shared.push({
       axis,
       axisLabel: AXIS_LABEL_KO[axis],
       targetScore: t.score,
       candidateScore: c.score,
       diff: Math.round((t.score - c.score) * 100) / 100,
+      targetDisplayScore,
+      candidateDisplayScore,
+      displayDiff: targetDisplayScore - candidateDisplayScore,
     });
   }
   if (shared.length < MIN_SHARED_AXES) return null;
@@ -166,18 +182,21 @@ function buildRelativePosition(targetName: string, shared: AxisDifference[]): st
   return `비교 가능한 ${shared.length}개 축 중 ${targetName}이(가) ${better}개 축에서 더 높고, ${worse}개 축에서 더 낮습니다${tieText}.`;
 }
 
+// 부호·순위 판정은 내부 원점수(diff)로 하고, 문구에 실제 숫자를 넣을 때만 표시지수(displayDiff 등)를
+// 쓴다 — toDisplayDnaScore가 단조증가 변환이라 부호와 순서는 항상 diff와 일치하므로 판정 결과 자체는
+// 바뀌지 않는다(2026-08-10, 화면 표시 숫자만 DNA 카드·레이더와 동일한 체계로 맞춘 것).
 function buildStrengthWeaknessSummary(shared: AxisDifference[]): string {
   const sortedDesc = [...shared].sort((a, b) => b.diff - a.diff);
   const best = sortedDesc[0];
   const worst = sortedDesc[sortedDesc.length - 1];
 
   if (best.diff <= 0) {
-    return `이 지역과 비교했을 때 뚜렷하게 앞서는 축은 확인되지 않았습니다(가장 근접한 축: ${best.axisLabel}, 차이 ${Math.abs(best.diff)}점).`;
+    return `이 지역과 비교했을 때 뚜렷하게 앞서는 축은 확인되지 않았습니다(가장 근접한 축: ${best.axisLabel}, 차이 ${Math.abs(best.displayDiff)}점).`;
   }
   if (worst.diff >= 0) {
-    return `${best.axisLabel} 축이 ${Math.abs(best.diff)}점 앞서며, 뚜렷하게 뒤처지는 축은 확인되지 않았습니다.`;
+    return `${best.axisLabel} 축이 ${Math.abs(best.displayDiff)}점 앞서며, 뚜렷하게 뒤처지는 축은 확인되지 않았습니다.`;
   }
-  return `${best.axisLabel} 축은 ${Math.abs(best.diff)}점 앞서지만, ${worst.axisLabel} 축은 ${Math.abs(worst.diff)}점 뒤처집니다.`;
+  return `${best.axisLabel} 축은 ${Math.abs(best.displayDiff)}점 앞서지만, ${worst.axisLabel} 축은 ${Math.abs(worst.displayDiff)}점 뒤처집니다.`;
 }
 
 function buildBenchmarkPoints(candidateName: string, shared: AxisDifference[]): string[] {
@@ -186,7 +205,7 @@ function buildBenchmarkPoints(candidateName: string, shared: AxisDifference[]): 
     .sort((a, b) => a.diff - b.diff)
     .map(
       (s) =>
-        `${s.axisLabel} 축(${candidateName} ${s.candidateScore}점 vs 이 지역 ${s.targetScore}점) — ${candidateName}의 운영 방식을 참고할 만합니다.`,
+        `${s.axisLabel} 축(${candidateName} ${s.candidateDisplayScore}점 vs 이 지역 ${s.targetDisplayScore}점) — ${candidateName}의 운영 방식을 참고할 만합니다.`,
     );
 }
 

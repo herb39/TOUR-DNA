@@ -11,7 +11,9 @@ function comparison(overrides: Partial<ComparedRegion> = {}): ComparedRegion {
     regionCode: "B",
     regionName: "B시",
     baseYm: "202606",
-    axisDifferences: [{ axis: "demand", axisLabel: "수요", targetScore: 60, candidateScore: 50, diff: 10 }],
+    axisDifferences: [
+      { axis: "demand", axisLabel: "수요", targetScore: 60, candidateScore: 50, diff: 10, targetDisplayScore: 58, candidateDisplayScore: 50, displayDiff: 8 },
+    ],
     relativePosition: "비교 가능한 1개 축 중 A시가(가) 1개 축에서 더 높습니다.",
     strengthWeaknessSummary: "수요 축이 앞섭니다.",
     benchmarkPoints: [],
@@ -50,5 +52,23 @@ describe("RegionComparisonCard — 정보 위계 개선(기본·상세 분리)",
     expect(details).not.toBeNull();
     expect(details).not.toHaveAttribute("open");
     expect(details).toContainElement(screen.getByText("비교 가능한 1개 축 중 A시가(가) 1개 축에서 더 높습니다."));
+  });
+});
+
+/** 2026-08-10 — DNA 카드/레이더와 같은 사용자 표시지수를 보여줘야 한다(내부 원점수를 그대로
+ * 노출하지 않는다). targetScore=60/candidateScore=50(원점수)과 targetDisplayScore=58/
+ * candidateDisplayScore=50(표시지수)을 의도적으로 다르게 둬서, 화면에 실제로 표시지수 쪽이
+ * 렌더링되는지 구분해 확인한다. */
+describe("RegionComparisonCard — 사용자 표시지수로 렌더링(내부 원점수 미노출)", () => {
+  it("DNA 5축 차이 표에는 원점수가 아니라 표시지수(targetDisplayScore/candidateDisplayScore)가 나온다", () => {
+    render(<RegionComparisonCard comparison={comparison()} rank={1} comparisonBaseYm="202606" />);
+    expect(screen.getByText("58 vs 50")).toBeInTheDocument();
+    expect(screen.queryByText("60 vs 50")).not.toBeInTheDocument();
+  });
+
+  it("diff 열에도 표시지수 기준 차이(displayDiff)가 나온다", () => {
+    render(<RegionComparisonCard comparison={comparison()} rank={1} comparisonBaseYm="202606" />);
+    expect(screen.getByText("+8")).toBeInTheDocument();
+    expect(screen.queryByText("+10")).not.toBeInTheDocument();
   });
 });
