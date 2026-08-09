@@ -5,6 +5,7 @@ import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
 import { enforceCombinedDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
+import { checkDataSyncTarget, ALLOW_REMOTE_DATA_SYNC_ENV } from "@/lib/services/dataSyncTargetGuard";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
@@ -334,6 +335,27 @@ export async function runTourismDataSync(params: {
   const serviceKey = process.env.TOUR_API_SERVICE_KEY;
   const dataMode = process.env.DATA_MODE ?? "hybrid";
   const results: SyncSourceResult[] = [];
+
+  // 대량 동기화 원격 DB 안전장치(2026-08-08) — CLI·cron·admin 세 진입점이 전부 이 함수 하나를
+  // 공유하므로 여기서 한 번만 확인하면 셋 다 보호된다. DB 조회·API 호출 어느 쪽도 시작하기 전에
+  // 순수 문자열 판정만으로 끝난다(dataSyncTargetGuard.ts 참고).
+  const targetCheck = checkDataSyncTarget(process.env.DATABASE_URL, process.env[ALLOW_REMOTE_DATA_SYNC_ENV]);
+  console.log(`[sync] ${targetCheck.targetLabel}`);
+  if (!targetCheck.allowed) {
+    return {
+      baseYm: params.baseYm,
+      skipped: true,
+      overallStatus: "FAILED",
+      results: [
+        {
+          sourceCode: "DATA_SYNC_TARGET_GUARD",
+          status: "FAILED",
+          itemCount: 0,
+          errorMessage: targetCheck.blockedReason,
+        },
+      ],
+    };
+  }
 
   let targetRegion: Awaited<ReturnType<typeof prisma.region.findUnique>> = null;
   if (params.regionCode) {

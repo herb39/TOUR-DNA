@@ -15,8 +15,17 @@
  */
 import { prisma } from "../src/lib/db";
 import { syncDataSources } from "../src/lib/services/dataSourceSync";
+import { checkDataSyncTarget } from "../src/lib/services/dataSyncTargetGuard";
 
 async function main() {
+  const targetCheck = checkDataSyncTarget(process.env.DATABASE_URL, process.env.ALLOW_REMOTE_DATA_SYNC);
+  console.log(`[sync-data-sources] ${targetCheck.targetLabel}`);
+  if (!targetCheck.allowed) {
+    console.error(targetCheck.blockedReason);
+    process.exitCode = 1;
+    return;
+  }
+
   const dryRun = process.argv.includes("--dry-run");
   console.log(`[sync-data-sources] 시작${dryRun ? "(dry-run — DB 변경 없음)" : ""}`);
 

@@ -244,6 +244,11 @@ function resetAdapterMocksToNoRealBody() {
 beforeEach(() => {
   process.env.TOUR_API_SERVICE_KEY = "test-key";
   process.env.DATA_MODE = "live";
+  // 원격 DB 안전장치(2026-08-08)가 기본적으로 DATABASE_URL을 확인하므로, 이 테스트 스위트의 기존
+  // 동작을 그대로 검증하려면 로컬 대상으로 설정해 둔다 — 안전장치 자체의 동작은 별도 describe에서
+  // process.env.DATABASE_URL을 개별적으로 바꿔가며 확인한다.
+  process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/test_db";
+  delete process.env.ALLOW_REMOTE_DATA_SYNC;
   vi.clearAllMocks();
   poiFindMany.mockResolvedValue([]);
   dataSnapshotStore.clear();
@@ -254,6 +259,8 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.TOUR_API_SERVICE_KEY;
   delete process.env.DATA_MODE;
+  delete process.env.DATABASE_URL;
+  delete process.env.ALLOW_REMOTE_DATA_SYNC;
 });
 
 describe("runTourismDataSync — Phase 1-B DataSnapshot 저장", () => {
@@ -905,5 +912,55 @@ describe("runTourismDataSync — --region-code 지역 필터(2026-08-08 도입)"
     expect(normalizedMetricStore.get(`${REGION.id}|202606|visitorCnt`)).toBeDefined();
     // SIDO 조회 자체가 일어나지 않으므로 SIDO 지역에 대한 VISITOR_CNT 반영도 없다.
     expect(regionFindMany).not.toHaveBeenCalledWith({ where: { level: "SIDO" } });
+  });
+});
+
+describe("runTourismDataSync — 원격 DB 안전장치 통합(2026-08-08)", () => {
+  it("DATABASE_URL이 원격 호스트면 어떤 DB 조회·API 호출도 하지 않고 즉시 실패한다", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(result.overallStatus).toBe("FAILED");
+    expect(result.skipped).toBe(true);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].sourceCode).toBe("DATA_SYNC_TARGET_GUARD");
+    expect(regionFindMany).not.toHaveBeenCalled();
+    expect(regionFindUnique).not.toHaveBeenCalled();
+    expect(fetchTarSvcDem).not.toHaveBeenCalled();
+    expect(syncLogCreate).not.toHaveBeenCalled();
+  });
+
+  it("ALLOW_REMOTE_DATA_SYNC=true면 원격 DATABASE_URL이어도 정상 진행한다", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
+    process.env.ALLOW_REMOTE_DATA_SYNC = "true";
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(result.overallStatus).not.toBe("FAILED");
+    expect(regionFindMany).toHaveBeenCalledWith({ where: { level: "SIGUNGU" } });
+  });
+
+  it("127.0.0.1 대상은 원격 차단 없이 정상 진행한다", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@127.0.0.1:5432/tour_dna_local";
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+
+    const result = await runTourismDataSync({ baseYm: "202606", triggeredBy: "CLI" });
+
+    expect(result.overallStatus).not.toBe("FAILED");
+    expect(regionFindMany).toHaveBeenCalledWith({ where: { level: "SIGUNGU" } });
   });
 });

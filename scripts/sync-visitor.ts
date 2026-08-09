@@ -11,6 +11,7 @@
 import { prisma } from "../src/lib/db";
 import { syncVisitorCnt } from "../src/lib/services/syncService";
 import { currentBaseYm } from "../src/lib/services/visitorBaseYmFinder";
+import { checkDataSyncTarget } from "../src/lib/services/dataSyncTargetGuard";
 
 function parseArgs(argv: string[]): { baseYm?: string; forceCurrentMonth: boolean } {
   let baseYm: string | undefined;
@@ -29,6 +30,14 @@ function isValidYyyymm(value: string): boolean {
 }
 
 async function main() {
+  const targetCheck = checkDataSyncTarget(process.env.DATABASE_URL, process.env.ALLOW_REMOTE_DATA_SYNC);
+  console.log(`[sync-visitor] ${targetCheck.targetLabel}`);
+  if (!targetCheck.allowed) {
+    console.error(targetCheck.blockedReason);
+    process.exitCode = 1;
+    return;
+  }
+
   const { baseYm, forceCurrentMonth } = parseArgs(process.argv.slice(2));
   if (!baseYm) {
     console.error("사용법: npm run sync:visitor -- --baseYm=YYYYMM [--force-current-month]");

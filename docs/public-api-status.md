@@ -353,6 +353,30 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
   동기화하는 작업은 조회량이 많아 이 한도에 더 취약하므로, 앞으로는 한 번에 전체 지역을 동기화하기보다
   일부 지역씩 나눠 실행하는 것을 고려해야 한다.
 
+## 2026-08-08 로컬 개발 체제 전환 및 원격 DB 안전장치
+
+Neon Free 플랜의 월간 데이터 전송 한도를 소진한 뒤, 개발 완료 전까지 개발·테스트·관광 데이터 배치·
+대량 분석을 전부 로컬 PostgreSQL(`tour_dna_local`)에서 수행하기로 했다. `.env.local`의
+`DATABASE_URL`을 로컬로 전환했고(`DIRECT_URL`은 아직 Neon 값이 남아 있지만 `prisma.config.ts`가
+`DATABASE_URL`만 사용해 실제로는 쓰이지 않는다 — 나중에 헷갈리지 않도록 함께 갱신을 권장), `db:seed`로
+Region 49건 등 로컬 DB에 반영을 완료했다.
+
+**원격 DB 안전장치**(`src/lib/services/dataSyncTargetGuard.ts`): 외부 API를 대량 호출해 DB에 쓰는
+진입점(`sync-tourism-data.ts`·`sync-visitor.ts`·`sync-data-sources.ts` CLI, 그리고 이들이 공유하는
+`runTourismDataSync`를 통해 `/api/cron/sync-tourism-data`·`/api/admin/sync-tourism-data`까지)이
+DATABASE_URL 호스트가 `localhost`/`127.0.0.1`/`::1`이 아니면 API 호출·DB 조회 전에 즉시 실패하도록
+막았다. 원격 DB에 정말 동기화해야 하면 `ALLOW_REMOTE_DATA_SYNC=true` 환경변수를 설정한 뒤 실행한다
+(기본값은 항상 차단). 일반 사용자 화면(프로젝트 생성·조회·분석)은 이 진입점들을 거치지 않아 영향이
+없다.
+
+Vercel Production의 `vercel.json` cron(`/api/cron/sync-tourism-data`, 매월 1일 00:00 UTC)은 코드를
+수정하지 않았다 — Production의 `DATABASE_URL`은 여전히 Neon을 가리키고 `ALLOW_REMOTE_DATA_SYNC`도
+Vercel에 설정돼 있지 않으므로, 위 안전장치 덕분에 다음 실행부터는 API 호출·DB 쓰기 없이 자동으로
+실패 처리된다(Neon 데이터 자체는 전혀 건드리지 않음). 최종 배포 준비가 되면 Vercel 프로젝트 설정 →
+Environment Variables에서 `ALLOW_REMOTE_DATA_SYNC=true`를 추가하면 cron이 다시 정상 동작한다(이
+값을 Vercel에 설정하는 것은 사용자가 직접 해야 한다 — 이번 작업에서 Vercel 환경변수를 변경하지
+않았다).
+
 ## 이번 구현에서 취한 조치 (2026-07-21, 3차 갱신 — 자원수요/다양성 전체 코드/POI 파이프라인/baseYm 최신화)
 
 - `Region.apiAreaCode`/`apiSigunguCode`(통계청 코드), `Region.tourApiAreaCode`(TourAPI 구코드) 3개
