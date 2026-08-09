@@ -133,34 +133,47 @@ Region 마스터 자체가 전국을 커버해야 했다. 실 서비스키로 To
   `tourApiLdongSignguCd`는 실 응답으로 채움), 검증되지 않은 통계청 코드(`apiAreaCode`/
   `apiSigunguCode`)는 null로 남겨 "코드를 추측하지 않는다"는 원칙을 따랐다.
 
-  **2026-08-09 후속 검증(TOUR_INFO 의존성 버그 수정 + 대표 표본 2곳 코드 확인)**: `syncService.ts`가
-  `apiAreaCode`/`apiSigunguCode`가 없는 지역 전체를 `REGION:code SKIPPED`로 건너뛰던 것이 버그였다 —
-  TOUR_INFO(`tourInfo.ts`)는 이 통계청 코드를 전혀 쓰지 않고 `tourApiLdongRegnCd`/
-  `tourApiLdongSignguCd`만 쓰는데도 함께 막히고 있었다. `STAT_CODE_SOURCE_CODES`(TAR_SVC_DEM/
-  TOU_DIV_IX/TOU_RES_DEM만 포함, TOUR_INFO 제외)로 분리해 이제 이 27곳도 TOUR_INFO는 정상 시도된다.
-  또한 대표 표본 2곳(구 광주 동구=`SGG_JEONNAM_GWANGJU_210`, 구 전남 목포시=
-  `SGG_JEONNAM_GWANGJU_110`)을 baseYm=202606(전남광주통합 출범 2026-07-01 이전 시점) 기준으로 4개
-  통계 소스(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT) 전부 실 서비스키로 조회해 `areaCd=29
-  signguCd=29110`(동구)·`areaCd=46 signguCd=46110`(목포시) 조합이 실제 데이터를 반환함을 확인하고
-  두 곳의 `apiAreaCode`/`apiSigunguCode`를 채웠다. 단, 동구의 TourAPI 통합체계 코드
-  (`tourApiLdongSignguCd="210"`)와 통계청 코드 뒤 3자리(`"110"`)가 서로 다르다는 것도 함께 확인됐다 —
-  다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 전남광주통합에는 적용되지 않으므로, 나머지
-  25곳(광주 3개 자치구·전남 21개 시/군)의 통계청 코드는 이 관계로 유추하지 않고 **개별 검증이
-  남아 있다**(후속 작업 — 새 Region을 만들거나 지우지 않고 기존 25개 행의 `apiAreaCode`/
-  `apiSigunguCode`만 채우면 된다). VISITOR_CNT(DataLabService)도 같은 46/29 분리 체계를 쓰는 것으로
-  확인됐다(SIDO 집계에 통합코드 `12`는 존재하지 않고 `29`=광주광역시/`46`=전라남도로만 존재).
+  **2026-08-09 1차 후속 검증(TOUR_INFO 의존성 버그 수정 + 대표 표본 2곳 코드 확인)**:
+  `syncService.ts`가 `apiAreaCode`/`apiSigunguCode`가 없는 지역 전체를 `REGION:code SKIPPED`로
+  건너뛰던 것이 버그였다 — TOUR_INFO(`tourInfo.ts`)는 이 통계청 코드를 전혀 쓰지 않고
+  `tourApiLdongRegnCd`/`tourApiLdongSignguCd`만 쓰는데도 함께 막히고 있었다.
+  `STAT_CODE_SOURCE_CODES`(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM만 포함, TOUR_INFO 제외)로 분리해
+  이 27곳도 TOUR_INFO는 통계청 코드와 무관하게 정상 시도되도록 고쳤다. 또한 대표 표본 2곳(구 광주
+  동구=`SGG_JEONNAM_GWANGJU_210`, 구 전남 목포시=`SGG_JEONNAM_GWANGJU_110`)을
+  baseYm=202606(전남광주통합 출범 2026-07-01 이전 시점) 기준으로 4개 통계 소스(TAR_SVC_DEM/
+  TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT) 전부 실 서비스키로 조회해 `areaCd=29 signguCd=29110`(동구)·
+  `areaCd=46 signguCd=46110`(목포시) 조합이 실제 데이터를 반환함을 확인했다. 단, 동구의 TourAPI
+  통합체계 코드(`tourApiLdongSignguCd="210"`)와 통계청 코드 뒤 3자리(`"110"`)가 서로 다름도 확인됐다
+  — 다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 전남광주통합에는 적용되지 않는다는 뜻이라,
+  나머지 25곳의 통계청 코드를 이 관계로 유추하지 않기로 했다.
+
+  **2026-08-09 2차 후속 검증(나머지 25곳 코드 완성)**: VISITOR_CNT(DataLabService)의 전국 응답
+  (`locgoRegnVisitrDDList`, baseYm=202606, 1회 호출)이 signguCode마다 실제 `signguNm`을 함께
+  반환한다는 점을 이용했다 — `areaCode`가 `29`/`46`으로 시작하는 항목만 추려 25개 목표 지역명과
+  정확히 1:1 이름 일치로 매칭했다(추측이 아니라 실응답 대조, 코드는 항상 문자열로 다뤄 앞자리 0
+  손실 없이 대조). 매칭 결과 광주 5곳(동구`29110`·서구`29140`·남구`29155`·북구`29170`·
+  광산구`29200`)·전남 22곳(목포시`46110` 포함, 여수시`46130`부터 신안군`46910`까지) 전부 정확히
+  1개씩만 매칭돼 중복·누락이 없었다. 이 매칭 방법론의 신뢰성을 확인하기 위해 대표 4곳(광주
+  서구·광산구, 전남 여수시·신안군)을 `AreaTarDivService`(TOU_DIV_IX, DataLabService와는 별개의
+  공공데이터 서비스)로 교차 검증해 전부 `areaNm`/`signguNm` 일치를 확인했다 — 서로 다른 두 서비스
+  모두에서 총 6곳(동구·목포시·서구·광산구·여수시·신안군)이 100% 일치해, 나머지 19곳도 같은
+  이름-대조 방법으로 확보한 값을 그대로 반영했다. **결과: 27곳 전부 `apiAreaCode`/
+  `apiSigunguCode` 확보, 255개 SIGUNGU 전부 통계청 코드 보유(미보유 0건).** VISITOR_CNT의 SIDO
+  집계(`metcoRegnVisitrDDList`)에도 통합코드 `12`는 존재하지 않고 `29`=광주광역시/`46`=전라남도로만
+  존재함을 함께 확인했다.
 - 그 외 12개 기존 SIDO(대전·충북·강원·경북·제주·경남·경기·충남·부산·대구·인천·전북)는 이미
   등록된 37개 SIGUNGU와 실 API 코드가 전부 일치함을 확인했고(재검증 목적 대조, 불일치 0건), 나머지
   전국 시군구 191곳을 추가로 등록했다.
 
 무결성은 `src/lib/services/regionMasterIntegrity.ts`(API 호출 없이 REGION_SEED 배열 자체만 검사하는
 순수 함수, `tests/unit/regionMasterIntegrity.test.ts`)로 코드 중복·부모 연결·통계청 코드 누락·같은
-SIDO 안 시군구 코드 중복을 확인한다 — 전남광주통합 미검증 25곳의 통계청 코드 누락은 "알려진 예외"로
-취급해 회귀 테스트가 명시적으로 그 목록과 일치하는지 검증한다(조용히 다른 결함이 숨지 않도록).
+SIDO 안 시군구 코드 중복을 확인한다 — 2026-08-09 2차 후속 검증 이후로는 알려진 예외 없이 255개
+SIGUNGU 전부 무결성 검사를 통과한다.
 
-**이번 확장에서는 실제 전국 관광 데이터 동기화를 실행하지 않았다** — Region 마스터 등록만 반영했고,
-`npm run sync:tourism-data -- --base-ym=<YYYYMM> --all-regions --max-regions=<N>`로 실제 수집을
-시작하는 것은 후속 작업이다.
+**이번 확장(및 두 차례 후속 검증)에서는 실제 전국 관광 데이터 동기화를 실행하지 않았다** — Region
+마스터 등록·코드 완성만 반영했고, `npm run sync:tourism-data -- --base-ym=<YYYYMM> --all-regions
+--max-regions=<N>`로 실제 수집을 시작하는 것은 후속 작업이다. 255개 SIGUNGU 전부 5개 데이터소스
+(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT/TOUR_INFO)의 수집 대상이 될 수 있는 상태다.
 
 대구 중구(`SGG_DAEGU_JUNG`)는 표시명을 "대구 중구"로 유지하되, POI 주소 필터는
 `TOUR_INFO_ADDRESS_FILTER_OVERRIDE`(`syncService.ts`)에서 "중구"로 별도 지정한다 — 실제 주소

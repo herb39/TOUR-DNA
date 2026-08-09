@@ -36,14 +36,16 @@ describe("REGION_SEED — 무결성", () => {
    * (실 서비스키로 확인, 2026-08-09). 즉 세종은 시군구 하위분류 자체가 없는 TourAPI 조회 단위라
    * apiSigunguCode(36110)를 apiAreaCode(36) + 시군구 3자리로 분해할 수 없다(뒤 3자리가 없음).
    *
-   * 전남광주통합 산하 검증된 2곳(SGG_JEONNAM_GWANGJU_110=목포시, SGG_JEONNAM_GWANGJU_210=동구)도
-   * 예외다 — TourAPI 통합체계(tourApiLdongRegnCd=12)가 실제 통계청 코드(각각 46/29)와 완전히 다른
-   * 번호 체계를 쓴다는 것이 2026-08-09 baseYm=202606 실 서비스키 검증으로 확인됐다(동구의
-   * tourApiLdongSignguCd="210" ≠ 통계청 코드 뒤 3자리 "110" — regions.ts의 SGG_JEONNAM_GWANGJU_210
-   * 주석 참고). 다른 모든 지역은 이 동일성이 성립해야 한다. */
+   * 전남광주통합(SIDO_JEONNAM_GWANGJU) 산하 27곳 전체도 예외다 — TourAPI 통합체계
+   * (tourApiLdongRegnCd=12)가 실제 통계청 코드(각각 46/29)와 완전히 다른 번호 체계를 쓴다는 것이
+   * 2026-08-09 baseYm=202606 실 서비스키 검증으로 확인됐다(예: 동구의 tourApiLdongSignguCd="210" ≠
+   * 통계청 코드 뒤 3자리 "110" — regions.ts의 SIDO_JEONNAM_GWANGJU 주석 참고). 일부는 두 체계의
+   * 숫자가 우연히 같기도 하지만(예: 담양군 "710"="710") 그건 SIDO 전체가 보장하는 관계가 아니라
+   * 개별 우연이므로, 이 SIDO 전체를 예외로 제외한다. 다른 모든 SIDO는 이 동일성이 성립해야 한다. */
   it("apiSigunguCode가 있으면 apiAreaCode + 뒤 3자리가 일치한다(통계청 코드 체계 자체 검증, 세종·전남광주통합 예외)", () => {
-    const EXCEPTIONS = new Set(["SGG_SEJONG", "SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"]);
-    for (const r of REGION_SEED.filter((r) => r.level === "SIGUNGU" && !EXCEPTIONS.has(r.code))) {
+    for (const r of REGION_SEED.filter(
+      (r) => r.level === "SIGUNGU" && r.code !== "SGG_SEJONG" && r.parentCode !== "SIDO_JEONNAM_GWANGJU",
+    )) {
       if (r.apiSigunguCode && r.apiAreaCode) {
         expect(r.apiSigunguCode.startsWith(r.apiAreaCode)).toBe(true);
         expect(r.apiSigunguCode.slice(r.apiAreaCode.length)).toBe(r.tourApiLdongSignguCd);
@@ -58,15 +60,9 @@ describe("REGION_SEED — 무결성", () => {
   });
 
   it("tourApiLdongRegnCd는 apiAreaCode와 항상 같다(문서에 기록된 코드 체계 동일성 전제, 세종·전남광주통합 예외)", () => {
-    const EXCEPTIONS = new Set([
-      "SIDO_SEJONG",
-      "SGG_SEJONG",
-      "SIDO_JEONNAM_GWANGJU",
-      "SGG_JEONNAM_GWANGJU_110",
-      "SGG_JEONNAM_GWANGJU_210",
-    ]);
     for (const r of REGION_SEED) {
-      if (EXCEPTIONS.has(r.code)) continue;
+      if (r.code === "SIDO_SEJONG" || r.code === "SGG_SEJONG") continue;
+      if (r.code === "SIDO_JEONNAM_GWANGJU" || r.parentCode === "SIDO_JEONNAM_GWANGJU") continue;
       if (r.apiAreaCode && r.tourApiLdongRegnCd) {
         expect(r.tourApiLdongRegnCd).toBe(r.apiAreaCode);
       }
@@ -130,40 +126,63 @@ describe("REGION_SEED — 무결성", () => {
     );
   });
 
-  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27곳 중 25곳은 알려진 예외다 — TourAPI ldongCode2가
-   * 반환하는 시/도 코드(12)가 통계청 API에서는 항상 빈 응답을 내고, 실제 통계청 코드(전남 46/
-   * 광주 29)는 개별 검증 전까지 "코드를 추측하지 않는다"는 원칙에 따라 null로 남겨뒀다
-   * (docs/public-api-status.md에 이미 문서화된 사실, regions.ts의 SIDO_JEONNAM_GWANGJU 주석 참고).
-   * 표본 2곳(구 광주 동구·구 전남 목포시)은 2026-08-09에 baseYm=202606 실 서비스키로 개별 검증해
-   * 값을 채웠다. 그 외 모든 SIGUNGU는 여전히 누락이 없어야 한다. */
-  it("전남광주통합 미검증 25곳을 제외한 모든 SIGUNGU에 apiAreaCode/apiSigunguCode(통계청 코드)가 채워져 있다", () => {
-    const missing = REGION_SEED.filter(
-      (r) => r.level === "SIGUNGU" && r.parentCode !== "SIDO_JEONNAM_GWANGJU" && (!r.apiAreaCode || !r.apiSigunguCode),
-    );
+  /** 2026-08-09 전남광주통합 통계 코드 완성 — 27곳 전부 실응답 기반으로 검증됐다: 대표 표본 2곳
+   * (구 광주 동구·구 전남 목포시)은 4개 통계 소스 전부 실 조회로, 나머지 25곳은 VISITOR_CNT 전국
+   * 응답(baseYm=202606)의 signguCode/signguNm을 areaCode 29/46로 필터링해 지역명과 정확히 1:1
+   * 매칭한 뒤 대표 4곳(광주 서구·광산구, 전남 여수시·신안군)을 TOU_DIV_IX로 교차 검증했다(추측 없음,
+   * regions.ts의 SIDO_JEONNAM_GWANGJU 주석 참고). 이제 255개 SIGUNGU 전부 통계청 코드를 보유해야
+   * 한다. */
+  it("전남광주통합 27곳을 포함해 255개 SIGUNGU 전부 apiAreaCode/apiSigunguCode(통계청 코드)가 채워져 있다", () => {
+    const missing = REGION_SEED.filter((r) => r.level === "SIGUNGU" && (!r.apiAreaCode || !r.apiSigunguCode));
     expect(missing).toEqual([]);
 
-    const jeonnamGwangjuVerified = REGION_SEED.filter(
-      (r) => r.parentCode === "SIDO_JEONNAM_GWANGJU" && r.apiAreaCode && r.apiSigunguCode,
-    );
-    expect(jeonnamGwangjuVerified.map((r) => r.code).sort()).toEqual(
-      ["SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"].sort(),
-    );
-
-    const jeonnamGwangjuMissing = REGION_SEED.filter(
-      (r) => r.parentCode === "SIDO_JEONNAM_GWANGJU" && (!r.apiAreaCode || !r.apiSigunguCode),
-    );
-    expect(jeonnamGwangjuMissing).toHaveLength(25);
+    const jeonnamGwangjuSigungu = REGION_SEED.filter((r) => r.parentCode === "SIDO_JEONNAM_GWANGJU");
+    expect(jeonnamGwangjuSigungu).toHaveLength(27);
+    expect(jeonnamGwangjuSigungu.every((r) => r.apiAreaCode && r.apiSigunguCode)).toBe(true);
   });
 
-  it("검증된 2곳(구 광주 동구·구 전남 목포시)의 통계청 코드가 정확히 반영되어 있다", () => {
-    const dongGu = REGION_SEED.find((r) => r.code === "SGG_JEONNAM_GWANGJU_210");
-    expect(dongGu?.name).toBe("동구");
-    expect(dongGu?.apiAreaCode).toBe("29");
-    expect(dongGu?.apiSigunguCode).toBe("29110");
+  it("전남광주통합 27곳의 통계청 코드가 실응답 대조값과 정확히 일치한다(구 광주 5곳=areaCd 29, 구 전남 22곳=areaCd 46)", () => {
+    const EXPECTED: Record<string, [string, string]> = {
+      SGG_JEONNAM_GWANGJU_110: ["46", "46110"], // 목포시
+      SGG_JEONNAM_GWANGJU_130: ["46", "46130"], // 여수시
+      SGG_JEONNAM_GWANGJU_150: ["46", "46150"], // 순천시
+      SGG_JEONNAM_GWANGJU_170: ["46", "46170"], // 나주시
+      SGG_JEONNAM_GWANGJU_190: ["46", "46230"], // 광양시
+      SGG_JEONNAM_GWANGJU_210: ["29", "29110"], // 동구
+      SGG_JEONNAM_GWANGJU_240: ["29", "29140"], // 서구
+      SGG_JEONNAM_GWANGJU_270: ["29", "29155"], // 남구
+      SGG_JEONNAM_GWANGJU_300: ["29", "29170"], // 북구
+      SGG_JEONNAM_GWANGJU_330: ["29", "29200"], // 광산구
+      SGG_JEONNAM_GWANGJU_710: ["46", "46710"], // 담양군
+      SGG_JEONNAM_GWANGJU_720: ["46", "46720"], // 곡성군
+      SGG_JEONNAM_GWANGJU_730: ["46", "46730"], // 구례군
+      SGG_JEONNAM_GWANGJU_740: ["46", "46770"], // 고흥군
+      SGG_JEONNAM_GWANGJU_750: ["46", "46780"], // 보성군
+      SGG_JEONNAM_GWANGJU_760: ["46", "46790"], // 화순군
+      SGG_JEONNAM_GWANGJU_770: ["46", "46800"], // 장흥군
+      SGG_JEONNAM_GWANGJU_780: ["46", "46810"], // 강진군
+      SGG_JEONNAM_GWANGJU_790: ["46", "46820"], // 해남군
+      SGG_JEONNAM_GWANGJU_800: ["46", "46830"], // 영암군
+      SGG_JEONNAM_GWANGJU_810: ["46", "46840"], // 무안군
+      SGG_JEONNAM_GWANGJU_820: ["46", "46860"], // 함평군
+      SGG_JEONNAM_GWANGJU_830: ["46", "46870"], // 영광군
+      SGG_JEONNAM_GWANGJU_840: ["46", "46880"], // 장성군
+      SGG_JEONNAM_GWANGJU_850: ["46", "46890"], // 완도군
+      SGG_JEONNAM_GWANGJU_860: ["46", "46900"], // 진도군
+      SGG_JEONNAM_GWANGJU_870: ["46", "46910"], // 신안군
+    };
+    expect(Object.keys(EXPECTED)).toHaveLength(27);
 
-    const mokpo = REGION_SEED.find((r) => r.code === "SGG_JEONNAM_GWANGJU_110");
-    expect(mokpo?.name).toBe("목포시");
-    expect(mokpo?.apiAreaCode).toBe("46");
-    expect(mokpo?.apiSigunguCode).toBe("46110");
+    for (const [code, [areaCd, sigunguCd]] of Object.entries(EXPECTED)) {
+      const region = REGION_SEED.find((r) => r.code === code);
+      expect(region, `${code} 없음`).toBeDefined();
+      expect(region?.apiAreaCode, `${code} apiAreaCode`).toBe(areaCd);
+      expect(region?.apiSigunguCode, `${code} apiSigunguCode`).toBe(sigunguCd);
+    }
+
+    const gwangjuCount = Object.values(EXPECTED).filter(([areaCd]) => areaCd === "29").length;
+    const jeonnamCount = Object.values(EXPECTED).filter(([areaCd]) => areaCd === "46").length;
+    expect(gwangjuCount).toBe(5);
+    expect(jeonnamCount).toBe(22);
   });
 });

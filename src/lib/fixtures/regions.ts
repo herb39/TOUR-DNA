@@ -888,23 +888,28 @@ export const REGION_SEED: RegionSeed[] = [
   // AreaTarResDemService/DataLabService)에 areaCd=12를 그대로 쓰면 항상 빈 응답이 온다 — 전남/광주는
   // 통계청 코드가 각각 46/29로 별도 분리돼 있다(2026-08-07 Batch 1+2에서 이미 확인·문서화됨,
   // docs/public-api-status.md "TourAPI ↔ 통계청 코드 체계가 항상 같지는 않다" 참고). "코드를 추측하지
-  // 않는다"는 원칙에 따라 개별 검증되지 않은 SIGUNGU는 apiAreaCode/apiSigunguCode를 null로 둔다.
+  // 않는다"는 원칙에 따라 개별 검증되지 않은 값은 apiAreaCode/apiSigunguCode를 채우지 않는다.
   //
-  // **코드 검증 결과(2026-08-09, baseYm=202606 실 서비스키 조회)**: 대표 표본 2곳(구 광주 동구·구
-  // 전남 목포시)을 4개 통계 소스 전부(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT) 및 202606
-  // 기준월로 직접 조회해 전부 SUCCESS를 확인했다 — areaCd=29+signguCd=29110(동구), areaCd=46+
-  // signguCd=46110(목포시), 둘 다 areaNm/signguNm이 실제로 일치했다. 단, TourAPI 통합체계의
-  // tourApiLdongSignguCd(동구="210")와 통계청 코드 뒤 3자리("110")가 서로 다르다는 것도 함께
-  // 확인됐다 — 다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 전남광주통합에는 적용되지 않는다는
-  // 뜻이다. 따라서 이 두 표본에서 확인한 값(동구=29110, 목포시=46110)만 아래에 반영했고, 나머지
-  // 25곳(광주 3개 자치구·전남 21개 시/군)은 각각 개별 검증 전까지 apiAreaCode/apiSigunguCode를 null로
-  // 남겨둔다 — 표본 2곳의 성공이 나머지 25곳의 코드를 보장하지 않는다(추정 금지 원칙).
+  // **코드 검증 완료(2026-08-09, baseYm=202606)**: 27개 SIGUNGU 전부 통계청 코드를 확보했다. 1차로
+  // 대표 표본 2곳(구 광주 동구·구 전남 목포시)을 4개 통계 소스 전부(TAR_SVC_DEM/TOU_DIV_IX/
+  // TOU_RES_DEM/VISITOR_CNT) 실 조회로 SUCCESS 확인(areaCd=29+signguCd=29110, areaCd=46+
+  // signguCd=46110). 이때 TourAPI 통합체계의 tourApiLdongSignguCd(동구="210")와 통계청 코드 뒤
+  // 3자리("110")가 서로 다름을 확인해(다른 모든 SIDO에서 성립하던 "뒤 3자리 동일" 관계가 여기선
+  // 적용되지 않음), 나머지 25곳은 그 관계로 유추하지 않고 별도 검증했다. 2차로 VISITOR_CNT
+  // (DataLabService) 전국 응답(locgoRegnVisitrDDList, baseYm=202606, 1회 호출)이 signguCode마다
+  // 실제 signguNm을 함께 반환한다는 점을 이용해, areaCode가 29/46으로 시작하는 항목만 추려 25개
+  // 지역명과 정확히 1:1 이름 일치로 매칭했다(추측이 아니라 실응답 대조 — 코드는 항상 문자열로 다뤄
+  // 앞자리 0 손실 없이 대조했다). 이 매칭 방법론 자체의 신뢰성을 확인하기 위해 대표 4곳(광주 서구·
+  // 광산구, 전남 여수시·신안군)을 TOU_DIV_IX(별도 서비스인 AreaTarDivService)로 교차 검증해 전부
+  // areaNm/signguNm 일치를 확인했다 — 서로 다른 두 공공데이터 서비스(DataLabService/
+  // AreaTarDivService) 모두에서 6곳(동구·목포시·서구·광산구·여수시·신안군) 전부 실 응답이 일치해,
+  // 나머지 19곳도 같은 매칭 방법(VISITOR_CNT 실응답 이름 대조)으로 확보한 값을 그대로 반영했다.
   //
   // TOUR_INFO(POI)는 애초에 apiAreaCode/apiSigunguCode를 쓰지 않고 tourApiLdongRegnCd/
   // tourApiLdongSignguCd만 사용하는데(tourInfo.ts 참고), syncService.ts가 예전에는 지역 하나를
-  // 통째로 "REGION:code SKIPPED" 시켜 TOUR_INFO까지 함께 막고 있었다 — 이 27곳 전부에서 TOUR_INFO를
-  // 막을 근거가 없는 버그였다. 2026-08-09에 STAT_CODE_SOURCE_CODES로 분리해 수정했다(syncService.ts
-  // 참고) — 이제 이 27곳은 apiAreaCode/apiSigunguCode 유무와 무관하게 TOUR_INFO가 정상 시도된다.
+  // 통째로 "REGION:code SKIPPED" 시켜 TOUR_INFO까지 함께 막고 있었다 — 2026-08-09에
+  // STAT_CODE_SOURCE_CODES로 분리해 수정했다(syncService.ts 참고). 이제 이 27곳은 5개 데이터소스
+  // (TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/VISITOR_CNT/TOUR_INFO) 전부 정상적으로 수집 대상이 된다.
   {
     code: "SIDO_JEONNAM_GWANGJU",
     name: "전남광주통합특별시",
@@ -934,8 +939,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "여수시",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46130",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "130",
@@ -945,8 +950,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "순천시",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46150",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "150",
@@ -956,8 +961,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "나주시",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46170",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "170",
@@ -967,8 +972,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "광양시",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46230",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "190",
@@ -994,8 +999,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "서구",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "29",
+    apiSigunguCode: "29140",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "240",
@@ -1005,8 +1010,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "남구",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "29",
+    apiSigunguCode: "29155",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "270",
@@ -1016,8 +1021,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "북구",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "29",
+    apiSigunguCode: "29170",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "300",
@@ -1027,8 +1032,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "광산구",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "29",
+    apiSigunguCode: "29200",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "330",
@@ -1038,8 +1043,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "담양군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46710",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "710",
@@ -1049,8 +1054,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "곡성군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46720",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "720",
@@ -1060,8 +1065,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "구례군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46730",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "730",
@@ -1071,8 +1076,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "고흥군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46770",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "740",
@@ -1082,8 +1087,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "보성군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46780",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "750",
@@ -1093,8 +1098,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "화순군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46790",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "760",
@@ -1104,8 +1109,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "장흥군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46800",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "770",
@@ -1115,8 +1120,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "강진군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46810",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "780",
@@ -1126,8 +1131,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "해남군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46820",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "790",
@@ -1137,8 +1142,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "영암군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46830",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "800",
@@ -1148,8 +1153,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "무안군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46840",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "810",
@@ -1159,8 +1164,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "함평군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46860",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "820",
@@ -1170,8 +1175,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "영광군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46870",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "830",
@@ -1181,8 +1186,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "장성군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46880",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "840",
@@ -1192,8 +1197,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "완도군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46890",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "850",
@@ -1203,8 +1208,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "진도군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46900",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "860",
@@ -1214,8 +1219,8 @@ export const REGION_SEED: RegionSeed[] = [
     name: "신안군",
     level: "SIGUNGU",
     parentCode: "SIDO_JEONNAM_GWANGJU",
-    apiAreaCode: null,
-    apiSigunguCode: null,
+    apiAreaCode: "46",
+    apiSigunguCode: "46910",
     tourApiAreaCode: null,
     tourApiLdongRegnCd: "12",
     tourApiLdongSignguCd: "870",

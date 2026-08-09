@@ -97,29 +97,21 @@ describe("checkRegionMasterIntegrity — 합성 데이터로 각 결함 유형�
 });
 
 describe("checkRegionMasterIntegrity — 실제 REGION_SEED 전국 무결성(2026-08-09 전국 확장)", () => {
-  /** 전남광주통합특별시(SIDO_JEONNAM_GWANGJU) 산하 27개 SIGUNGU 중 25개는 예외다 — TourAPI ldongCode2가
-   * 반환하는 시/도 코드(12)를 통계청 API(AreaTarDemDsService 등)에 그대로 쓰면 항상 빈 응답이 온다
-   * (실제 통계청 코드는 전남 46/광주 29로 분리, 2026-08-07 Batch 1+2에서 실 서비스키로 이미 확인·
-   * docs/public-api-status.md에 문서화됨). "코드를 추측하지 않는다"는 이 프로젝트의 원칙에 따라
-   * 개별 검증되지 않은 25곳은 apiAreaCode/apiSigunguCode를 null로 남겨뒀으므로 sigunguMissingStatCode에
-   * 정상적으로 잡혀야 한다. 나머지 2곳(구 광주 동구·구 전남 목포시)은 2026-08-09에 baseYm=202606
-   * 실 서비스키로 개별 검증해 값을 채웠으므로 missing 목록에 없어야 한다. */
-  it("실제 REGION_SEED는 알려진 예외(전남광주통합 미검증 25곳)를 제외하면 모든 무결성 검사를 통과한다", () => {
+  /** 2026-08-09 전남광주통합 통계 코드 완성 — 27개 SIGUNGU 전부 실응답 기반으로 apiAreaCode/
+   * apiSigunguCode를 확보했다(regions.ts의 SIDO_JEONNAM_GWANGJU 주석 참고: 대표 2곳은 4개 통계
+   * 소스 직접 조회, 나머지 25곳은 VISITOR_CNT 전국 응답 이름 대조 + 대표 4곳 교차검증). 따라서
+   * sigunguMissingStatCode는 이제 완전히 비어 있어야 하고, 무결성 전체가 통과해야 한다. */
+  it("실제 REGION_SEED는 전남광주통합 27곳을 포함해 모든 무결성 검사를 통과한다(알려진 예외 없음)", () => {
     const result = checkRegionMasterIntegrity(REGION_SEED);
     const jeonnamGwangjuSigungu = REGION_SEED.filter((r) => r.parentCode === "SIDO_JEONNAM_GWANGJU").map((r) => r.code);
     expect(jeonnamGwangjuSigungu).toHaveLength(27);
-    const verified = ["SGG_JEONNAM_GWANGJU_110", "SGG_JEONNAM_GWANGJU_210"]; // 목포시, 동구
-    const stillMissing = jeonnamGwangjuSigungu.filter((code) => !verified.includes(code));
-    expect(stillMissing).toHaveLength(25);
 
     expect(result.duplicateRegionCodes).toEqual([]);
     expect(result.sigunguWithoutValidParent).toEqual([]);
-    expect(result.sigunguMissingStatCode.sort()).toEqual([...stillMissing].sort());
+    expect(result.sigunguMissingStatCode).toEqual([]);
     expect(result.duplicateSigunguCodeWithinSido).toEqual([]);
     expect(result.duplicateApiSigunguCode).toEqual([]);
-    // sigunguMissingStatCode에 알려진 예외만 있고 그 외에는 없으므로, health 판정 자체는 "이 알려진
-    // 예외 때문에만" false가 된다 — 그 사실을 명시적으로 검증한다(조용히 다른 결함이 숨지 않도록).
-    expect(isRegionMasterHealthy(result)).toBe(false);
+    expect(isRegionMasterHealthy(result)).toBe(true);
   });
 
   it("실제 조회된 REGION_SEED 기준 SIDO/SIGUNGU 수를 보고한다(하드코딩된 추정치가 아니라 실제 배열 길이)", () => {
