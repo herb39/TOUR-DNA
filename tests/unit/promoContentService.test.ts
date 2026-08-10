@@ -17,6 +17,15 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+// LLM 호출(2026-08-11)은 이 서비스 테스트의 관심사가 아니다 — 기본값을 "not_configured"(API key 없는
+// 로컬 개발과 동일)로 고정해, 아래 기존 테스트 전부가 지금까지처럼 순수 규칙 기반 결과만 검증하게 한다.
+// LLM 오케스트레이션 자체(성공 시 채널 교체/실패 시 조용한 fallback)는 파일 하단 별도 describe에서만
+// 명시적으로 다른 반환값을 지정해 검증한다.
+const generatePromoContentChannelsWithLlm = vi.fn();
+vi.mock("@/lib/services/llm/promoLlmGenerator", () => ({
+  generatePromoContentChannelsWithLlm: (...args: unknown[]) => generatePromoContentChannelsWithLlm(...args),
+}));
+
 import {
   generatePromoContentForProject,
   getPromoContentForProject,
@@ -84,6 +93,8 @@ beforeEach(() => {
   strategyResultFindUnique.mockReset();
   selectedPlanUpdateMany.mockReset();
   selectedPlanUpdate.mockReset();
+  generatePromoContentChannelsWithLlm.mockReset();
+  generatePromoContentChannelsWithLlm.mockResolvedValue({ ok: false, reason: "not_configured" });
 });
 
 describe("generatePromoContentForProject", () => {
@@ -192,6 +203,94 @@ describe("generatePromoContentForProject", () => {
   });
 });
 
+describe("generatePromoContentForProject — LLM 오케스트레이션(2026-08-11)", () => {
+  it("LLM이 설정 안 됨(not_configured)이면 규칙 기반 결과를 그대로 저장한다(generatedBy: rule)", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.content.generatedBy).toBe("rule");
+  });
+
+  it("LLM이 성공하면 문구 채널만 교체되고(generatedBy: ai) 사실 관련 필드는 규칙 기반 값을 유지한다", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+
+    const ruleBased = validPromoContent();
+    generatePromoContentChannelsWithLlm.mockResolvedValue({
+      ok: true,
+      channels: {
+        proposalSummary: { sentences: ["AI 문장1", "AI 문장2", "AI 문장3"] },
+        landing: { title: "AI 제목", body: "AI 본문" },
+        instagram: { caption: "AI 캡션", hashtags: ["AI태그"] },
+        blog: { title: "AI 블로그 제목", body: "AI 블로그 본문" },
+        cardNews: { slides: [{ title: "AI 표지", body: "AI 본문" }] },
+        shortForm: { title: "AI 숏폼", hook: "AI 훅", scenes: [{ scene: 1, visual: "v", caption: "c", narration: "n" }], cta: "AI CTA" },
+        roleContent: { role: "TRAVEL_AGENCY", productName: "AI 상품명", targetAudience: "AI 타깃", sellingPoints: ["a", "b", "c"], itineraryHighlight: "AI 일정" },
+      },
+    });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.content.generatedBy).toBe("ai");
+    expect(result.content.landing.title).toBe("AI 제목");
+    expect(result.content.proposalSummary.sentences[0]).toBe("AI 문장1");
+    expect(result.content.roleContent).toEqual({
+      role: "TRAVEL_AGENCY",
+      productName: "AI 상품명",
+      targetAudience: "AI 타깃",
+      sellingPoints: ["a", "b", "c"],
+      itineraryHighlight: "AI 일정",
+    });
+    // DNA/전략/POI/평가 관련 필드는 LLM이 절대 건드리지 않는다 — 규칙 기반 결과와 동일해야 한다.
+    expect(result.content.evidenceReferences).toEqual(ruleBased.evidenceReferences);
+    expect(result.content.courseHighlights).toEqual(ruleBased.courseHighlights);
+    expect(result.content.channelPriority).toEqual(ruleBased.channelPriority);
+    expect(result.content.translationNotice).toEqual(ruleBased.translationNotice);
+    expect(result.content.version).toBe(ruleBased.version);
+  });
+
+  it("LLM 호출이 timeout으로 실패하면 규칙 기반 결과로 조용히 대체된다(사용자에게 오류 노출 없음)", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+    generatePromoContentChannelsWithLlm.mockResolvedValue({ ok: false, reason: "timeout" });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content.generatedBy).toBe("rule");
+      expect(JSON.stringify(result.content)).not.toContain("timeout");
+    }
+  });
+
+  it("LLM 호출이 스키마 검증 실패(invalid_response)로 실패해도 홍보 콘텐츠 생성 자체는 정상 완료된다", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+    generatePromoContentChannelsWithLlm.mockResolvedValue({ ok: false, reason: "invalid_response" });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.content.generatedBy).toBe("rule");
+  });
+
+  it("LLM 클라이언트가 예외를 던져도(네트워크 이상 등) 서비스 전체가 죽지 않고 규칙 기반으로 완료된다", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+    generatePromoContentChannelsWithLlm.mockRejectedValue(new Error("unexpected"));
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.content.generatedBy).toBe("rule");
+  });
+});
+
 describe("getPromoContentForProject", () => {
   it("프로젝트가 없으면 notFound", async () => {
     projectFindUnique.mockResolvedValue(null);
@@ -214,6 +313,12 @@ describe("getPromoContentForProject", () => {
     projectFindUnique.mockResolvedValue({ selectedPlan: { promoContent: { garbage: true } } });
     const result = await getPromoContentForProject(PROJECT_ID);
     expect(result).toEqual({ ok: false, code: "invalidContent", message: expect.any(String) });
+  });
+
+  it("조회만으로는 LLM을 호출하지 않는다(비용은 명시적 생성/재생성 요청에서만 발생)", async () => {
+    projectFindUnique.mockResolvedValue({ selectedPlan: { promoContent: JSON.parse(JSON.stringify(validPromoContent())) } });
+    await getPromoContentForProject(PROJECT_ID);
+    expect(generatePromoContentChannelsWithLlm).not.toHaveBeenCalled();
   });
 });
 

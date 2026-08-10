@@ -1,9 +1,10 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { buildPromoContent, computeChannelPriority, type PromoUserRole } from "@/lib/domain/promoContent";
-import type { PromoContent } from "@/lib/domain/promoContent";
+import { buildPromoContent, buildPromoGenerationContext, computeChannelPriority, type PromoUserRole } from "@/lib/domain/promoContent";
+import type { BuildPromoContentInput, PromoContent } from "@/lib/domain/promoContent";
 import { parsePromoContent, parsePromoContentForSave } from "@/lib/validation/promoContent.schema";
 import { buildPromoContentInputFromProjectData, toPromoContentJson } from "./promoContentAdapter";
+import { generatePromoContentChannelsWithLlm } from "./llm/promoLlmGenerator";
 
 /**
  * Phase 5-B DB 서비스: Phase 5-A `buildPromoContent()`를 실제 저장 흐름에 연결한다.
@@ -69,6 +70,51 @@ async function loadProjectForGeneration(projectId: string) {
       },
     },
   });
+}
+
+/**
+ * 규칙 기반 결과(`ruleBased`, 항상 완전하고 실패하지 않는 fallback)를 그대로 반환하되, LLM이 설정돼
+ * 있고 정상 응답했을 때만 문구 채널 7종을 LLM 결과로 교체한다(2026-08-11). DNA·전략·POI·근거·평가
+ * 지표(evidenceReferences/courseHighlights/channelPriority/translationNotice/version)는 이 함수가
+ * 절대 건드리지 않고 규칙 기반 결과를 그대로 유지한다 — LLM은 문구에만 관여한다.
+ *
+ * LLM 호출 실패(키 없음/timeout/rate limit/응답 형식 오류 등)는 사용자에게 노출하지 않는다 — 이
+ * 함수는 예외를 던지지 않고 항상 유효한 PromoContent를 반환한다("LLM 장애가 서비스 장애로 이어지면
+ * 안 된다"는 요구사항). "not_configured"(API key 없음, 로컬 개발 등 정상적인 상황)는 로그도 남기지
+ * 않는다 — 나머지 실패 사유만 운영 관찰용으로 기록한다.
+ */
+async function applyLlmChannelsIfAvailable(
+  input: BuildPromoContentInput,
+  ruleBased: PromoContent,
+): Promise<PromoContent> {
+  const ctx = buildPromoGenerationContext(input, ruleBased.courseHighlights, ruleBased.evidenceReferences);
+
+  let llmResult: Awaited<ReturnType<typeof generatePromoContentChannelsWithLlm>>;
+  try {
+    llmResult = await generatePromoContentChannelsWithLlm(ctx);
+  } catch (error) {
+    logInternalError("generate:llm", error);
+    return ruleBased;
+  }
+
+  if (!llmResult.ok) {
+    if (llmResult.reason !== "not_configured") {
+      logInternalError("generate:llm", new Error(llmResult.reason));
+    }
+    return ruleBased;
+  }
+
+  return {
+    ...ruleBased,
+    proposalSummary: llmResult.channels.proposalSummary,
+    landing: llmResult.channels.landing,
+    instagram: llmResult.channels.instagram,
+    blog: llmResult.channels.blog,
+    cardNews: llmResult.channels.cardNews,
+    shortForm: llmResult.channels.shortForm,
+    roleContent: llmResult.channels.roleContent,
+    generatedBy: "ai",
+  };
 }
 
 /**
@@ -142,7 +188,8 @@ export async function generatePromoContentForProject(
     analysis: project.analysisResult ?? null,
   });
 
-  const content = buildPromoContent(input);
+  const ruleBasedContent = buildPromoContent(input);
+  const content = await applyLlmChannelsIfAvailable(input, ruleBasedContent);
   const jsonValue = toPromoContentJson(content);
 
   try {

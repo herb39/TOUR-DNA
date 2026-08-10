@@ -305,6 +305,11 @@ export interface PromoContent {
   /** 국적이 FOREIGN일 때만 채워진다 — 검증된 다국어 번역 데이터/기능이 없다는 사실을 화면에 투명하게
    * 알린다(저품질 대량 번역을 만들지 않는다는 원칙, 2026-07-31). */
   translationNotice: string | null;
+  /** 채널 문구를 실제로 무엇이 만들었는지(2026-08-11 LLM 도입). "rule"은 이 파일의 결정론적 규칙
+   * 기반 생성기 결과, "ai"는 동일 generation context를 LLM에 넘겨 만든 결과다. `buildPromoContent()`
+   * 자체는 LLM을 전혀 쓰지 않으므로 항상 "rule"을 반환한다 — "ai"는 오직
+   * promoContentLlmGenerator.ts의 오케스트레이션 성공 경로에서만 덮어써진다. */
+  generatedBy: "ai" | "rule";
 }
 
 function joinNonEmpty(parts: Array<string | null | undefined>, separator = " "): string {
@@ -317,7 +322,7 @@ function isNonEmptyString(value: unknown): value is string {
 
 /** course의 기존 순서(day → order)를 그대로 따라가며 poiName이 있는 항목만 최대 maxCount개 뽑는다.
  * 정렬 기준을 새로 만들지 않는다 — 이미 저장된 순서를 그대로 신뢰한다. */
-function extractCourseHighlights(course: CourseDay[], maxCount: number): PromoCourseHighlight[] {
+export function extractCourseHighlights(course: CourseDay[], maxCount: number): PromoCourseHighlight[] {
   const highlights: PromoCourseHighlight[] = [];
   for (const day of course) {
     for (const item of day.items) {
@@ -376,7 +381,7 @@ function buildHashtags(
  * - MISSING, provenance 없음(null): 확정 근거로 쓰지 않는다(생성 근거·출처 목록에서 제외).
  * - rawValue가 유한하지 않거나 sourceCode/baseYm이 비어 있으면 제외(출처 지어내지 않음).
  * - 같은 (metricCode, baseYm, sourceCode) 조합은 첫 번째만 남긴다(입력 순서 유지, 안정적 중복 제거). */
-function buildEvidenceReferences(evidences: EvidenceItem[]): PromoEvidenceReference[] {
+export function buildEvidenceReferences(evidences: EvidenceItem[]): PromoEvidenceReference[] {
   const seen = new Set<string>();
   const result: PromoEvidenceReference[] = [];
   for (const ev of evidences) {
@@ -513,7 +518,7 @@ function roleCtaClause(role: PromoUserRole): string {
 
 /** BuildPromoContentInput → PromoGenerationContext 변환(순수 함수, 부작용 없음). 각 build* 함수가
  * 같은 파생 값을 다시 계산하지 않도록 buildPromoContent()가 한 번만 만들어 모든 채널에 전달한다. */
-function buildPromoGenerationContext(
+export function buildPromoGenerationContext(
   input: BuildPromoContentInput,
   highlights: PromoCourseHighlight[],
   evidenceRefs: PromoEvidenceReference[],
@@ -858,8 +863,12 @@ function buildTranslationNotice(nationality: PromoNationality | null): string | 
   return "외국인 대상 홍보자료입니다. 현재 검증된 다국어 번역 데이터나 번역 기능이 없어 한국어 기획안 그대로 제공합니다 — 실제 배포 전 전문 번역을 거쳐 주세요.";
 }
 
+/** buildPromoContent()와 promoContentLlmGenerator.ts가 같은 대표 코스 개수를 뽑도록 공유하는 상수 —
+ * 두 곳이 서로 다른 개수를 쓰면 규칙 기반 결과와 LLM 프롬프트에 들어가는 코스 정보가 어긋난다. */
+export const PROMO_COURSE_HIGHLIGHT_COUNT = 4;
+
 export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
-  const highlights = extractCourseHighlights(input.plan.course, 4);
+  const highlights = extractCourseHighlights(input.plan.course, PROMO_COURSE_HIGHLIGHT_COUNT);
   const highlightNames = highlights.map((h) => h.poiName);
   const lunchName = findFirstByMealPurpose(input.plan.course, "LUNCH");
   const dinnerName = findFirstByMealPurpose(input.plan.course, "DINNER");
@@ -886,5 +895,6 @@ export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
     courseHighlights: highlights,
     channelPriority: computeChannelPriority(input.project.role),
     translationNotice: buildTranslationNotice(input.project.nationality),
+    generatedBy: "rule",
   };
 }

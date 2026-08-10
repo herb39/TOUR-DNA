@@ -34,15 +34,15 @@ const promoCourseHighlightSchema = z.object({
   mealPurpose: mealPurposeSchema.nullable(),
 });
 
-const proposalSummarySchema = z.object({
+export const proposalSummarySchema = z.object({
   sentences: z.tuple([z.string(), z.string(), z.string()]),
 });
 
-const landingSchema = z.object({ title: z.string(), body: z.string() });
-const instagramSchema = z.object({ caption: z.string(), hashtags: z.array(z.string()) });
-const blogSchema = z.object({ title: z.string(), body: z.string() });
+export const landingSchema = z.object({ title: z.string(), body: z.string() });
+export const instagramSchema = z.object({ caption: z.string(), hashtags: z.array(z.string()) });
+export const blogSchema = z.object({ title: z.string(), body: z.string() });
 
-const travelAgencyPromoSchema = z.object({
+export const travelAgencyPromoSchema = z.object({
   role: z.literal("TRAVEL_AGENCY"),
   productName: z.string(),
   targetAudience: z.string(),
@@ -50,7 +50,7 @@ const travelAgencyPromoSchema = z.object({
   itineraryHighlight: z.string(),
 });
 
-const localGovPromoSchema = z.object({
+export const localGovPromoSchema = z.object({
   role: z.literal("LOCAL_GOV"),
   title: z.string(),
   lead: z.string(),
@@ -60,7 +60,7 @@ const localGovPromoSchema = z.object({
   expectedEffects: z.array(z.string()),
 });
 
-const festivalPlannerPromoSchema = z.object({
+export const festivalPlannerPromoSchema = z.object({
   role: z.literal("FESTIVAL_PLANNER"),
   title: z.string(),
   programHighlight: z.string(),
@@ -70,8 +70,14 @@ const festivalPlannerPromoSchema = z.object({
   risks: z.array(z.string()),
 });
 
+export const roleContentSchema = z.discriminatedUnion("role", [
+  travelAgencyPromoSchema,
+  localGovPromoSchema,
+  festivalPlannerPromoSchema,
+]);
+
 const cardNewsSlideSchema = z.object({ title: z.string(), body: z.string() });
-const cardNewsSchema = z.object({ slides: z.array(cardNewsSlideSchema) });
+export const cardNewsSchema = z.object({ slides: z.array(cardNewsSlideSchema) });
 
 const shortFormSceneSchema = z.object({
   scene: z.number().finite(),
@@ -79,7 +85,7 @@ const shortFormSceneSchema = z.object({
   caption: z.string(),
   narration: z.string(),
 });
-const shortFormSchema = z.object({
+export const shortFormSchema = z.object({
   title: z.string(),
   hook: z.string(),
   scenes: z.array(shortFormSceneSchema),
@@ -100,6 +106,8 @@ const strictChannelPrioritySchema = z
     message: `channelPriority는 지원 채널(${ALL_PROMO_CHANNELS.join(", ")})을 정확히 한 번씩 포함해야 합니다.`,
   });
 
+const generatedBySchema = z.enum(["ai", "rule"]);
+
 const baseObjectShape = {
   version: z.literal(PROMO_CONTENT_VERSION),
   proposalSummary: proposalSummarySchema,
@@ -107,11 +115,14 @@ const baseObjectShape = {
   instagram: instagramSchema,
   blog: blogSchema,
   cardNews: cardNewsSchema.optional(),
-  roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema, festivalPlannerPromoSchema]),
+  roleContent: roleContentSchema,
   shortForm: shortFormSchema.optional(),
   evidenceReferences: z.array(promoEvidenceReferenceSchema),
   courseHighlights: z.array(promoCourseHighlightSchema),
   translationNotice: z.string().nullable().optional(),
+  /** generatedBy(2026-08-11 LLM 도입) 이전에 저장된 홍보자료에는 이 필드가 없다 — "rule"로 안전하게
+   * 채운다(그 시점엔 전부 규칙 기반으로 생성됐으므로 사실과도 일치한다). */
+  generatedBy: generatedBySchema.optional(),
 } as const;
 
 // cardNews/channelPriority/translationNotice는 2026-07-31에, shortForm은 2026-08-11에 추가됐다 —
@@ -130,6 +141,7 @@ const promoContentReadSchema = z
     shortForm: data.shortForm ?? EMPTY_SHORT_FORM,
     channelPriority: data.channelPriority && isValidChannelPriority(data.channelPriority) ? data.channelPriority : DEFAULT_CHANNEL_PRIORITY,
     translationNotice: data.translationNotice ?? null,
+    generatedBy: data.generatedBy ?? "rule",
   }));
 
 // 신규 저장 입력(사용자가 편집해 보낸 값)은 엄격하게 검증한다 — channelPriority가 전체 순열이 아니면
@@ -146,6 +158,7 @@ const promoContentSaveSchema = z
     cardNews: data.cardNews ?? { slides: [] },
     shortForm: data.shortForm ?? EMPTY_SHORT_FORM,
     translationNotice: data.translationNotice ?? null,
+    generatedBy: data.generatedBy ?? "rule",
   }));
 
 export type PromoContentParseResult = { ok: true; value: PromoContent } | { ok: false; message: string };

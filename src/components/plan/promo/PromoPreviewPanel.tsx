@@ -86,9 +86,25 @@ export function PromoPreviewPanel({
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-900">홍보자료 미리보기</h3>
-        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-          {poster.roleLabel} 관점
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              content.generatedBy === "ai"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-100 text-slate-600"
+            }`}
+            title={
+              content.generatedBy === "ai"
+                ? "AI가 생성 컨텍스트를 바탕으로 문구를 작성했습니다."
+                : "기본 규칙 기반 생성기로 문구를 작성했습니다."
+            }
+          >
+            {content.generatedBy === "ai" ? "AI 생성" : "기본 생성"}
+          </span>
+          <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+            {poster.roleLabel} 관점
+          </span>
+        </div>
       </div>
 
       <div
