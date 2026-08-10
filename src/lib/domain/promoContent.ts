@@ -2,7 +2,7 @@ import type { CourseDay, MealPurpose } from "./planBuilder";
 import { AXIS_LABEL_KO, type DataProvenance, type DnaAxisKey, type EvidenceItem } from "./types";
 import type { UserRoleCode } from "./audienceContext";
 import { toDisplayDnaScore } from "./dnaDisplayScore";
-import { formatBaseYm, metricLabel } from "@/lib/format";
+import { formatBaseYm, metricLabel, poiCategoryLabel } from "@/lib/format";
 import { labelForNationality } from "@/lib/validation/codes";
 
 /**
@@ -633,6 +633,49 @@ function buildInstagram(
   return { caption, hashtags };
 }
 
+/** 블로그의 "핵심 코스" 문단에서 대표 방문지 한 곳을 짧은 설명 문장으로 옮긴다(2026-08-11). POI명
+ * 뒤에는 받침 유무와 무관하게 항상 같은 형태인 조사(에서/은/는/도)만 붙인다 — 임의의 장소명에 을/를을
+ * 붙이면 받침에 따라 "경포대을"처럼 어색해질 수 있어서다(이 파일 dnaOpportunityClause 수정 이력 참고).
+ * 운영시간·가격·메뉴 등 저장되지 않은 사실은 만들지 않고, 카테고리·시간대·식사 목적처럼 이미 확정된
+ * 값만 사용한다. */
+function blogPoiClause(poi: PromoCourseHighlight): string {
+  if (poi.mealPurpose === "LUNCH") return `점심은 ${poi.poiName}에서 즐길 수 있습니다.`;
+  if (poi.mealPurpose === "DINNER") return `저녁은 ${poi.poiName}에서 하루 일정을 마무리합니다.`;
+  if (poi.category === "ATTRACTION") {
+    return `${poi.dayIndex}일차 ${poi.timeSlot}에는 ${poi.poiName}에서 지역의 매력을 느껴볼 수 있습니다.`;
+  }
+  if (poi.category === "EXPERIENCE") return `${poi.poiName}에서 직접 체험하며 특별한 시간을 보낼 수 있습니다.`;
+  if (poi.category === "SHOPPING") return `${poi.poiName}에서 지역 특산물과 소품을 둘러보는 시간도 가질 수 있습니다.`;
+  if (poi.category === "LODGING") return `숙박은 ${poi.poiName}에서 머무릅니다.`;
+  if (poi.category === "FOOD") return `${poi.poiName}에서 지역 먹거리를 즐길 수 있습니다.`;
+  return `${poi.poiName}(${poiCategoryLabel(poi.category)})도 이번 코스에 포함됩니다.`;
+}
+
+/** 블로그의 "실행 포인트" 문단(2026-08-11) — 같은 코스라도 여행사는 판매 포인트, 지자체는 정책 추진
+ * 근거, 축제 기획자는 현장 운영 관점으로 다르게 정리한다. KPI 원값을 그대로 나열하지 않고(관광객 대상
+ * 블로그 문체와 맞지 않음) 이미 저장된 이름만 자연어 문장에 녹인다. */
+function blogExecutionPointClause(
+  role: PromoUserRole,
+  plan: PromoPlanContext,
+  highlightNames: string[],
+): string {
+  if (role === "TRAVEL_AGENCY") {
+    const points = resolveSellingPoints(plan.sellingPoints, plan.targetSummary, highlightNames);
+    return `이 코스는 ${points[0]}, ${points[1]} 등의 강점을 갖춘 여행 상품으로 바로 제안할 수 있습니다.`;
+  }
+  if (role === "LOCAL_GOV") {
+    const kpiPart = plan.kpis[0] ? `${plan.kpis[0].name} 등의 지표로 추진 효과를 확인하며` : "추진 효과를 지속적으로 점검하며";
+    return `이번 사업은 ${kpiPart} 지역 활성화를 위한 정책 사업으로 이어갈 수 있습니다.`;
+  }
+  const checklistPart = plan.operationChecklist[0] ?? "현장 운영 준비";
+  return `이 프로그램은 ${checklistPart} 등 운영 준비를 바탕으로 방문객의 참여를 유도하고 지역 연계 가능성을 높일 수 있습니다.`;
+}
+
+/** 블로그 채널(2026-08-11 고도화) — 다른 채널 문구를 이어 붙인 문서가 아니라, 리드 문단·추천 이유·
+ * 핵심 코스(POI별 설명)·테마/타깃 연결·실행 포인트·마무리 CTA 순서의 실제 게시 초안 형태로 만든다.
+ * 문단은 실제로 근거가 있을 때만 채우고(coursePois/evidence/theme 없으면 해당 문단 자체를 생략),
+ * 문단 사이는 줄바꿈 두 번(`\n\n`)으로 구분해 미리보기(`white-space: pre-wrap`)에서 문단으로
+ * 보이게 한다. */
 function buildBlog(
   input: BuildPromoContentInput,
   ctx: PromoGenerationContext,
@@ -642,26 +685,31 @@ function buildBlog(
   const { project, strategy, plan } = input;
   const title = `${project.regionName} ${strategy.name} 코스 소개`;
 
-  const themesPart =
-    project.preferredThemes.length > 0 ? `관심 테마: ${project.preferredThemes.join(", ")}.` : null;
-  const highlightPart =
-    highlightNames.length > 0 ? `이번 코스는 ${highlightNames.join(", ")} 등을 둘러봅니다.` : null;
-  const kpiPart = plan.kpis.length > 0 ? `${plan.kpis[0].name} 등의 성과 지표로 운영 효과를 확인할 계획입니다.` : null;
+  const leadParagraph = joinNonEmpty([
+    roleBlogAngle(project.role),
+    `${project.travelYear}년 ${project.travelMonth}월, ${plan.targetSummary}에게 추천하는 ${project.regionName} ${strategy.name} 코스입니다.`,
+    plan.conceptText,
+  ]);
+
   // 데이터 기반 추천 이유 — evidenceReferences(사실 확인된 근거)만 인용하고, 근거가 없으면 문장 자체를
   // 만들지 않는다(evidence 없는데 "데이터 근거로"라는 문구만 지어내지 않음).
   const evidenceReasonPart =
     evidenceRefs.length > 0 ? `추천 이유: ${formatEvidenceLine(evidenceRefs[0])} 데이터를 근거로 합니다.` : null;
+  const reasonParagraph = joinNonEmpty([dnaStrengthClause(ctx), evidenceReasonPart]);
 
-  const body = joinNonEmpty([
-    roleBlogAngle(project.role),
-    plan.conceptText,
-    highlightPart,
-    themesPart,
-    dnaStrengthClause(ctx),
-    evidenceReasonPart,
-    kpiPart,
-    roleCtaClause(project.role),
-  ]);
+  const courseParagraph = ctx.coursePois.length > 0 ? ctx.coursePois.map(blogPoiClause).join(" ") : null;
+
+  const themesPart =
+    project.preferredThemes.length > 0 ? `관심 테마: ${project.preferredThemes.join(", ")}.` : null;
+  const nationalityPart =
+    project.nationality === "FOREIGN" ? "해외에서 방문하는 여행객을 위해 기획한 코스이기도 합니다." : null;
+  const themeParagraph = joinNonEmpty([themesPart, nationalityPart]);
+
+  const executionParagraph = blogExecutionPointClause(project.role, plan, highlightNames);
+
+  const body = [leadParagraph, reasonParagraph, courseParagraph, themeParagraph, executionParagraph, roleCtaClause(project.role)]
+    .filter((p): p is string => Boolean(p && p.trim().length > 0))
+    .join("\n\n");
 
   return { title, body };
 }

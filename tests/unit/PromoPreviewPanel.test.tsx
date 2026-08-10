@@ -126,7 +126,10 @@ describe("PromoPreviewPanel", () => {
     renderPanel(content);
     fireEvent.click(screen.getByRole("tab", { name: "블로그" }));
     expect(screen.getByText(content.blog.title)).toBeInTheDocument();
-    expect(screen.getByText(content.blog.body)).toBeInTheDocument();
+    // body가 여러 문단(개행 포함)으로 확장돼(2026-08-11) SNS 캡션과 같은 이유로 커스텀 매처를 쓴다.
+    expect(
+      screen.getByText((_, element) => element?.tagName.toLowerCase() === "p" && element.textContent === content.blog.body),
+    ).toBeInTheDocument();
   });
 
   it("랜딩 탭은 히어로 제목·대표 코스·CTA를 함께 보여준다", () => {

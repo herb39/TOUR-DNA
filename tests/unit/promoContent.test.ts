@@ -567,3 +567,77 @@ describe("buildPromoContent — 사실성 가드(2026-08-11)", () => {
     }
   });
 });
+
+describe("buildPromoContent — Blog 채널 고도화(2026-08-11)", () => {
+  it("실제 코스 POI가 실제로 등장하고, 단순 나열이 아니라 문장 형태로 서술된다", () => {
+    const result = buildPromoContent(baseInput());
+    expect(result.blog.body).toContain("경포대");
+    // 단순 쉼표 나열("경포대, 테라로사, ...")이 아니라 각 POI가 문장 안에 자연스럽게 녹아 있어야 한다.
+    expect(result.blog.body).not.toContain("경포대, 테라로사");
+  });
+
+  it("DNA 강점이 자연어 문구로 반영된다", () => {
+    const dna = buildPromoDnaContext([
+      { axis: "demand", score: 90 },
+      { axis: "stay", score: 20 },
+      { axis: "spend", score: 50 },
+      { axis: "diversity", score: 50 },
+      { axis: "network", score: 50 },
+    ]);
+    const result = buildPromoContent(baseInput({ dna }));
+    expect(result.blog.body).toContain("관광 수요가 활발한");
+  });
+
+  it("역할별로 실행 포인트 문단이 실제로 다르다(역할명만 바뀌는 게 아님)", () => {
+    const input = baseInput();
+    const agency = buildPromoContent({ ...input, project: { ...input.project, role: "TRAVEL_AGENCY" } });
+    const gov = buildPromoContent({ ...input, project: { ...input.project, role: "LOCAL_GOV" } });
+    const festival = buildPromoContent({ ...input, project: { ...input.project, role: "FESTIVAL_PLANNER" } });
+    expect(agency.blog.body).not.toBe(gov.blog.body);
+    expect(gov.blog.body).not.toBe(festival.blog.body);
+    expect(agency.blog.body).toContain("여행 상품으로 바로 제안");
+    expect(gov.blog.body).toContain("정책 사업");
+    expect(festival.blog.body).toContain("지역 연계 가능성");
+  });
+
+  it("선호 테마와 여행월이 리드 문단에 자연스럽게 반영된다", () => {
+    const result = buildPromoContent(baseInput());
+    expect(result.blog.body).toContain("2026년 9월");
+    expect(result.blog.body).toContain("관심 테마: 미식, 바다.");
+  });
+
+  it("POI가 전혀 없어도(실행안 course가 빈 배열) 실패하지 않고, 코스 문단만 자연스럽게 생략된다", () => {
+    const input = baseInput({ plan: { ...baseInput().plan, course: [] } });
+    expect(() => buildPromoContent(input)).not.toThrow();
+    const result = buildPromoContent(input);
+    expect(result.blog.body.length).toBeGreaterThan(0);
+  });
+
+  it("nationality가 FOREIGN이어도 특정 국적 취향·외국어 지원 여부를 지어내지 않는다", () => {
+    const input = baseInput({ project: { ...baseInput().project, nationality: "FOREIGN" } });
+    const result = buildPromoContent(input);
+    expect(result.blog.body).toContain("해외에서 방문하는 여행객");
+    expect(result.blog.body).not.toContain("외국어");
+    expect(result.blog.body).not.toContain("영어 메뉴");
+  });
+
+  it("context에 없는 운영시간·가격·메뉴·역사적 사실·편의시설을 만들지 않는다", () => {
+    const result = buildPromoContent(baseInput());
+    for (const forbidden of ["운영시간", "가격", "메뉴", "주차장", "화장실"]) {
+      expect(result.blog.body).not.toContain(forbidden);
+    }
+  });
+
+  it("최소 5개 문단 이상으로 구성되고(빈약한 예시 문구 수준을 벗어남), 문단 사이는 줄바꿈 두 번으로 구분된다", () => {
+    const result = buildPromoContent(baseInput());
+    const paragraphs = result.blog.body.split("\n\n");
+    expect(paragraphs.length).toBeGreaterThanOrEqual(5);
+    for (const p of paragraphs) expect(p.trim().length).toBeGreaterThan(0);
+  });
+
+  it("기존 promoContent 저장/조회 스키마와 호환된다(구조 변경 없이 body 문자열만 풍부해짐)", () => {
+    const result = buildPromoContent(baseInput());
+    expect(typeof result.blog.title).toBe("string");
+    expect(typeof result.blog.body).toBe("string");
+  });
+});
