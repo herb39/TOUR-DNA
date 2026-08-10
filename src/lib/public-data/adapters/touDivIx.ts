@@ -90,6 +90,13 @@ interface CodeFetchResult {
    * 버그 수정 — 이 구분이 없어 "13개 코드 모두 정상 호출·EMPTY"인 신설 행정구역까지 무조건 ERROR로
    * 오분류해, 매 배치 실행마다 불필요하게 재호출 대상으로 남는 문제가 있었다). */
   ok: boolean;
+  /** 호출 자체가 실패했을 때(ok=false) 실제 원인 문구(예: "HTTP 429") — quota/rate-limit 감지
+   * (`isQuotaOrRateLimitSignal`, syncService.ts)가 이 문구를 검사한다(2026-08-10 버그 수정). 이 필드가
+   * 없던 이전 버전은 quota 초과로 대량 429가 발생해도 이를 감지하지 못해 배치가 멈추지 않는 문제가
+   * 있었다 — 실제로 baseYm=202606 3차 배치에서 TOU_DIV_IX가 1,566회의 HTTP 429를 받고도
+   * `stoppedDueToQuota: false`로 끝까지 진행된 것으로 재현·확인됨. ok=true(정상 호출)면 항상 undefined.
+   */
+  errorMessage?: string;
   /** 실제로 받은 원본 응답(있는 경우만) — 네트워크 실패 등으로 본문 자체가 없으면 null(지어내지 않음). */
   raw: unknown;
 }
@@ -101,14 +108,14 @@ async function fetchCode<T extends { [k: string]: unknown }>(
   valueKey: keyof T,
 ): Promise<CodeFetchResult> {
   const res = await fetchPublicDataJson(url, { sourceCode });
-  if (!res.ok) return { value: null, ok: false, raw: null };
+  if (!res.ok) return { value: null, ok: false, errorMessage: res.errorMessage, raw: null };
   try {
     const parsed = parsePublicDataEnvelope(schema, res.data);
     const value = parsed.items[0]?.[valueKey];
     return { value: typeof value === "number" ? value : null, ok: true, raw: res.data };
   } catch {
     // 예상과 다른 응답 구조(예: 에러 전용 플랫 구조)여도 실제로 받은 본문은 raw로 보존한다.
-    return { value: null, ok: false, raw: res.data };
+    return { value: null, ok: false, errorMessage: "예상과 다른 응답 구조(파싱 실패)", raw: res.data };
   }
 }
 
@@ -119,9 +126,29 @@ export interface TouDivIxRaw {
   intl: { code: string; data: unknown };
 }
 
+/** syncService.ts의 isQuotaOrRateLimitSignal과 동일한 판정 기준 — 13개 코드 중 일부만 quota/429를
+ * 맞고 나머지가 정상이면 전체 status는 SUCCESS/EMPTY로 정상 계산되어(부분 실패는 정상적으로 흡수)
+ * quotaSignal이 없다면 이 신호 자체가 완전히 사라진다(2026-08-10 발견 — 실제 baseYm=202606 배치에서
+ * TOU_DIV_IX가 1,566회 HTTP 429를 받고도 모든 지역이 SUCCESS/EMPTY로 끝나 `failed: 0`으로 보고돼
+ * quota 초과를 완전히 놓쳤다). isQuotaOrRateLimitSignal을 import하면 순환 의존이 생기므로 같은 패턴을
+ * 여기 그대로 복제한다 — 두 곳 모두 고쳐야 할 만큼 자주 바뀌는 로직이 아니다. */
+function isQuotaSignal(message: string | undefined): boolean {
+  if (!message) return false;
+  return /HTTP\s*429|rate limit|too many requests|LIMITED_NUMBER_OF_SERVICE_REQUESTS/i.test(message);
+}
+
 export type TouDivIxResult =
-  | { status: "SUCCESS" | "EMPTY"; composite: number | null; breakdown: DiversityBreakdown; itemCount: number; raw: TouDivIxRaw }
-  | { status: "ERROR"; composite: null; breakdown: null; resultMsg: string; itemCount: 0; raw: TouDivIxRaw };
+  | {
+      status: "SUCCESS" | "EMPTY";
+      composite: number | null;
+      breakdown: DiversityBreakdown;
+      itemCount: number;
+      raw: TouDivIxRaw;
+      /** 13개 코드 중 하나라도 quota/rate-limit 신호를 받았으면 그 메시지(예: "HTTP 429") — 전체
+       * status가 SUCCESS/EMPTY로 정상 계산됐어도 이 필드로 quota 초과 사실 자체는 드러낸다. */
+      quotaSignal: string | null;
+    }
+  | { status: "ERROR"; composite: null; breakdown: null; resultMsg: string; itemCount: 0; raw: TouDivIxRaw; quotaSignal: string | null };
 
 /** 연령대별 방문객/소비 다양성 + 국적 다양성을 모두 조회해 종합 다양성 점수를 계산한다. */
 export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxResult> {
@@ -155,12 +182,27 @@ export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxRes
   const intlValue = intlVal.value;
   const itemCount = validTou.length + validExp.length + (intlValue !== null ? 1 : 0);
 
+  const allFetches = [...touVals, ...expVals, intlVal];
+  const quotaSignal = allFetches.find((v) => isQuotaSignal(v.errorMessage))?.errorMessage ?? null;
+
   // 13개 코드 전부 값이 없어도, 그중 하나라도 실제로 호출/파싱에 성공했다면(ok=true) 이는 "API가
   // 정상 응답했지만 이 지역·baseYm에 해당 통계가 없는" EMPTY 상황이다(TAR_SVC_DEM 등 다른 소스와
   // 동일한 원칙) — 진짜 ERROR는 13개 전부 호출/파싱 자체가 실패했을 때만이다.
   const anyOk = touVals.some((v) => v.ok) || expVals.some((v) => v.ok) || intlVal.ok;
   if (validTou.length === 0 && validExp.length === 0 && intlValue === null && !anyOk) {
-    return { status: "ERROR", composite: null, breakdown: null, resultMsg: "모든 코드 호출/파싱 실패", itemCount: 0, raw };
+    // 13개 코드 전부 호출/파싱이 실패했을 때, 실제 실패 사유(예: "HTTP 429")를 그대로 노출한다 —
+    // syncService.ts의 isQuotaOrRateLimitSignal이 이 문구로 quota/rate-limit을 감지해 배치를 즉시
+    // 중단하므로, 여기서 원인을 뭉뚱그리면 대량 429가 발생해도 배치가 멈추지 않는다(2026-08-10 수정).
+    const firstFailureMessage = allFetches.find((v) => v.errorMessage)?.errorMessage;
+    return {
+      status: "ERROR",
+      composite: null,
+      breakdown: null,
+      resultMsg: firstFailureMessage ?? "모든 코드 호출/파싱 실패",
+      itemCount: 0,
+      raw,
+      quotaSignal,
+    };
   }
 
   const visitorAgeEvenness = evenness(validTou);
@@ -179,5 +221,6 @@ export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxRes
     breakdown: { visitorAgeEvenness, spendAgeEvenness, nationalityDiversity, composite },
     itemCount,
     raw,
+    quotaSignal,
   };
 }

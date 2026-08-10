@@ -235,6 +235,7 @@ function resetAdapterMocksToNoRealBody() {
     resultMsg: "mock: no body",
     itemCount: 0,
     raw: { tou: [], exp: [], intl: { code: "3303", data: null } },
+    quotaSignal: null,
   });
   vi.mocked(fetchTouResDem).mockResolvedValue({
     status: "ERROR",
@@ -1205,6 +1206,40 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
     // 이후 지역(REGION_B)은 전혀 손대지 않는다 — 이미 성공한 데이터도 그대로 보존된다(롤백 없음).
     // VISITOR_CNT는 지역 필터 없는 전국 1회 호출이라 REGION_B의 VISITOR_CNT 항목도 결과에 남는다(설계상
     // 정상) — 여기서는 지역별로 실제 예산·quota 제어 대상인 4개 재개형 소스만 확인한다.
+    expect(
+      result.results.some(
+        (r) => r.sourceCode.includes(REGION_B.code) && !r.sourceCode.startsWith("VISITOR_CNT:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("TOU_DIV_IX가 부분 429(quotaSignal)만 있어도 status와 무관하게 quota 중단으로 처리한다", async () => {
+    // 2026-08-10 발견 — 13개 코드 중 일부만 429를 맞고 나머지가 정상이면 fetchTouDivIx의 status는
+    // SUCCESS/EMPTY로 정상 계산되지만(부분 실패 흡수는 의도된 동작), quotaSignal 필드로 quota 초과
+    // 사실이 별도로 드러난다. syncTouDivIxForRegion이 이 신호를 놓치지 않고 FAILED로 강제해 배치를
+    // 안전 종료해야 한다 — 그렇지 않으면 대량 429가 발생해도 배치가 끝까지 API를 낭비하며 진행된다.
+    mockRegions([REGION, REGION_B]);
+    vi.mocked(fetchTarSvcDem).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ baseYm: "202606", tarSjrnDsIxCd: "2103", tarSjrnDsIxVal: 50 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { stay: { dummy: true }, spend: null },
+    });
+    vi.mocked(fetchTouDivIx).mockResolvedValue({
+      status: "SUCCESS",
+      composite: 40,
+      breakdown: { visitorAgeEvenness: 40, spendAgeEvenness: null, nationalityDiversity: null, composite: 40 },
+      itemCount: 1,
+      raw: { tou: [{ code: "3101", data: { dummy: true } }], exp: [], intl: { code: "3303", data: null } },
+      quotaSignal: "HTTP 429",
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.stoppedDueToQuota).toBe(true);
+    // TOU_DIV_IX에서 멈췄으므로 같은 지역의 나머지 소스(TOU_RES_DEM 등)조차 호출되지 않는다.
+    expect(fetchTouResDem).not.toHaveBeenCalled();
     expect(
       result.results.some(
         (r) => r.sourceCode.includes(REGION_B.code) && !r.sourceCode.startsWith("VISITOR_CNT:"),

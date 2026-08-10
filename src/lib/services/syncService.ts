@@ -420,6 +420,14 @@ async function syncTouDivIxForRegion(params: {
       await markMetricsAsCached(region.id, baseYm, [METRIC_CODES.DIVERSITY]);
     }
   }
+  // res.quotaSignal은 res.status와 별개다 — 13개 코드 중 일부만 quota/429를 맞아도 나머지가 정상이면
+  // res.status는 SUCCESS/EMPTY로 정상 계산되지만(이미 위에서 그 값 그대로 저장함), 이 지역이 실제로
+  // quota 초과를 겪었다는 사실 자체는 감춰서는 안 된다 — FAILED로 강제해 아래 호출부의
+  // isQuotaOrRateLimitSignal이 배치를 즉시 중단하게 한다(2026-08-10 수정, 저장된 데이터는 이미
+  // 위에서 정상 처리됐으므로 여기서 상태를 바꿔도 데이터 정합성에 영향 없음).
+  if (res.quotaSignal) {
+    return { sourceCode: `TOU_DIV_IX:${region.code}`, status: "FAILED", itemCount: 0, errorMessage: res.quotaSignal };
+  }
   return {
     sourceCode: `TOU_DIV_IX:${region.code}`,
     status: res.status === "ERROR" ? "FAILED" : "SUCCESS",

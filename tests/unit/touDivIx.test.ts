@@ -64,14 +64,14 @@ describe("fetchTouDivIx — EMPTY vs ERROR 판정", () => {
     expect(result.composite).toBeNull();
   });
 
-  it("13개 코드 전부 네트워크 호출 자체가 실패하면 ERROR다", async () => {
+  it("13개 코드 전부 네트워크 호출 자체가 실패하면 ERROR고, 실제 실패 사유를 그대로 노출한다", async () => {
     fetchPublicDataJson.mockResolvedValue({ ok: false, errorMessage: "HTTP 500" });
 
     const result = await fetchTouDivIx(params);
 
     expect(result.status).toBe("ERROR");
     if (result.status === "ERROR") {
-      expect(result.resultMsg).toBe("모든 코드 호출/파싱 실패");
+      expect(result.resultMsg).toBe("HTTP 500");
     }
   });
 
@@ -85,5 +85,34 @@ describe("fetchTouDivIx — EMPTY vs ERROR 판정", () => {
 
     expect(result.status).toBe("SUCCESS");
     expect(result.composite).not.toBeNull();
+  });
+});
+
+/**
+ * 2026-08-10 발견 — baseYm=202606 3차 전국 배치에서 TOU_DIV_IX가 HTTP 429를 1,566회 받았는데도
+ * 모든 지역이 SUCCESS/EMPTY로 끝나 `failed: 0`으로 보고돼 quota 초과 자체를 완전히 놓쳤다. 13개
+ * 코드 중 일부만 429를 맞고 나머지가 정상이면 전체 status는 정상 계산되지만(부분 실패 흡수는 의도된
+ * 동작), quota 신호 자체는 quotaSignal로 별도로 드러나야 한다.
+ */
+describe("fetchTouDivIx — 부분 429도 quotaSignal로 드러낸다", () => {
+  it("13개 중 일부만 429고 나머지가 정상 응답이면 status는 정상 계산되지만 quotaSignal이 채워진다", async () => {
+    fetchPublicDataJson.mockImplementation((url: string) => {
+      if (url.includes("touDivIxCd=3101")) return Promise.resolve(successEnvelope("3101", "touDivIxVal", 50));
+      if (url.includes("touDivIxCd=3102")) return Promise.resolve({ ok: false, errorMessage: "HTTP 429" });
+      return Promise.resolve(emptyEnvelope());
+    });
+
+    const result = await fetchTouDivIx(params);
+
+    expect(result.status).toBe("SUCCESS");
+    expect(result.quotaSignal).toBe("HTTP 429");
+  });
+
+  it("429가 전혀 없으면 quotaSignal은 null이다", async () => {
+    fetchPublicDataJson.mockResolvedValue(emptyEnvelope());
+
+    const result = await fetchTouDivIx(params);
+
+    expect(result.quotaSignal).toBeNull();
   });
 });
