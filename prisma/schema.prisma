@@ -347,6 +347,16 @@ model AnalysisResult {
   // 그 경우에만 현재 DB를 조회하는 기존 방식으로 대체한다.
   poiCategorySummary Json?
 
+  // 분석 시점에 계산된 유사지역 비교 결과 전체 스냅샷(RegionComparisonAnalysis, regionSimilarity.ts).
+  // 2026-08-10 도입 — 유사지역 비교가 조회 시점마다 전국 SIGUNGU를 다시 계산해, 데이터 sync로
+  // NormalizedMetric이 갱신되거나 min-max 코호트가 커지면 같은 분석 결과 화면인데도 상단 DNA
+  // 카드(분석 당시 저장값)와 유사지역 비교(재계산값)의 숫자가 달라지는 문제가 있었다. poiCategorySummary와
+  // 동일한 원칙으로, 분석 시점에 딱 한 번 계산해 그대로 저장하고 이후에는 사용자가 명시적으로
+  // 재분석하기 전까지 이 스냅샷만 사용한다 — 유사지역 후보·순서·점수까지 전부 고정된다. 이 컬럼
+  // 도입 이전에 생성된 레거시 행은 null이며, 화면에서는 그 경우에만 예외적으로 현재 DB를 조회하는
+  // 기존 방식(재계산)으로 대체한다.
+  regionComparisonSnapshot Json?
+
   analysisKey  String // hash(sortedInput + dataVersion + modelVersion)
   dataVersion  String // 사용된 NormalizedMetric/DataSnapshot 조합의 버전 식별자
   modelVersion String // 예: tour-dna-v1.0.0

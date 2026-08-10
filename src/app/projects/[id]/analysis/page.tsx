@@ -36,14 +36,9 @@ import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { OpportunityCard } from "@/components/opportunity/OpportunityCard";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
-import {
-  computeRegionSimilarityComparisons,
-  resolveAnalysisBaseYmMismatchNote,
-  REGION_SIMILARITY_RULE_VERSION,
-} from "@/lib/domain/regionSimilarity";
-import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
+import { resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
+import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCard";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -191,24 +186,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   // 동일한 baseYm으로 지원 지역 전체의 DNA·POI 구성을 다시 계산한다(같은 baseYm이어야 min-max 코호트가
   // 일치해 점수가 서로 비교 가능함). DNA 5축 산식(dna.ts)은 그대로 재사용하며 전혀 바꾸지 않는다.
   const analysisOwnBaseYm = baseYmSummary.primary;
-  const regionComparisonBaseYm = analysisOwnBaseYm ?? DEFAULT_BASE_YM;
-  const regionProfiles = await fetchRegionComparisonProfiles(regionComparisonBaseYm);
-  const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
-  const regionComparisonAnalysis = targetRegionProfile
-    ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
-    : {
-        targetRegionName: project.region.name,
-        comparisonBaseYm: regionComparisonBaseYm,
-        mixedBaseYm: false,
-        baseYmNote: null,
-        comparisons: [],
-        uniqueStrengthNote: null,
-        note: "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.",
-        commonLimitationNote: null,
-        candidatePoolSize: 0,
-        isSmallCandidatePool: true,
-        ruleVersion: REGION_SIMILARITY_RULE_VERSION,
-      };
+  const { analysis: regionComparisonAnalysis, usingLiveFallback: usingLiveRegionComparisonFallback } =
+    await resolveRegionComparisonAnalysis({
+      regionCode: project.region.code,
+      regionName: project.region.name,
+      snapshot: analysisResult.regionComparisonSnapshot,
+      analysisOwnBaseYm,
+    });
   // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
   // 정보가 없어 대체값을 쓴 경우) 숨기지 않고 안내한다 — 분석·인쇄 화면이 이 함수를 동일하게 호출한다.
   const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
@@ -517,6 +501,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             비교 후보 {regionComparisonAnalysis.candidatePoolSize}곳 중 상위 3곳(기준월{" "}
             {regionComparisonAnalysis.comparisonBaseYm})
           </p>
+          {usingLiveRegionComparisonFallback ? (
+            <p className="mt-1 text-xs text-slate-400">
+              ※ 이 분석은 유사지역 비교 스냅샷 도입 이전에 생성돼 현재 시점의 데이터로 다시 계산한
+              결과를 대신 보여줍니다 — 이후 데이터가 갱신되면 이 비교 결과도 함께 바뀔 수 있습니다.
+            </p>
+          ) : null}
           {regionComparisonAnalysis.isSmallCandidatePool && regionComparisonAnalysis.candidatePoolSize > 0 ? (
             <p className="mt-1 text-[11px] text-amber-700">
               ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 참고용으로만

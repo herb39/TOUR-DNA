@@ -19,6 +19,8 @@ import type { DnaResult, EvidenceItem } from "@/lib/domain/types";
 import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
+import { fetchRegionComparisonProfiles } from "./fetchRegionComparisonProfiles";
+import { computeRegionSimilarityComparisons, type RegionComparisonAnalysis } from "@/lib/domain/regionSimilarity";
 
 type PersistClient = typeof prisma | Prisma.TransactionClient;
 
@@ -71,6 +73,10 @@ export interface ComputedProjectAnalysis {
   /** 분석 시점의 지역 전체 POI 카테고리별 개수 스냅샷 — 관광사업 기회 3안(SUPPLY_GAP/TARGET_THEME_GAP)의
    * 재현성을 위해 AnalysisResult.poiCategorySummary로 그대로 저장된다(2026-08-02). */
   poiCategorySummary: Partial<Record<PoiCategoryCode, number>>;
+  /** 분석 시점에 계산한 유사지역 비교 결과 전체 — AnalysisResult.regionComparisonSnapshot으로 그대로
+   * 저장된다(2026-08-10). 대상 지역이 아직 지원되지 않아(비교 프로필을 찾지 못해) 계산할 수 없으면
+   * null — 이 경우 화면은 poiCategorySummary와 동일하게 예외적으로 현재 DB를 다시 조회한다. */
+  regionComparisonSnapshot: RegionComparisonAnalysis | null;
 }
 
 /**
@@ -126,7 +132,18 @@ export async function computeProjectAnalysis(input: AnalysisComputeInput): Promi
     modelVersion: MODEL_VERSION,
   });
 
-  return { dna, dataVersion, analysisKey, strategies, poiCategorySummary };
+  // 유사지역 비교 스냅샷(2026-08-10) — 분석 시점에 딱 한 번 계산해 그대로 저장한다. 이후 데이터
+  // sync로 NormalizedMetric이 갱신되거나 min-max 코호트(지원 SIGUNGU 수)가 바뀌어도, 이미 저장된
+  // 분석 결과 화면은 이 스냅샷만 사용해 상단 DNA 카드와 항상 같은 숫자를 보여준다(재현성 보완) —
+  // regionSimilarity.ts/fetchRegionComparisonProfiles.ts를 그대로 재사용하며 유사도 산식은 전혀
+  // 바꾸지 않는다. 대상 지역의 비교 프로필을 찾지 못하면(아직 지원되지 않는 지역) null로 남긴다.
+  const regionComparisonProfiles = await fetchRegionComparisonProfiles(baseYm);
+  const targetRegionProfile = regionComparisonProfiles.find((p) => p.code === input.regionCode);
+  const regionComparisonSnapshot: RegionComparisonAnalysis | null = targetRegionProfile
+    ? computeRegionSimilarityComparisons(targetRegionProfile, regionComparisonProfiles)
+    : null;
+
+  return { dna, dataVersion, analysisKey, strategies, poiCategorySummary, regionComparisonSnapshot };
 }
 
 /**
@@ -141,7 +158,7 @@ export async function persistProjectAnalysis(
   projectId: string,
   computed: ComputedProjectAnalysis,
 ): Promise<string> {
-  const { dna, dataVersion, analysisKey, strategies, poiCategorySummary } = computed;
+  const { dna, dataVersion, analysisKey, strategies, poiCategorySummary, regionComparisonSnapshot } = computed;
 
   await client.analysisResult.deleteMany({ where: { projectId } });
 
@@ -164,6 +181,11 @@ export async function persistProjectAnalysis(
       opportunities: dna.opportunities,
       cautions: dna.cautions,
       poiCategorySummary,
+      // null이면 필드를 아예 생략한다(컬럼 기본값이 NULL이라 결과는 동일하다) — Prisma Json 필드에
+      // 명시적 null을 넣으려면 Prisma.JsonNull 런타임 값이 필요한데 여기서는 그럴 필요가 없다.
+      ...(regionComparisonSnapshot !== null
+        ? { regionComparisonSnapshot: regionComparisonSnapshot as unknown as Prisma.InputJsonValue }
+        : {}),
       analysisKey,
       dataVersion,
       modelVersion: MODEL_VERSION,

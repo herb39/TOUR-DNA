@@ -34,6 +34,11 @@ vi.mock("@/lib/services/fetchPoisByCategory", () => ({
   fetchPoisByCategory: (...args: unknown[]) => fetchPoisByCategory(...args),
 }));
 
+const fetchRegionComparisonProfiles = vi.fn();
+vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
+  fetchRegionComparisonProfiles: (...args: unknown[]) => fetchRegionComparisonProfiles(...args),
+}));
+
 import { computeProjectAnalysis, persistProjectAnalysis, type AnalysisComputeInput } from "@/lib/services/analyzeProject";
 
 function minimalComputeInput(overrides: Partial<AnalysisComputeInput> = {}): AnalysisComputeInput {
@@ -60,6 +65,7 @@ function minimalComputeInput(overrides: Partial<AnalysisComputeInput> = {}): Ana
 beforeEach(() => {
   buildDnaEngineInput.mockReset();
   fetchPoisByCategory.mockReset();
+  fetchRegionComparisonProfiles.mockReset();
   buildDnaEngineInput.mockResolvedValue({
     regionCode: "SGG_TESTCITY",
     baseYm: "202606",
@@ -68,6 +74,7 @@ beforeEach(() => {
     networkInputs: null,
   });
   fetchPoisByCategory.mockResolvedValue({});
+  fetchRegionComparisonProfiles.mockResolvedValue([]);
 });
 
 describe("computeProjectAnalysis — DB에 아무것도 쓰지 않는다", () => {
@@ -132,6 +139,98 @@ describe("poiCategorySummary — 관광사업 기회 3안 재현성 보완(2026-
     // 최신 POI 상태가 아니라 분석 당시 값으로 고정된다.
     expect(persistedSummary).toEqual({ FOOD: 5 });
     expect(persistedSummary).not.toEqual(freshLiveQuery.poiCategorySummary);
+  });
+});
+
+/** 대상/후보 지역 DNA 프로필 고정값 — computeRegionSimilarityComparisons(실제 함수, mock 아님)가
+ * 값을 가진 축이 있어야 후보로 채택하므로 axisScores를 모두 채워둔다. */
+function regionAxisProfile(code: string, name: string, scores: Record<string, number>) {
+  return {
+    code,
+    name,
+    baseYm: "202606",
+    axisScores: {
+      demand: { score: scores.demand, status: "LIVE" as const },
+      stay: { score: scores.stay, status: "LIVE" as const },
+      spend: { score: scores.spend, status: "LIVE" as const },
+      diversity: { score: scores.diversity, status: "LIVE" as const },
+      network: { score: scores.network, status: "LIVE" as const },
+    },
+    poiCountByCategory: {},
+  };
+}
+
+describe("regionComparisonSnapshot — 유사지역 비교 재현성 보완(2026-08-10)", () => {
+  it("computeProjectAnalysis는 대상 지역의 비교 프로필을 찾으면 유사지역 비교 스냅샷을 계산해 반환한다", async () => {
+    fetchRegionComparisonProfiles.mockResolvedValue([
+      regionAxisProfile("SGG_TESTCITY", "테스트시", { demand: 60, stay: 50, spend: 40, diversity: 30, network: 20 }),
+      regionAxisProfile("SGG_OTHER", "다른시", { demand: 62, stay: 48, spend: 41, diversity: 33, network: 19 }),
+    ]);
+
+    const result = await computeProjectAnalysis(minimalComputeInput());
+
+    expect(result.regionComparisonSnapshot).not.toBeNull();
+    expect(result.regionComparisonSnapshot?.comparisons.map((c) => c.regionCode)).toEqual(["SGG_OTHER"]);
+  });
+
+  it("대상 지역의 비교 프로필을 찾지 못하면 스냅샷은 null이다", async () => {
+    fetchRegionComparisonProfiles.mockResolvedValue([
+      regionAxisProfile("SGG_OTHER", "다른시", { demand: 62, stay: 48, spend: 41, diversity: 33, network: 19 }),
+    ]);
+
+    const result = await computeProjectAnalysis(minimalComputeInput());
+
+    expect(result.regionComparisonSnapshot).toBeNull();
+  });
+
+  it("재현성 위험 재현: 이후 데이터 sync로 유사지역 비교가 달라져도, 이미 계산해 저장한 스냅샷은 그대로다", async () => {
+    // 분석 시점 — 후보가 1곳뿐이었다고 가정.
+    fetchRegionComparisonProfiles.mockResolvedValue([
+      regionAxisProfile("SGG_TESTCITY", "테스트시", { demand: 60, stay: 50, spend: 40, diversity: 30, network: 20 }),
+      regionAxisProfile("SGG_OTHER", "다른시", { demand: 62, stay: 48, spend: 41, diversity: 33, network: 19 }),
+    ]);
+    const pastComputed = await computeProjectAnalysis(minimalComputeInput());
+    expect(pastComputed.regionComparisonSnapshot?.comparisons.map((c) => c.regionCode)).toEqual(["SGG_OTHER"]);
+
+    const txAnalysisResult = { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn() };
+    txAnalysisResult.create.mockResolvedValue({ id: "analysis-past" });
+    const fakeTx = {
+      analysisResult: txAnalysisResult,
+      evidence: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+      strategyResult: { create: vi.fn(), update: vi.fn() },
+    };
+    await persistProjectAnalysis(fakeTx as unknown as Parameters<typeof persistProjectAnalysis>[0], "proj-1", pastComputed);
+    const persistedSnapshot = txAnalysisResult.create.mock.calls[0][0].data.regionComparisonSnapshot;
+    expect(persistedSnapshot.comparisons.map((c: { regionCode: string }) => c.regionCode)).toEqual(["SGG_OTHER"]);
+
+    // 이후 데이터 sync로 새 후보 지역이 지원되기 시작했다고 가정 — 지금 다시 계산하면 후보군이 달라진다.
+    fetchRegionComparisonProfiles.mockResolvedValue([
+      regionAxisProfile("SGG_TESTCITY", "테스트시", { demand: 60, stay: 50, spend: 40, diversity: 30, network: 20 }),
+      regionAxisProfile("SGG_OTHER", "다른시", { demand: 62, stay: 48, spend: 41, diversity: 33, network: 19 }),
+      regionAxisProfile("SGG_NEW", "신규시", { demand: 61, stay: 49, spend: 40, diversity: 31, network: 20 }),
+    ]);
+    const freshLiveQuery = await computeProjectAnalysis(minimalComputeInput());
+    expect(freshLiveQuery.regionComparisonSnapshot?.comparisons.length).toBe(2);
+
+    // 하지만 과거에 저장된 스냅샷은 이 변화와 무관하게 후보 1곳으로 고정된다.
+    expect(persistedSnapshot.comparisons.length).toBe(1);
+  });
+
+  it("persistProjectAnalysis는 스냅샷이 null이면 regionComparisonSnapshot 필드를 생략한다", async () => {
+    fetchRegionComparisonProfiles.mockResolvedValue([]);
+    const computed = await computeProjectAnalysis(minimalComputeInput());
+    expect(computed.regionComparisonSnapshot).toBeNull();
+
+    const txAnalysisResult = { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn() };
+    txAnalysisResult.create.mockResolvedValue({ id: "analysis-null" });
+    const fakeTx = {
+      analysisResult: txAnalysisResult,
+      evidence: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+      strategyResult: { create: vi.fn(), update: vi.fn() },
+    };
+    await persistProjectAnalysis(fakeTx as unknown as Parameters<typeof persistProjectAnalysis>[0], "proj-1", computed);
+    const createData = txAnalysisResult.create.mock.calls[0][0].data;
+    expect("regionComparisonSnapshot" in createData).toBe(false);
   });
 });
 

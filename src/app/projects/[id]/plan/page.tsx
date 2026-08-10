@@ -8,9 +8,7 @@ import type { DurationCode } from "@/lib/domain/strategy";
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { PromoContentEditor } from "@/components/plan/PromoContentEditor";
 import { DNA_AXES, type DataProvenance } from "@/lib/domain/types";
-import { computeRegionSimilarityComparisons } from "@/lib/domain/regionSimilarity";
-import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 import { summarizeEvidenceBaseYms } from "@/lib/format";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
@@ -105,12 +103,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   let preLaunchValidation: ReturnType<typeof computePreLaunchValidation> | null = null;
   if (project.analysisResult && project.input) {
     const analysisResult = project.analysisResult;
-    const baseYm = summarizeEvidenceBaseYms(analysisResult.evidences).primary ?? DEFAULT_BASE_YM;
-    const regionProfiles = await fetchRegionComparisonProfiles(baseYm);
-    const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
-    const regionComparisonAnalysis = targetRegionProfile
-      ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
-      : null;
+    const analysisOwnBaseYm = summarizeEvidenceBaseYms(analysisResult.evidences).primary;
+    const { analysis: regionComparisonAnalysis } = await resolveRegionComparisonAnalysis({
+      regionCode: project.region.code,
+      regionName: project.region.name,
+      snapshot: analysisResult.regionComparisonSnapshot,
+      analysisOwnBaseYm,
+    });
 
     const travelNoticeCount = planData.course.days.reduce((sum, d) => sum + (d.notices?.length ?? 0), 0);
 

@@ -21,9 +21,8 @@ import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { DNA_AXES, type DataProvenance } from "@/lib/domain/types";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
-import { computeRegionSimilarityComparisons, resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
-import { fetchRegionComparisonProfiles } from "@/lib/services/fetchRegionComparisonProfiles";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
+import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
@@ -79,16 +78,17 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   // 기준월)로 다시 계산해, 분석·인쇄 화면이 같은 입력으로 계산되게 한다. 인쇄 화면은 지면 제약상
   // 지역명·상대 위치·강점·취약점 요약만 표시한다(최소 범위).
   const analysisOwnBaseYm = baseYmSummary.primary;
-  const regionComparisonBaseYm = analysisOwnBaseYm ?? DEFAULT_BASE_YM;
-  const regionProfiles = await fetchRegionComparisonProfiles(regionComparisonBaseYm);
-  const targetRegionProfile = regionProfiles.find((p) => p.code === project.region.code);
-  const regionComparisonAnalysis = targetRegionProfile
-    ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
-    : null;
+  const { analysis: regionComparisonAnalysis } = await resolveRegionComparisonAnalysis({
+    regionCode: project.region.code,
+    regionName: project.region.name,
+    snapshot: analysisResult.regionComparisonSnapshot,
+    analysisOwnBaseYm,
+  });
   // 분석 화면과 동일한 함수로 기준월 불일치 안내를 만든다(분석·인쇄 화면 안내 일치, 2026-08-02).
-  const analysisBaseYmMismatchNote = regionComparisonAnalysis
-    ? resolveAnalysisBaseYmMismatchNote(analysisOwnBaseYm, regionComparisonAnalysis.comparisonBaseYm)
-    : null;
+  const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
+    analysisOwnBaseYm,
+    regionComparisonAnalysis.comparisonBaseYm,
+  );
 
   // 관광사업 기회 3안 요약(2026-08-02) — 분석 화면과 같은 순수 함수를 그대로 재사용한다(저장하지
   // 않고 인쇄 시점에 다시 계산). 인쇄 화면은 지면 제약상 제목·문제·방향만 요약해서 보여준다(최소 범위).
