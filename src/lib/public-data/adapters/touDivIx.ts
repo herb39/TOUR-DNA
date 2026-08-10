@@ -84,6 +84,12 @@ function buildUrl(baseUrl: string, path: string, code: string, codeParam: string
 
 interface CodeFetchResult {
   value: number | null;
+  /** 이 코드 하나의 호출/파싱이 실제로 정상 완료됐는지(값의 유무와 무관) — 네트워크 실패나 예상 밖
+   * 응답 구조로 진짜 실패한 경우만 false. 공공데이터포털이 정상 응답(resultCode=0000)했지만 단순히
+   * 그 코드에 해당하는 값이 없는 경우(items가 빈 문자열)는 파싱 자체는 성공한 것이라 true다(2026-08-10
+   * 버그 수정 — 이 구분이 없어 "13개 코드 모두 정상 호출·EMPTY"인 신설 행정구역까지 무조건 ERROR로
+   * 오분류해, 매 배치 실행마다 불필요하게 재호출 대상으로 남는 문제가 있었다). */
+  ok: boolean;
   /** 실제로 받은 원본 응답(있는 경우만) — 네트워크 실패 등으로 본문 자체가 없으면 null(지어내지 않음). */
   raw: unknown;
 }
@@ -95,14 +101,14 @@ async function fetchCode<T extends { [k: string]: unknown }>(
   valueKey: keyof T,
 ): Promise<CodeFetchResult> {
   const res = await fetchPublicDataJson(url, { sourceCode });
-  if (!res.ok) return { value: null, raw: null };
+  if (!res.ok) return { value: null, ok: false, raw: null };
   try {
     const parsed = parsePublicDataEnvelope(schema, res.data);
     const value = parsed.items[0]?.[valueKey];
-    return { value: typeof value === "number" ? value : null, raw: res.data };
+    return { value: typeof value === "number" ? value : null, ok: true, raw: res.data };
   } catch {
     // 예상과 다른 응답 구조(예: 에러 전용 플랫 구조)여도 실제로 받은 본문은 raw로 보존한다.
-    return { value: null, raw: res.data };
+    return { value: null, ok: false, raw: res.data };
   }
 }
 
@@ -149,7 +155,11 @@ export async function fetchTouDivIx(params: TouDivIxParams): Promise<TouDivIxRes
   const intlValue = intlVal.value;
   const itemCount = validTou.length + validExp.length + (intlValue !== null ? 1 : 0);
 
-  if (validTou.length === 0 && validExp.length === 0 && intlValue === null) {
+  // 13개 코드 전부 값이 없어도, 그중 하나라도 실제로 호출/파싱에 성공했다면(ok=true) 이는 "API가
+  // 정상 응답했지만 이 지역·baseYm에 해당 통계가 없는" EMPTY 상황이다(TAR_SVC_DEM 등 다른 소스와
+  // 동일한 원칙) — 진짜 ERROR는 13개 전부 호출/파싱 자체가 실패했을 때만이다.
+  const anyOk = touVals.some((v) => v.ok) || expVals.some((v) => v.ok) || intlVal.ok;
+  if (validTou.length === 0 && validExp.length === 0 && intlValue === null && !anyOk) {
     return { status: "ERROR", composite: null, breakdown: null, resultMsg: "모든 코드 호출/파싱 실패", itemCount: 0, raw };
   }
 
