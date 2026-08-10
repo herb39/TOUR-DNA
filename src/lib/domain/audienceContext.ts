@@ -1,4 +1,4 @@
-import type { StrategyTemplate } from "./strategyTemplates";
+import type { PoiCategoryCode, StrategyTemplate } from "./strategyTemplates";
 
 /**
  * Phase 4: 역할·국적·테마·여행월이 실제 분석 결과(전략 점수/순위/근거, 실행안 체크리스트·위험요인)에
@@ -167,6 +167,33 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
 };
 
 const THEME_CATEGORY_BONUS_CAP = 15;
+
+/** 테마 카테고리 → 실제 코스 POI 선택에 우선순위를 줄 PoiCategoryCode(2026-08-10 도입, strategy.ts의
+ * selectPois가 사용). THEME_TEMPLATE_BONUS(전략 점수 가산)와 별개의 매핑이다 — 여기서는 "이 테마를
+ * 고른 사용자가 실제 코스에서 우선 마주치길 기대할 카테고리"만 담는다. 근거 없이 세부 취향을 추측하지
+ * 않기 위해, PoiCategoryCode 6종(ATTRACTION/FOOD/LODGING/EXPERIENCE/FESTIVAL/SHOPPING) 중 테마와
+ * 명확히 연관된 카테고리만 매핑한다. PET_FRIENDLY는 대응 카테고리가 없어 의도적으로 비워둔다(전용
+ * 코스 템플릿이 없는 것과 동일한 이유 — computeThemeFit 주석 참고). */
+const THEME_POI_CATEGORY_MAP: Partial<Record<ThemeCategory, PoiCategoryCode[]>> = {
+  FOOD: ["FOOD"],
+  NATURE: ["ATTRACTION", "EXPERIENCE"],
+  CULTURE_HISTORY: ["ATTRACTION"],
+  WELLNESS: ["EXPERIENCE", "LODGING"],
+  FESTIVAL: ["FESTIVAL"],
+  LEISURE_ACTIVITY: ["EXPERIENCE"],
+};
+
+/** 선호 테마 카테고리들이 가리키는 PoiCategoryCode 전체를 중복 없이 반환한다(순서 보존). 테마가 없으면
+ * 빈 배열 — 호출부(selectPois)가 기존 우선순위 티어 구조에 그대로 얹을 수 있도록 한다. */
+export function themePreferredPoiCategories(categories: ThemeCategory[]): PoiCategoryCode[] {
+  const result: PoiCategoryCode[] = [];
+  for (const category of categories) {
+    for (const cat of THEME_POI_CATEGORY_MAP[category] ?? []) {
+      if (!result.includes(cat)) result.push(cat);
+    }
+  }
+  return result;
+}
 
 /** 카테고리 기반 테마 가산점 — 기존 substring 가산점(strategy.ts의 원래 +10 규칙)과 합산 후
  * THEME_CATEGORY_BONUS_CAP으로 clamp한다. PET_FRIENDLY처럼 대응 템플릿이 없는 카테고리는 점수에는

@@ -632,3 +632,165 @@ describe("selectPois — 거리 기반 선택(2단계: POI 선택 단계에서�
     ).not.toThrow();
   });
 });
+
+/**
+ * 2026-08-11: theme(preferredThemes)이 전략 점수(targetFit)뿐 아니라 실제 코스 POI 구성에도 반영되도록
+ * selectPois에 선호 테마 우선순위 티어를 추가했다 — 테마와 맞는 POI가 존재하면 hard filter가 아니라
+ * "먼저 채워지는 우선순위"로 반영되고, 부족하면 자연스럽게 다음 티어(기존 supplement/fallback)로
+ * 넘어간다(코스 생성 실패 없음). FESTIVAL_EVENT 템플릿(poiCategories: FESTIVAL/FOOD/SHOPPING)은
+ * ATTRACTION이 원래 fallback 티어에만 있어, "문화·역사(CULTURE_HISTORY)" 테마 선택 시 ATTRACTION이
+ * 우선순위 티어로 승격되는 효과를 명확히 관찰할 수 있다.
+ */
+describe("selectPois — theme(선호 테마) 반영(3단계)", () => {
+  it("테마와 일치하는 카테고리가 원래 fallback이었어도 테마 선택 시 우선순위 티어로 승격돼 더 많이 채워진다", () => {
+    // FESTIVAL_EVENT core=[FESTIVAL,FOOD,SHOPPING], 이 카테고리들 후보는 0개로 비워 core 티어가
+    // 전혀 채워지지 않게 한다. ATTRACTION(문화·역사 테마 매핑)과 EXPERIENCE(기존 supplement)만 채운다.
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 10),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 10),
+    };
+    const dna = computeDna(dnaInput());
+
+    const withoutTheme = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [] }),
+      pool,
+      MODEL_VERSION,
+    );
+    const withTheme = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      pool,
+      MODEL_VERSION,
+    );
+
+    const festivalWithout = withoutTheme.find((s) => s.templateId === "FESTIVAL_EVENT")!;
+    const festivalWith = withTheme.find((s) => s.templateId === "FESTIVAL_EVENT")!;
+    expect(festivalWithout).toBeDefined();
+    expect(festivalWith).toBeDefined();
+
+    const countCat = (result: typeof festivalWithout, cat: PoiCategoryCode) =>
+      result.poiIds.filter((id) => categoryOf(id, pool) === cat).length;
+
+    // 테마 없음: EXPERIENCE(supplement, 무제한)가 목표(7개)를 전부 채워버려 ATTRACTION(fallback)은
+    // 진입 기회조차 없다 — 이것이 바로 "테마와 무관하면 특정 카테고리가 코스를 독점할 수 있는" 기존 문제다.
+    expect(countCat(festivalWithout, "ATTRACTION")).toBe(0);
+    expect(countCat(festivalWithout, "EXPERIENCE")).toBe(7);
+
+    // 테마 있음: ATTRACTION이 우선순위 티어로 승격돼(상한 50%=4개) 먼저 채워지고, 나머지 3개만
+    // EXPERIENCE(supplement)로 채워진다 — 우선순위가 명확히 뒤바뀐다.
+    expect(countCat(festivalWith, "ATTRACTION")).toBe(4);
+    expect(countCat(festivalWith, "EXPERIENCE")).toBe(3);
+    expect(festivalWith.poiIds.length).toBe(festivalWithout.poiIds.length);
+  });
+
+  it("테마 카테고리 POI가 아예 없어도 코스 생성이 실패하지 않고 다른 카테고리로 채워진다(fallback)", () => {
+    // 문화·역사 테마를 선택했지만 ATTRACTION 후보가 지역에 전혀 없는 상황 — themeCats 티어가
+    // 아무것도 못 채우고 자연스럽게 다음 티어(supplement/fallback)로 넘어가야 한다.
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 10),
+    };
+    const dna = computeDna(dnaInput());
+
+    expect(() =>
+      computeStrategies(
+        dna,
+        baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+        pool,
+        MODEL_VERSION,
+      ),
+    ).not.toThrow();
+
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      pool,
+      MODEL_VERSION,
+    );
+    const festivalEvent = strategies.find((s) => s.templateId === "FESTIVAL_EVENT")!;
+    expect(festivalEvent.poiIds.length).toBeGreaterThan(0);
+    for (const id of festivalEvent.poiIds) {
+      expect(categoryOf(id, pool)).toBe("EXPERIENCE");
+    }
+  });
+
+  it("선호 테마 카테고리가 아무리 풍부해도 코스 전체가 그 카테고리 하나로만 채워지지 않는다(다양성 유지)", () => {
+    // FESTIVAL_EVENT core=[FESTIVAL,FOOD,SHOPPING](전부 pool에 없음, 진입 안 함). "레저·액티비티"
+    // 테마(LEISURE_ACTIVITY→EXPERIENCE)를 골라 EXPERIENCE를 아주 풍부하게(20개) 두면, 테마 없을 때는
+    // supplement 티어가 목표를 전부 EXPERIENCE로 채우지만(독점), 테마가 있으면 상한(50%)에서 멈추고
+    // 나머지는 ATTRACTION(fallback)으로 채워져야 한다 — 미식(FOOD) 테마도 동일한 메커니즘을 타지만,
+    // FOOD는 별도의 식사 선점(mealReserve) 로직과 상호작용해 순수한 상한 검증에는 이 카테고리가 더
+    // 적합하다.
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 20),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 20),
+    };
+    const dna = computeDna(dnaInput());
+    // "레저·액티비티" 테마는 THEME_TEMPLATE_BONUS상 NATURE_WELLNESS/YOUTH_LOCAL_CONTENT/
+    // NIGHT_STAY_EXTENSION의 순위를 끌어올려 FESTIVAL_EVENT을 상위 3위 밖으로 밀어낼 수 있다 —
+    // 이 테스트의 관심사는 순위가 아니라 POI 선택 로직이므로, 나머지 템플릿을 excludedThemes로
+    // 제외해 FESTIVAL_EVENT만 후보로 남긴다.
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({
+        duration: "ONE_NIGHT_TWO_DAYS",
+        preferredThemes: ["레저 액티비티"],
+        excludedThemes: ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "가족 체험", "청년 로컬"],
+      }),
+      pool,
+      MODEL_VERSION,
+    );
+    const festivalEvent = strategies.find((s) => s.templateId === "FESTIVAL_EVENT")!;
+    expect(festivalEvent).toBeDefined();
+    const categories = festivalEvent.poiIds.map((id) => categoryOf(id, pool));
+    const experienceCount = categories.filter((c) => c === "EXPERIENCE").length;
+    const otherCount = categories.filter((c) => c !== "EXPERIENCE").length;
+    expect(experienceCount).toBe(4); // 상한(ceil(7*0.5)=4)에서 멈춘다 — 테마가 실제로 반영됨
+    expect(otherCount).toBeGreaterThan(0); // 코스 전체가 한 카테고리로 도배되지 않음(ATTRACTION으로 보충)
+  });
+
+  it("테마를 지정하지 않으면 기존 우선순위(core→supplement→fallback)와 완전히 동일한 결과를 낸다(회귀 없음)", () => {
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 10),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 10),
+      LODGING: makePois("lodging", "LODGING", 10),
+      FOOD: makePois("food", "FOOD", 10),
+      SHOPPING: makePois("shopping", "SHOPPING", 10),
+      FESTIVAL: makePois("festival", "FESTIVAL", 10),
+    };
+    const dna = computeDna(dnaInput());
+    const withEmptyThemes = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [] }),
+      pool,
+      MODEL_VERSION,
+    );
+    const withUnrelatedTheme = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["미확인 키워드"] }),
+      pool,
+      MODEL_VERSION,
+    );
+    // classifyThemes가 매칭되는 키워드를 찾지 못하면 themeCategories가 빈 배열이 되어 완전히 동일해야 한다.
+    expect(withUnrelatedTheme.map((s) => s.poiIds)).toEqual(withEmptyThemes.map((s) => s.poiIds));
+  });
+
+  it("theme 반영은 전략 점수(scoreBreakdown)에 영향을 주지 않는다(POI 선택 단계에서만 작동)", () => {
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 10),
+      EXPERIENCE: makePois("experience", "EXPERIENCE", 10),
+      FESTIVAL: makePois("festival", "FESTIVAL", 10),
+      FOOD: makePois("food", "FOOD", 10),
+      SHOPPING: makePois("shopping", "SHOPPING", 10),
+    };
+    const dna = computeDna(dnaInput());
+    // preferredThemes 자체는 이미 targetFit(computeThemeFit)에 반영되므로, 같은 preferredThemes로
+    // 두 번 계산했을 때 scoreBreakdown이 완전히 동일한지만 확인한다(POI 우선순위 로직 추가가 점수
+    // 계산 경로에 부작용을 주지 않았는지 회귀 확인).
+    const input = baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] });
+    const first = computeStrategies(dna, input, pool, MODEL_VERSION);
+    const second = computeStrategies(dna, input, pool, MODEL_VERSION);
+    expect(first.map((s) => s.scoreBreakdown)).toEqual(second.map((s) => s.scoreBreakdown));
+    expect(first.map((s) => s.totalScore)).toEqual(second.map((s) => s.totalScore));
+  });
+});

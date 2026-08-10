@@ -10,7 +10,9 @@ import {
   computeRoleFit,
   computeThemeFit,
   roleLabel,
+  themePreferredPoiCategories,
   type NationalityCode,
+  type ThemeCategory,
   type UserRoleCode,
 } from "./audienceContext";
 
@@ -240,6 +242,13 @@ const ALL_NON_LODGING_CATEGORIES: PoiCategoryCode[] = ["ATTRACTION", "FOOD", "EX
  * "전략과 무관한" 카테고리로 채우고, 나머지는 채우지 못해도 그대로 둔다(부정확한 장소로 채우지 않음). */
 const FALLBACK_TIER_MAX_SHARE = 0.4;
 
+/** 선호 테마 티어가 하루 목표 개수에서 채울 수 있는 최대 비중(2026-08-10 도입). 사용자가 미식 테마를
+ * 골랐다고 코스 전체가 음식점으로 도배되면 안 되므로(다양성 유지 원칙), FALLBACK_TIER_MAX_SHARE보다는
+ * 넉넉하되(사용자가 명시적으로 선호한 것이므로) 절반을 넘지 않게 제한한다. hard filter가 아니라
+ * "먼저 채워지는 우선순위" 개념이라 테마 POI가 부족하면 이 상한과 무관하게 자연스럽게 다음 티어로
+ * 넘어간다(코스 생성 실패 없음). */
+const THEME_TIER_MAX_SHARE = 0.5;
+
 /** 카테고리 하나를 이름순 정렬 후, 템플릿+카테고리 조합 해시로 정한 위치부터 시작하도록 순환시킨다.
  * 입력 pool을 복사만 하고 원본은 건드리지 않는다. */
 function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, pool: PoiLike[]): PoiLike[] {
@@ -253,6 +262,7 @@ function selectPois(
   template: StrategyTemplate,
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
   duration: DurationCode,
+  preferredThemeCategories: ThemeCategory[] = [],
 ): { poiIds: string[]; touchpoints: ConsumptionTouchpoints } {
   // 이미 선택된 POI 중 좌표가 있는 것들의 무게중심 — 두 번째 선택부터 이 지점과 가까운 후보를 우선한다
   // (1단계: 날짜별로 나누는 것은 planBuilder.ts 책임이라 이 단계에서는 "전체적으로 뭉치게" 하는
@@ -274,13 +284,18 @@ function selectPois(
   const nonLodgingTarget = NON_LODGING_POI_TARGET_BY_DURATION[duration];
   const lodgingTarget = LODGING_POI_TARGET_BY_DURATION[duration];
 
-  // 우선순위 티어: ① 템플릿 핵심 카테고리 → ② 지역 소비 접점 보완 카테고리 → ③ 나머지 비숙박 카테고리.
+  // 우선순위 티어: ① 템플릿 핵심 카테고리 → ② 선호 테마 카테고리(2026-08-10) → ③ 지역 소비 접점
+  // 보완 카테고리 → ④ 나머지 비숙박 카테고리. 테마 티어를 hard filter가 아니라 우선순위로만 넣어,
+  // 테마 POI가 존재하면 먼저 채워지되 부족하면 자연스럽게 다음 티어로 넘어간다(코스 생성 실패 없음).
   const coreCats: PoiCategoryCode[] = template.poiCategories.filter((c) => c !== "LODGING");
-  const supplementCats = TOUCHPOINT_SUPPLEMENT_CATEGORIES.filter((c) => !coreCats.includes(c));
-  const fallbackCats = ALL_NON_LODGING_CATEGORIES.filter(
-    (c) => !coreCats.includes(c) && !supplementCats.includes(c),
+  const themeCats = themePreferredPoiCategories(preferredThemeCategories).filter((c) => !coreCats.includes(c));
+  const supplementCats = TOUCHPOINT_SUPPLEMENT_CATEGORIES.filter(
+    (c) => !coreCats.includes(c) && !themeCats.includes(c),
   );
-  const priorityTiers = [coreCats, supplementCats, fallbackCats];
+  const fallbackCats = ALL_NON_LODGING_CATEGORIES.filter(
+    (c) => !coreCats.includes(c) && !themeCats.includes(c) && !supplementCats.includes(c),
+  );
+  const priorityTiers = [coreCats, themeCats, supplementCats, fallbackCats];
 
   const rotatedPools = new Map<PoiCategoryCode, PoiLike[]>();
   const cursorByCategory = new Map<PoiCategoryCode, number>();
@@ -364,11 +379,17 @@ function selectPois(
   // 목표치의 일부(FALLBACK_TIER_MAX_SHARE)로 제한하고, 그래도 못 채우면 더 짧은 코스로 남긴다(빈
   // 자리를 부정확한 장소로 채우지 않는다는 원칙).
   const fallbackTierMaxCount = Math.ceil(nonLodgingTarget * FALLBACK_TIER_MAX_SHARE);
+  // 선호 테마 티어도 같은 방식으로 상한을 둔다 — 테마가 단일 카테고리(예: FOOD)만 가리켜도 코스 전체가
+  // 그 카테고리로 도배되지 않고, 상한 이후 남은 자리는 supplement/fallback 티어가 채운다(다양성 유지).
+  const themeTierMaxCount = Math.ceil(nonLodgingTarget * THEME_TIER_MAX_SHARE);
   for (const tier of priorityTiers) {
     const isFallbackTier = tier === fallbackCats;
+    const isThemeTier = tier === themeCats;
     const tierLimit = isFallbackTier
       ? Math.min(nonLodgingTarget, selectedIds.size + fallbackTierMaxCount)
-      : nonLodgingTarget;
+      : isThemeTier
+        ? Math.min(nonLodgingTarget, selectedIds.size + themeTierMaxCount)
+        : nonLodgingTarget;
     if (selectedIds.size >= tierLimit) continue;
     let progressed = true;
     while (progressed && selectedIds.size < tierLimit) {
@@ -505,6 +526,9 @@ export function computeStrategies(
   modelVersion: string,
 ): StrategyComputationResult[] {
   const candidates = STRATEGY_TEMPLATES.filter((t) => !isExcludedByTheme(t, input.excludedThemes));
+  // computeTargetFit도 템플릿마다 classifyThemes를 다시 호출하지만(순수 함수라 결과는 항상 같음),
+  // POI 선택 단계(selectPois)는 템플릿과 무관하게 동일한 값을 쓰므로 루프 밖에서 한 번만 계산한다.
+  const preferredThemeCategories = classifyThemes(input.preferredThemes);
 
   const scored = candidates.map((template) => {
     const demandFit = weightedAxisFit(template.demandAxisWeights, dna);
@@ -536,7 +560,7 @@ export function computeStrategies(
       roleFit,
       ...(roleAdjustment ? { roleFitReason: roleAdjustment.reason } : {}),
     };
-    const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration);
+    const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration, preferredThemeCategories);
 
     return {
       template,

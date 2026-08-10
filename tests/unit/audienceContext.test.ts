@@ -14,6 +14,7 @@ import {
   normalizeRole,
   normalizeThemeList,
   roleLabel,
+  themePreferredPoiCategories,
 } from "@/lib/domain/audienceContext";
 import { STRATEGY_TEMPLATES, getTemplateById } from "@/lib/domain/strategyTemplates";
 
@@ -112,6 +113,32 @@ describe("classifyThemes — 자유 텍스트 테마를 내부 카테고리로 �
     const categories = classifyThemes(["미식과 축제"]);
     expect(categories).toContain("FOOD");
     expect(categories).toContain("FESTIVAL");
+  });
+});
+
+describe("themePreferredPoiCategories — 테마 카테고리 → POI 카테고리 우선순위(2026-08-11)", () => {
+  it("명확하게 연관된 카테고리만 매핑한다(FOOD→FOOD, FESTIVAL→FESTIVAL)", () => {
+    expect(themePreferredPoiCategories(["FOOD"])).toEqual(["FOOD"]);
+    expect(themePreferredPoiCategories(["FESTIVAL"])).toEqual(["FESTIVAL"]);
+  });
+
+  it("여러 테마 카테고리를 합치되 중복 없이 순서대로 반환한다", () => {
+    const result = themePreferredPoiCategories(["FOOD", "NATURE"]);
+    expect(result).toEqual(["FOOD", "ATTRACTION", "EXPERIENCE"]);
+  });
+
+  it("같은 카테고리가 여러 테마에서 겹쳐도 한 번만 포함된다", () => {
+    // NATURE→[ATTRACTION,EXPERIENCE], LEISURE_ACTIVITY→[EXPERIENCE] — EXPERIENCE 중복 제거 확인.
+    const result = themePreferredPoiCategories(["NATURE", "LEISURE_ACTIVITY"]);
+    expect(result.filter((c) => c === "EXPERIENCE")).toHaveLength(1);
+  });
+
+  it("PET_FRIENDLY는 대응 POI 카테고리가 없어 빈 배열에 기여한다(전용 템플릿 없음과 동일 원칙)", () => {
+    expect(themePreferredPoiCategories(["PET_FRIENDLY"])).toEqual([]);
+  });
+
+  it("테마가 없으면 빈 배열을 반환한다", () => {
+    expect(themePreferredPoiCategories([])).toEqual([]);
   });
 });
 
