@@ -55,6 +55,8 @@ function baseProjectRowDefaults() {
     region: { name: "강릉시" },
     input: { nationality: "DOMESTIC" as const, preferredThemes: ["미식"] },
     selectedPlan: basePlanRow(null) as ReturnType<typeof basePlanRow> | null,
+    // AnalysisResult 5축 원점수(2026-08-11) — 기본은 레거시 프로젝트처럼 null(분석 결과 없음).
+    analysisResult: null as { demandScore: number | null; stayScore: number | null; spendScore: number | null; diversityScore: number | null; networkScore: number | null } | null,
   };
 }
 
@@ -114,6 +116,29 @@ describe("generatePromoContentForProject", () => {
     const call = selectedPlanUpdateMany.mock.calls[0][0];
     expect(call.where).toMatchObject({ projectId: PROJECT_ID });
     expect(call.where.promoContent).toEqual({ equals: expect.anything() }); // DbNull 조건부 갱신
+  });
+
+  it("analysisResult가 있으면 DNA 강점이 홍보 콘텐츠에 반영된다(2026-08-11)", async () => {
+    projectFindUnique.mockResolvedValue(
+      baseProjectRow({ analysisResult: { demandScore: 90, stayScore: 20, spendScore: 50, diversityScore: 50, networkScore: 50 } }),
+    );
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(JSON.stringify(result.content)).toContain("관광 수요가 활발한");
+    }
+  });
+
+  it("analysisResult가 없어도(레거시 프로젝트) 크래시 없이 생성된다", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow({ analysisResult: null }));
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+    expect(result.ok).toBe(true);
   });
 
   it("기존 콘텐츠가 있고 overwrite가 없으면 덮어쓰지 않는다(전략 조회조차 하지 않음)", async () => {

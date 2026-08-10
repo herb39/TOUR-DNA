@@ -1,6 +1,7 @@
 import type { CourseDay, MealPurpose } from "./planBuilder";
-import type { DataProvenance, EvidenceItem } from "./types";
+import { AXIS_LABEL_KO, type DataProvenance, type DnaAxisKey, type EvidenceItem } from "./types";
 import type { UserRoleCode } from "./audienceContext";
+import { toDisplayDnaScore } from "./dnaDisplayScore";
 import { formatBaseYm, metricLabel } from "@/lib/format";
 import { labelForNationality } from "@/lib/validation/codes";
 
@@ -57,11 +58,86 @@ export interface PromoPlanContext {
   risks: { risk: string; mitigation: string }[];
 }
 
+/** DNA 5축 강점/약점 축 하나를 홍보 문구에 쓸 수 있는 형태로 요약한 것(2026-08-11). 내부 원점수
+ * (0~100)는 절대 담지 않는다 — 표시지수(10~90, dnaDisplayScore.ts)만 담아 "DNA 72점" 같은 기계적인
+ * 문장이 나오지 않게 한다. 실제 문구에서는 이 값조차 그대로 쓰지 않고 자연어 표현(DNA_STRENGTH_PHRASE)
+ * 으로만 옮긴다 — displayScore는 화면에 근거 수치를 보여주고 싶을 때를 대비해 구조에만 남겨둔다. */
+export interface PromoDnaAxisSummary {
+  axis: DnaAxisKey;
+  label: string;
+  displayScore: number;
+}
+
+export interface PromoDnaContext {
+  /** 점수가 높은 축부터 최대 2개. 계산 불가(레거시 분석·축 데이터 없음)면 빈 배열 — 강점을 지어내지 않는다. */
+  strengths: PromoDnaAxisSummary[];
+  /** 점수가 낮은 축부터 최대 2개(강점과 겹치면 제외). */
+  weaknesses: PromoDnaAxisSummary[];
+}
+
+export const EMPTY_PROMO_DNA_CONTEXT: PromoDnaContext = { strengths: [], weaknesses: [] };
+
+/** AnalysisResult에 저장된 5축 원점수만으로 강점/약점 축을 뽑는 순수 함수. score가 null인 축(MISSING)은
+ * 후보에서 제외한다 — 데이터가 없는 축을 강점/약점으로 지어내지 않는다. 판정(정렬) 자체는 dna.ts의
+ * buildStrengthsOpportunitiesCautions와 동일하게 원점수 순위로 하되, 노출값만 표시지수로 바꾼다. */
+export function buildPromoDnaContext(axisScores: { axis: DnaAxisKey; score: number | null }[]): PromoDnaContext {
+  const available = axisScores.filter(
+    (a): a is { axis: DnaAxisKey; score: number } => a.score !== null && Number.isFinite(a.score),
+  );
+  if (available.length === 0) return EMPTY_PROMO_DNA_CONTEXT;
+
+  const toSummary = (a: { axis: DnaAxisKey; score: number }): PromoDnaAxisSummary => ({
+    axis: a.axis,
+    label: AXIS_LABEL_KO[a.axis],
+    displayScore: toDisplayDnaScore(a.score) as number,
+  });
+
+  const sortedDesc = [...available].sort((a, b) => b.score - a.score);
+  const strengths = sortedDesc.slice(0, 2).map(toSummary);
+  const strengthAxes = new Set(strengths.map((s) => s.axis));
+  const weaknesses = [...sortedDesc]
+    .reverse()
+    .filter((a) => !strengthAxes.has(a.axis))
+    .slice(0, 2)
+    .map(toSummary);
+
+  return { strengths, weaknesses };
+}
+
 export interface BuildPromoContentInput {
   project: PromoProjectContext;
   strategy: PromoStrategyContext;
   plan: PromoPlanContext;
   evidences: EvidenceItem[];
+  /** 값을 넘기지 않으면(레거시 호출부) 강점/약점 없이 생성한다 — 기존 호출부를 깨지 않기 위한
+   * optional 필드다. 새 호출부(promoContentAdapter.ts)는 항상 명시적으로 채워 넘긴다. */
+  dna?: PromoDnaContext;
+}
+
+/**
+ * 채널 생성 함수 전체가 공유하는 공통 입력 요약(2026-08-11 도입, "Generation Context"). 각 build*
+ * 함수가 BuildPromoContentInput을 제각각 해석하지 않도록, 자주 쓰는 파생 값(대표 코스, DNA 강점/약점
+ * 자연어 문구, 근거 인용 등)을 한 곳에서 미리 계산해둔다. 이 구조는 향후 LLM 기반 생성 엔진을 붙이더라도
+ * 그대로 입력(prompt context)으로 재사용할 수 있도록 설계했다 — 다만 이번 작업에서는 LLM을 붙이지
+ * 않는다. 이 파일 밖에서 직접 만들지 않고 반드시 buildPromoGenerationContext()로만 생성한다.
+ */
+export interface PromoGenerationContext {
+  regionName: string;
+  role: PromoUserRole;
+  nationality: PromoNationality | null;
+  travelYear: number;
+  travelMonth: number;
+  preferredThemes: string[];
+  strategyName: string;
+  strategyConcept: string;
+  targetDescription: string;
+  dnaStrengths: PromoDnaAxisSummary[];
+  dnaWeaknesses: PromoDnaAxisSummary[];
+  evidenceHighlights: PromoEvidenceReference[];
+  coursePois: PromoCourseHighlight[];
+  timeSlots: string[];
+  kpis: { name: string; method: string }[];
+  risks: { risk: string; mitigation: string }[];
 }
 
 export interface ProposalSummary {
@@ -154,10 +230,40 @@ export interface CardNewsContent {
   slides: CardNewsSlide[];
 }
 
-/** 지원하는 홍보자료 채널 전체 목록(2026-08-01, 검증 보완) — 채널 타입(`PromoChannel`)과 기본 순서
- * (`DEFAULT_CHANNEL_PRIORITY`), 스키마 검증(`promoContent.schema.ts`)이 모두 이 배열 하나에서
- * 파생된다 — 채널 이름을 여러 곳에 중복 하드코딩하지 않는다. 현재 6개 채널. */
-export const ALL_PROMO_CHANNELS = ["proposalSummary", "landing", "instagram", "blog", "cardNews", "roleContent"] as const;
+/** 숏폼(릴스/쇼츠) 콘텐츠 채널의 장면 하나(2026-08-11 도입). visual/caption/narration 모두 실제
+ * POI명이나 이미 저장된 전략·컨셉 텍스트에서만 만든다 — 실제 촬영 여부·연출은 방송/제작 담당자가
+ * 정할 몫이므로 "촬영 현장에서 참고할 구성안"이라는 성격을 벗어나지 않는다. */
+export interface ShortFormScene {
+  scene: number;
+  /** 화면 구성 힌트(예: "○○ 현장 촬영") — 실제 카메라 앵글·편집 지시가 아니다. */
+  visual: string;
+  /** 화면에 얹을 짧은 자막. */
+  caption: string;
+  /** 내레이션 대본 한 줄. */
+  narration: string;
+}
+
+/** 숏폼 채널(2026-08-11 추가) — 15~30초 내외 릴스/쇼츠 초안. POI가 부족해도 최소 Hook+마무리 2개
+ * 장면은 항상 만들어 실패하지 않는다(아래 buildShortForm 참고). */
+export interface ShortFormContent {
+  title: string;
+  hook: string;
+  scenes: ShortFormScene[];
+  cta: string;
+}
+
+/** 지원하는 홍보자료 채널 전체 목록(2026-08-11, 숏폼 채널 추가로 6종→7종) — 채널 타입(`PromoChannel`)과
+ * 기본 순서(`DEFAULT_CHANNEL_PRIORITY`), 스키마 검증(`promoContent.schema.ts`)이 모두 이 배열 하나에서
+ * 파생된다 — 채널 이름을 여러 곳에 중복 하드코딩하지 않는다. */
+export const ALL_PROMO_CHANNELS = [
+  "proposalSummary",
+  "landing",
+  "instagram",
+  "blog",
+  "cardNews",
+  "roleContent",
+  "shortForm",
+] as const;
 
 export type PromoChannel = (typeof ALL_PROMO_CHANNELS)[number];
 
@@ -188,6 +294,7 @@ export interface PromoContent {
   blog: BlogContent;
   cardNews: CardNewsContent;
   roleContent: RolePromoContent;
+  shortForm: ShortFormContent;
   evidenceReferences: PromoEvidenceReference[];
   /** course를 홍보자료 문구에 쓰기 위해 뽑아낸 대표 일정 — 원래 순서(dayIndex → order)를 그대로 유지한다. */
   courseHighlights: PromoCourseHighlight[];
@@ -357,8 +464,85 @@ function roleCardNewsClosing(role: PromoUserRole): { title: string; leadIn: stri
   return { title: "판매 포인트", leadIn: "판매 시 강조할 포인트" };
 }
 
+/** DNA 강점 축 하나를 마케팅 문구에 쓸 수 있는 자연어 형용구로 옮긴다(CURATED, 2026-08-11). 원점수·
+ * 표시지수 숫자를 절대 문장에 그대로 넣지 않기 위한 유일한 통로다 — "다양한 관광자원이 강점인 지역
+ * 특성을 활용해"처럼, 축 이름 대신 그 축이 실제로 의미하는 특성을 서술한다. 이 매핑에 따라 문장
+ * branch가 결정되므로(동일 강점 축 → 항상 동일 문구) random 없이도 프로젝트마다 다른 문구가 나온다. */
+const DNA_STRENGTH_PHRASE: Record<DnaAxisKey, string> = {
+  demand: "관광 수요가 활발한",
+  stay: "체류형 여행에 강한",
+  spend: "소비력 있는 방문객이 모이는",
+  diversity: "다양한 관광자원을 갖춘",
+  network: "주변 관광지와의 연계가 좋은",
+};
+
+/** DNA 약점(보완 여지) 축을 "위협"이 아니라 "기회"로 표현하는 문구(CURATED) — 카드뉴스의 "지역 문제·
+ * 기회" 슬라이드 등 마케팅/제안 맥락에서 부정적으로 읽히지 않도록 한다. */
+const DNA_OPPORTUNITY_PHRASE: Record<DnaAxisKey, string> = {
+  demand: "수요 확대",
+  stay: "체류 시간 확대",
+  spend: "소비 연계 강화",
+  diversity: "관광자원 다양화",
+  network: "주변 관광지 연계 강화",
+};
+
+/** dna.strengths[0]가 있을 때만 짧은 절을 만든다(없으면 null — 문장에서 아예 생략). */
+function dnaStrengthClause(ctx: PromoGenerationContext): string | null {
+  const top = ctx.dnaStrengths[0];
+  if (!top) return null;
+  return `이 지역은 ${DNA_STRENGTH_PHRASE[top.axis]} 특성이 있어 이번 전략과 잘 맞습니다.`;
+}
+
+/** dna.weaknesses[0]가 있을 때만 "기회" 프레임 문장을 만든다(없으면 null). */
+function dnaOpportunityClause(ctx: PromoGenerationContext): string | null {
+  const bottom = ctx.dnaWeaknesses[0];
+  if (!bottom) return null;
+  // DNA_OPPORTUNITY_PHRASE 값이 전부 받침 없는 글자("대"/"화")로 끝나 "를"이 항상 맞다(2026-08-11
+  // 실제 생성 결과 검증 중 "강화을"처럼 어색한 조사가 나오는 것을 발견해 수정 — 값이 늘어나면 이
+  // 가정이 깨질 수 있으니 새 phrase를 추가할 때 받침 여부를 함께 확인해야 한다).
+  return `${DNA_OPPORTUNITY_PHRASE[bottom.axis]}를 새로운 기회로 활용할 수 있습니다.`;
+}
+
+/** 채널 본문 맨 끝에 붙는 역할별 행동 유도 문구(CTA, CURATED) — 여행사는 상품 문의, 지자체는 담당
+ * 부서 문의, 축제 기획자는 참여 신청으로 구분한다. */
+function roleCtaClause(role: PromoUserRole): string {
+  if (role === "LOCAL_GOV") return "자세한 추진 계획은 담당 부서로 문의해 주세요.";
+  if (role === "FESTIVAL_PLANNER") return "지금 바로 참여 신청 방법을 확인해 보세요.";
+  return "지금 바로 상품 문의를 남겨 보세요.";
+}
+
+/** BuildPromoContentInput → PromoGenerationContext 변환(순수 함수, 부작용 없음). 각 build* 함수가
+ * 같은 파생 값을 다시 계산하지 않도록 buildPromoContent()가 한 번만 만들어 모든 채널에 전달한다. */
+function buildPromoGenerationContext(
+  input: BuildPromoContentInput,
+  highlights: PromoCourseHighlight[],
+  evidenceRefs: PromoEvidenceReference[],
+): PromoGenerationContext {
+  const { project, strategy, plan } = input;
+  const dna = input.dna ?? EMPTY_PROMO_DNA_CONTEXT;
+  return {
+    regionName: project.regionName,
+    role: project.role,
+    nationality: project.nationality,
+    travelYear: project.travelYear,
+    travelMonth: project.travelMonth,
+    preferredThemes: project.preferredThemes,
+    strategyName: strategy.name,
+    strategyConcept: plan.conceptText,
+    targetDescription: plan.targetSummary,
+    dnaStrengths: dna.strengths,
+    dnaWeaknesses: dna.weaknesses,
+    evidenceHighlights: evidenceRefs,
+    coursePois: highlights,
+    timeSlots: buildTimeSlotProgramLines(plan.course, 6),
+    kpis: plan.kpis,
+    risks: plan.risks,
+  };
+}
+
 function buildProposalSummary(
   input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
   highlightNames: string[],
   evidenceRefs: PromoEvidenceReference[],
 ): ProposalSummary {
@@ -384,6 +568,7 @@ function buildProposalSummary(
     highlightNames.length > 0
       ? `핵심 전략은 '${strategy.name}'이며, 대표 코스로 ${highlightNames.join(", ")} 등을 포함합니다.`
       : `핵심 전략은 '${strategy.name}'이며, 현재 저장된 실행안 코스 정보를 기반으로 구성되었습니다.`,
+    dnaStrengthClause(ctx),
     roleProposalFocusClause(project.role),
   ]);
 
@@ -397,6 +582,7 @@ function buildProposalSummary(
 
 function buildLanding(
   input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
   highlightNames: string[],
   lunchName: string | null,
   dinnerName: string | null,
@@ -407,11 +593,13 @@ function buildLanding(
   const body = joinNonEmpty([
     roleLandingLeadIn(project.role),
     plan.background,
+    dnaStrengthClause(ctx),
     `핵심 타깃: ${plan.targetSummary}.`,
     highlightNames.length > 0 ? `대표 방문지: ${highlightNames.join(", ")} 등입니다.` : null,
     lunchName ? `점심은 ${lunchName}에서 즐길 수 있습니다.` : null,
     dinnerName ? `저녁은 ${dinnerName}에서 즐길 수 있습니다.` : null,
     roleLandingClosingLine(project.role),
+    roleCtaClause(project.role),
   ]);
 
   return { title, body };
@@ -419,21 +607,32 @@ function buildLanding(
 
 function buildInstagram(
   input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
   highlightNames: string[],
 ): InstagramContent {
   const { project, strategy } = input;
-  const caption = joinNonEmpty([
+  const themePart = project.preferredThemes.length > 0 ? `${project.preferredThemes.join(", ")} 테마로 즐기는 여행.` : null;
+  const secondHighlightPart =
+    highlightNames.length > 1 ? `${highlightNames[1]}까지 이어지는 알찬 일정도 준비했어요.` : null;
+
+  const paragraphs = [
     roleInstagramHook(project.role),
     `${project.regionName} × ${strategy.name} 코스.`,
-    highlightNames[0] ? `${highlightNames[0]}에서 시작하는 여행.` : null,
-  ]);
+    joinNonEmpty([highlightNames[0] ? `${highlightNames[0]}에서 시작하는 여행.` : null, themePart]),
+    joinNonEmpty([secondHighlightPart, dnaStrengthClause(ctx)]),
+    roleCtaClause(project.role),
+  ].filter((p) => p.length > 0);
+
+  const caption = paragraphs.join("\n\n");
   const hashtags = buildHashtags(project.regionName, project.travelMonth, strategy.name, highlightNames);
   return { caption, hashtags };
 }
 
 function buildBlog(
   input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
   highlightNames: string[],
+  evidenceRefs: PromoEvidenceReference[],
 ): BlogContent {
   const { project, strategy, plan } = input;
   const title = `${project.regionName} ${strategy.name} 코스 소개`;
@@ -443,8 +642,21 @@ function buildBlog(
   const highlightPart =
     highlightNames.length > 0 ? `이번 코스는 ${highlightNames.join(", ")} 등을 둘러봅니다.` : null;
   const kpiPart = plan.kpis.length > 0 ? `${plan.kpis[0].name} 등의 성과 지표로 운영 효과를 확인할 계획입니다.` : null;
+  // 데이터 기반 추천 이유 — evidenceReferences(사실 확인된 근거)만 인용하고, 근거가 없으면 문장 자체를
+  // 만들지 않는다(evidence 없는데 "데이터 근거로"라는 문구만 지어내지 않음).
+  const evidenceReasonPart =
+    evidenceRefs.length > 0 ? `추천 이유: ${formatEvidenceLine(evidenceRefs[0])} 데이터를 근거로 합니다.` : null;
 
-  const body = joinNonEmpty([roleBlogAngle(project.role), plan.conceptText, highlightPart, themesPart, kpiPart]);
+  const body = joinNonEmpty([
+    roleBlogAngle(project.role),
+    plan.conceptText,
+    highlightPart,
+    themesPart,
+    dnaStrengthClause(ctx),
+    evidenceReasonPart,
+    kpiPart,
+    roleCtaClause(project.role),
+  ]);
 
   return { title, body };
 }
@@ -547,12 +759,21 @@ function buildFestivalPlannerPromo(
   };
 }
 
-/** 카드뉴스 슬라이드 구성안 — 표지(전략명+타깃) → 대표 방문지 1장당 1슬라이드(최대 3장) → 핵심
- * KPI/판매 포인트 요약 순으로 결정론적으로 만든다. 새 수치·이미지는 만들지 않고 이미 저장된 값만 옮긴다. */
-function buildCardNews(input: BuildPromoContentInput, highlights: PromoCourseHighlight[]): CardNewsContent {
+/** 카드뉴스 슬라이드 구성안(2026-08-11 확장) — ①표지(전략명+타깃) → ②지역 문제/기회(DNA 약점을 기회로
+ * 프레이밍, 없으면 background로 대체) → ③핵심 전략(컨셉) → ④대표 방문지 1장당 1슬라이드(최대 3장) →
+ * ⑤마무리(기존 판매 포인트/KPI 요약) 순으로 결정론적으로 만든다. 새 수치·이미지는 만들지 않고 이미
+ * 저장된 값 또는 DNA_OPPORTUNITY_PHRASE(자연어 프레이밍)만 사용한다. */
+function buildCardNews(
+  input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
+  highlights: PromoCourseHighlight[],
+): CardNewsContent {
   const { project, strategy, plan } = input;
+  const opportunityBody = dnaOpportunityClause(ctx) ?? plan.background;
   const slides: CardNewsSlide[] = [
     { title: `${project.regionName} ${strategy.name}`, body: plan.targetSummary },
+    { title: "지역 문제·기회", body: opportunityBody },
+    { title: "핵심 전략", body: plan.conceptText },
   ];
   for (const h of highlights.slice(0, 3)) {
     slides.push({ title: h.poiName, body: `${h.dayIndex}일차 ${h.timeSlot}` });
@@ -565,17 +786,69 @@ function buildCardNews(input: BuildPromoContentInput, highlights: PromoCourseHig
   return { slides };
 }
 
+/** 숏폼(릴스/쇼츠) 콘텐츠 초안(2026-08-11 신설) — Hook → 대표 POI 최대 2곳 → 전략 컨셉/CTA 순.
+ * 실제 코스 POI가 부족하거나 아예 없어도(highlights가 빈 배열) 실패하지 않는다 — POI 장면 대신 전략
+ * 컨셉 장면으로 대체해 최소 Hook+마무리 2개 장면은 항상 만든다. */
+function buildShortForm(
+  input: BuildPromoContentInput,
+  ctx: PromoGenerationContext,
+  highlights: PromoCourseHighlight[],
+): ShortFormContent {
+  const { project, strategy, plan } = input;
+  const title = `${project.regionName} ${strategy.name} 숏폼 구성안`;
+  const hook = joinNonEmpty([roleInstagramHook(project.role), `${project.regionName} ${project.travelMonth}월 여행`]);
+
+  const scenes: ShortFormScene[] = [
+    {
+      scene: 1,
+      visual: `${project.regionName} 대표 전경 촬영`,
+      caption: hook,
+      narration: joinNonEmpty([`${project.regionName}에서 떠나는 ${strategy.name} 여행,`, dnaStrengthClause(ctx)]),
+    },
+  ];
+
+  const poiScenes = highlights.slice(0, 2);
+  if (poiScenes.length > 0) {
+    for (const h of poiScenes) {
+      scenes.push({
+        scene: scenes.length + 1,
+        visual: `${h.poiName} 현장 촬영`,
+        caption: h.poiName,
+        narration: `${h.dayIndex}일차 ${h.timeSlot}, ${h.poiName}`,
+      });
+    }
+  } else {
+    // POI가 아직 없어도 실패하지 않는다 — 저장된 전략 컨셉 텍스트로 대체 장면을 만든다(새 사실을 지어내지 않음).
+    scenes.push({
+      scene: scenes.length + 1,
+      visual: `${strategy.name} 컨셉 이미지`,
+      caption: strategy.name,
+      narration: plan.conceptText,
+    });
+  }
+
+  const cta = roleCtaClause(project.role);
+  scenes.push({
+    scene: scenes.length + 1,
+    visual: "코스 요약 화면",
+    caption: cta,
+    narration: plan.conceptText,
+  });
+
+  return { title, hook, scenes, cta };
+}
+
 /** 역할별 홍보자료 채널 확인 우선순위(CURATED, 마스터 문서 6절) — 채널 자체를 숨기지 않고 표시 순서만
  * 안내한다. 지자체는 보도자료·제안서, 축제 기획자는 SNS·카드뉴스, 여행사는 상품 소개문·SNS·블로그를
  * 우선한다. */
 export function computeChannelPriority(role: PromoUserRole): PromoChannel[] {
   if (role === "LOCAL_GOV") {
-    return ["roleContent", "proposalSummary", "landing", "blog", "cardNews", "instagram"];
+    return ["roleContent", "proposalSummary", "landing", "blog", "cardNews", "shortForm", "instagram"];
   }
   if (role === "FESTIVAL_PLANNER") {
-    return ["instagram", "cardNews", "roleContent", "proposalSummary", "landing", "blog"];
+    return ["shortForm", "instagram", "cardNews", "roleContent", "proposalSummary", "landing", "blog"];
   }
-  return ["roleContent", "instagram", "blog", "landing", "cardNews", "proposalSummary"];
+  return ["shortForm", "roleContent", "instagram", "blog", "landing", "cardNews", "proposalSummary"];
 }
 
 /** 외국인 대상일 때만 노출되는 안내 — 검증된 번역 데이터/기능이 없다는 사실을 투명하게 알린다(저품질
@@ -591,6 +864,7 @@ export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
   const lunchName = findFirstByMealPurpose(input.plan.course, "LUNCH");
   const dinnerName = findFirstByMealPurpose(input.plan.course, "DINNER");
   const evidenceRefs = buildEvidenceReferences(input.evidences);
+  const ctx = buildPromoGenerationContext(input, highlights, evidenceRefs);
 
   const roleContent: RolePromoContent =
     input.project.role === "TRAVEL_AGENCY"
@@ -601,12 +875,13 @@ export function buildPromoContent(input: BuildPromoContentInput): PromoContent {
 
   return {
     version: PROMO_CONTENT_VERSION,
-    proposalSummary: buildProposalSummary(input, highlightNames, evidenceRefs),
-    landing: buildLanding(input, highlightNames, lunchName, dinnerName),
-    instagram: buildInstagram(input, highlightNames),
-    blog: buildBlog(input, highlightNames),
-    cardNews: buildCardNews(input, highlights),
+    proposalSummary: buildProposalSummary(input, ctx, highlightNames, evidenceRefs),
+    landing: buildLanding(input, ctx, highlightNames, lunchName, dinnerName),
+    instagram: buildInstagram(input, ctx, highlightNames),
+    blog: buildBlog(input, ctx, highlightNames, evidenceRefs),
+    cardNews: buildCardNews(input, ctx, highlights),
     roleContent,
+    shortForm: buildShortForm(input, ctx, highlights),
     evidenceReferences: evidenceRefs,
     courseHighlights: highlights,
     channelPriority: computeChannelPriority(input.project.role),

@@ -57,6 +57,7 @@ function channelLabel(content: PromoContent, channel: (typeof ALL_PROMO_CHANNELS
     instagram: "[Instagram]",
     blog: "[블로그]",
     cardNews: "[카드뉴스]",
+    shortForm: "[숏폼]",
   };
   return LABELS[channel];
 }

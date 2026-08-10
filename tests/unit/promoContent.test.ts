@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_PROMO_CHANNELS,
   buildPromoContent,
+  buildPromoDnaContext,
   PROMO_CONTENT_VERSION,
   type BuildPromoContentInput,
 } from "@/lib/domain/promoContent";
@@ -428,6 +430,140 @@ describe("buildPromoContent — 공통 5개 채널의 역할별 관점 반영(Ph
       expect(serialized).not.toContain("최고");
       expect(serialized).not.toContain("유일");
       expect(serialized).not.toContain("완벽");
+    }
+  });
+});
+
+describe("buildPromoContent — DNA 강점/약점 반영(2026-08-11)", () => {
+  function dnaAxisScore(overrides: Partial<Record<"demand" | "stay" | "spend" | "diversity" | "network", number | null>>) {
+    const base = { demand: 50, stay: 50, spend: 50, diversity: 50, network: 50, ...overrides };
+    return [
+      { axis: "demand" as const, score: base.demand },
+      { axis: "stay" as const, score: base.stay },
+      { axis: "spend" as const, score: base.spend },
+      { axis: "diversity" as const, score: base.diversity },
+      { axis: "network" as const, score: base.network },
+    ];
+  }
+
+  it("강점 축이 있으면 내부 원점수(예: 90)를 그대로 노출하지 않고 자연어 문구로만 반영된다", () => {
+    const dna = buildPromoDnaContext(dnaAxisScore({ diversity: 90, demand: 20 }));
+    const result = buildPromoContent(baseInput({ dna }));
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('"90"');
+    expect(serialized).not.toContain("DNA 90점");
+    // "다양한 관광자원을 갖춘" 자연어 문구가 어딘가(제안서/랜딩/블로그/인스타/숏폼)에 실제로 쓰였는지 확인.
+    expect(serialized).toContain("다양한 관광자원을 갖춘");
+  });
+
+  it("DNA 데이터가 없으면(레거시 분석·값 없음) 강점 문구를 지어내지 않는다", () => {
+    const result = buildPromoContent(baseInput({ dna: { strengths: [], weaknesses: [] } }));
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("특성이 있어 이번 전략과 잘 맞습니다");
+  });
+
+  it("dna를 아예 넘기지 않아도(레거시 호출부) 크래시 없이 생성된다", () => {
+    const input = baseInput();
+    delete (input as { dna?: unknown }).dna;
+    expect(() => buildPromoContent(input)).not.toThrow();
+  });
+
+  it("모든 축이 MISSING(null)이면 buildPromoDnaContext가 빈 강점/약점을 반환한다", () => {
+    const dna = buildPromoDnaContext([
+      { axis: "demand", score: null },
+      { axis: "stay", score: null },
+      { axis: "spend", score: null },
+      { axis: "diversity", score: null },
+      { axis: "network", score: null },
+    ]);
+    expect(dna.strengths).toEqual([]);
+    expect(dna.weaknesses).toEqual([]);
+  });
+
+  it("강점/약점이 서로 겹치지 않는다", () => {
+    const dna = buildPromoDnaContext(dnaAxisScore({ demand: 10, stay: 10 }));
+    const strengthAxes = new Set(dna.strengths.map((s) => s.axis));
+    for (const w of dna.weaknesses) expect(strengthAxes.has(w.axis)).toBe(false);
+  });
+});
+
+describe("buildPromoContent — 숏폼 채널(2026-08-11 신설)", () => {
+  it("Hook·장면·CTA 구조를 생성하고, 실제 POI가 있으면 장면에 반영한다", () => {
+    const result = buildPromoContent(baseInput());
+    expect(result.shortForm.title.length).toBeGreaterThan(0);
+    expect(result.shortForm.hook.length).toBeGreaterThan(0);
+    expect(result.shortForm.scenes.length).toBeGreaterThanOrEqual(2);
+    expect(result.shortForm.cta.length).toBeGreaterThan(0);
+    // buildShortForm은 대표 코스 중 처음 2곳만 장면으로 쓴다(highlights.slice(0,2)) — course() fixture의
+    // 첫 두 POI는 경포대·테라로사다.
+    const sceneText = result.shortForm.scenes.map((s) => `${s.caption} ${s.narration}`).join(" ");
+    expect(sceneText).toContain("경포대");
+  });
+
+  it("POI가 전혀 없어도(실행안 course가 빈 배열) 실패하지 않고 최소 장면을 생성한다", () => {
+    const input = baseInput({ plan: { ...baseInput().plan, course: [] } });
+    expect(() => buildPromoContent(input)).not.toThrow();
+    const result = buildPromoContent(input);
+    expect(result.shortForm.scenes.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("장면 번호가 1부터 순서대로 매겨진다", () => {
+    const result = buildPromoContent(baseInput());
+    result.shortForm.scenes.forEach((scene, i) => expect(scene.scene).toBe(i + 1));
+  });
+
+  it("역할별로 CTA/Hook 문구가 다르다", () => {
+    const input = baseInput();
+    const agency = buildPromoContent({ ...input, project: { ...input.project, role: "TRAVEL_AGENCY" } });
+    const gov = buildPromoContent({ ...input, project: { ...input.project, role: "LOCAL_GOV" } });
+    const festival = buildPromoContent({ ...input, project: { ...input.project, role: "FESTIVAL_PLANNER" } });
+    expect(agency.shortForm.cta).not.toBe(gov.shortForm.cta);
+    expect(gov.shortForm.cta).not.toBe(festival.shortForm.cta);
+  });
+
+  it("shortForm 채널이 channelPriority에 정확히 한 번 포함된다(7개 채널 전체 순열)", () => {
+    const result = buildPromoContent(baseInput());
+    expect(result.channelPriority).toContain("shortForm");
+    expect(new Set(result.channelPriority).size).toBe(result.channelPriority.length);
+    expect(result.channelPriority.length).toBe(ALL_PROMO_CHANNELS.length);
+  });
+});
+
+describe("buildPromoContent — theme(선호 테마) branch 반영", () => {
+  it("선호 테마가 있으면 인스타그램/블로그 문구에 실제로 언급된다", () => {
+    const result = buildPromoContent(baseInput({ project: { ...baseInput().project, preferredThemes: ["미식"] } }));
+    expect(result.instagram.caption).toContain("미식");
+    expect(result.blog.body).toContain("관심 테마: 미식");
+  });
+
+  it("선호 테마가 없으면 테마 언급 문구 자체가 생성되지 않는다", () => {
+    const result = buildPromoContent(baseInput({ project: { ...baseInput().project, preferredThemes: [] } }));
+    expect(result.blog.body).not.toContain("관심 테마");
+  });
+});
+
+describe("buildPromoContent — nationality(FOREIGN) 처리", () => {
+  it("FOREIGN이면 번역 안내가 채워지고, 특정 국적 취향(외국어 안내 가능 등)을 임의로 만들지 않는다", () => {
+    const result = buildPromoContent(baseInput({ project: { ...baseInput().project, nationality: "FOREIGN" } }));
+    expect(result.translationNotice).not.toBeNull();
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("외국어 안내 가능");
+    expect(serialized).not.toContain("외국인 직원");
+    expect(serialized).not.toContain("면세");
+  });
+
+  it("DOMESTIC이면 번역 안내가 없다", () => {
+    const result = buildPromoContent(baseInput({ project: { ...baseInput().project, nationality: "DOMESTIC" } }));
+    expect(result.translationNotice).toBeNull();
+  });
+});
+
+describe("buildPromoContent — 사실성 가드(2026-08-11)", () => {
+  it("근거 데이터(evidence)에 없는 운영시간·가격·할인·교통편·예약가능여부 문구를 만들지 않는다", () => {
+    const result = buildPromoContent(baseInput());
+    const serialized = JSON.stringify(result);
+    for (const forbidden of ["운영시간", "할인", "예약 가능", "무료 주차", "왕복 교통편 제공"]) {
+      expect(serialized).not.toContain(forbidden);
     }
   });
 });

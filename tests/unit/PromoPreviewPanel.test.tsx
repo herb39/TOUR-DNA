@@ -98,10 +98,10 @@ describe("PromoPreviewPanel", () => {
     expect(screen.getAllByText(/지자체\/관광재단/)).toHaveLength(1);
   });
 
-  it("6개 탭(포스터·카드뉴스·SNS·블로그·랜딩·제안서)이 모두 있다", () => {
+  it("7개 탭(포스터·카드뉴스·숏폼·SNS·블로그·랜딩·제안서)이 모두 있다", () => {
     const content = buildPromoContent(baseInput());
     renderPanel(content);
-    for (const label of ["포스터", "카드뉴스", "SNS", "블로그", "랜딩", "제안서"]) {
+    for (const label of ["포스터", "카드뉴스", "숏폼", "SNS", "블로그", "랜딩", "제안서"]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
   });
@@ -110,7 +110,12 @@ describe("PromoPreviewPanel", () => {
     const content = buildPromoContent(baseInput());
     renderPanel(content);
     fireEvent.click(screen.getByRole("tab", { name: "SNS" }));
-    expect(screen.getByText(content.instagram.caption)).toBeInTheDocument();
+    // caption이 여러 문단(개행 포함)으로 확장돼(2026-08-11) getByText의 기본 정규화가 단일 텍스트
+    // 노드 안의 개행을 일반 매처와 다르게 처리한다 — element.textContent를 직접 비교하는 커스텀
+    // 매처로 확인한다.
+    expect(
+      screen.getByText((_, element) => element?.tagName.toLowerCase() === "p" && element.textContent === content.instagram.caption),
+    ).toBeInTheDocument();
     if (content.instagram.hashtags.length > 0) {
       expect(screen.getByText(`#${content.instagram.hashtags[0]}`, { exact: false })).toBeInTheDocument();
     }

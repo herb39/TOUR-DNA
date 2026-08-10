@@ -6,6 +6,7 @@ import type {
   PromoChannel,
   PromoContent,
   RolePromoContent,
+  ShortFormContent,
 } from "./promoContent";
 
 /**
@@ -33,6 +34,13 @@ export function formatBlogForCopy(blog: BlogContent): string {
 
 export function formatCardNewsForCopy(cardNews: CardNewsContent): string {
   return cardNews.slides.map((s, i) => `${i + 1}. ${s.title}\n${s.body}`).join("\n\n");
+}
+
+export function formatShortFormForCopy(shortForm: ShortFormContent): string {
+  const sceneLines = shortForm.scenes.map(
+    (s) => `장면 ${s.scene}\n화면: ${s.visual}\n자막: ${s.caption}\n내레이션: ${s.narration}`,
+  );
+  return [shortForm.title, "", `Hook: ${shortForm.hook}`, "", ...sceneLines, "", `CTA: ${shortForm.cta}`].join("\n");
 }
 
 export function roleContentSectionLabel(role: RolePromoContent["role"]): string {
@@ -93,6 +101,8 @@ function channelSection(content: PromoContent, channel: PromoChannel): [string, 
       return ["카드뉴스", formatCardNewsForCopy(content.cardNews)];
     case "roleContent":
       return [roleContentSectionLabel(content.roleContent.role), formatRoleContentForCopy(content.roleContent)];
+    case "shortForm":
+      return ["숏폼", formatShortFormForCopy(content.shortForm)];
   }
 }
 

@@ -1,10 +1,13 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { CourseDay } from "@/lib/domain/planBuilder";
-import type {
-  BuildPromoContentInput,
-  PromoContent,
-  PromoNationality,
-  PromoUserRole,
+import {
+  buildPromoDnaContext,
+  EMPTY_PROMO_DNA_CONTEXT,
+  type BuildPromoContentInput,
+  type PromoContent,
+  type PromoDnaContext,
+  type PromoNationality,
+  type PromoUserRole,
 } from "@/lib/domain/promoContent";
 import type { AdminLevel, DataProvenance, DnaAxisKey, EvidenceItem } from "@/lib/domain/types";
 
@@ -148,11 +151,36 @@ function toRiskList(value: unknown): { risk: string; mitigation: string }[] {
   return value.filter(isRiskLike);
 }
 
+/** AnalysisResult의 5축 원점수만 담는다(2026-08-11) — 다른 필드(overallDataMode 등)는 홍보 생성에
+ * 쓸 근거가 아니므로 가져오지 않는다. 값이 null인 축(MISSING)은 buildPromoDnaContext가 알아서
+ * 제외한다. */
+export interface PromoContentSourceAnalysis {
+  demandScore: number | null;
+  stayScore: number | null;
+  spendScore: number | null;
+  diversityScore: number | null;
+  networkScore: number | null;
+}
+
+function toPromoDnaContext(analysis: PromoContentSourceAnalysis | null | undefined): PromoDnaContext {
+  if (!analysis) return EMPTY_PROMO_DNA_CONTEXT;
+  const axisScores: { axis: DnaAxisKey; score: number | null }[] = [
+    { axis: "demand", score: analysis.demandScore },
+    { axis: "stay", score: analysis.stayScore },
+    { axis: "spend", score: analysis.spendScore },
+    { axis: "diversity", score: analysis.diversityScore },
+    { axis: "network", score: analysis.networkScore },
+  ];
+  return buildPromoDnaContext(axisScores);
+}
+
 export function buildPromoContentInputFromProjectData(data: {
   project: PromoContentSourceProject;
   plan: PromoContentSourcePlan;
   strategyName: string;
   evidenceRows: PromoEvidenceSourceRow[];
+  /** 없으면(레거시 호출부·분석 결과 없음) 강점/약점 없이 생성한다. */
+  analysis?: PromoContentSourceAnalysis | null;
 }): BuildPromoContentInput {
   return {
     project: {
@@ -176,6 +204,7 @@ export function buildPromoContentInputFromProjectData(data: {
       risks: toRiskList(data.plan.risks),
     },
     evidences: data.evidenceRows.map(mapEvidenceToEvidenceItem).filter((e): e is EvidenceItem => e !== null),
+    dna: toPromoDnaContext(data.analysis),
   };
 }
 

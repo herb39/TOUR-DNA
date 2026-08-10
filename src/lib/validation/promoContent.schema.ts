@@ -72,6 +72,22 @@ const festivalPlannerPromoSchema = z.object({
 
 const cardNewsSlideSchema = z.object({ title: z.string(), body: z.string() });
 const cardNewsSchema = z.object({ slides: z.array(cardNewsSlideSchema) });
+
+const shortFormSceneSchema = z.object({
+  scene: z.number().finite(),
+  visual: z.string(),
+  caption: z.string(),
+  narration: z.string(),
+});
+const shortFormSchema = z.object({
+  title: z.string(),
+  hook: z.string(),
+  scenes: z.array(shortFormSceneSchema),
+  cta: z.string(),
+});
+/** shortForm 도입(2026-08-11) 이전 저장된 홍보자료에 대한 fallback — cardNews와 동일한 원칙. */
+const EMPTY_SHORT_FORM = { title: "", hook: "", scenes: [], cta: "" };
+
 const promoChannelSchema = z.enum(ALL_PROMO_CHANNELS);
 
 /** `channelPriority`가 지원 채널 전체를 정확히 한 번씩 포함한 순열인지 확인한다(2026-08-01) —
@@ -92,16 +108,17 @@ const baseObjectShape = {
   blog: blogSchema,
   cardNews: cardNewsSchema.optional(),
   roleContent: z.discriminatedUnion("role", [travelAgencyPromoSchema, localGovPromoSchema, festivalPlannerPromoSchema]),
+  shortForm: shortFormSchema.optional(),
   evidenceReferences: z.array(promoEvidenceReferenceSchema),
   courseHighlights: z.array(promoCourseHighlightSchema),
   translationNotice: z.string().nullable().optional(),
 } as const;
 
-// cardNews/channelPriority/translationNotice는 2026-07-31에 추가됐다 — 그 이전에 저장된 홍보자료(v1
-// 초기 형태)에는 이 필드들이 아예 없다. 조회(레거시 파싱) 경로는 관대하게 받는다: 필드가 없으면 기본값,
-// "있지만 형식은 맞고 값 자체가 잘못된"(빈 배열·중복·일부 누락) channelPriority도 조용히 채널을
-// 숨기지 않도록 기본 순서로 안전하게 복구한다 — 기존 정상 데이터가 "형식 오류"로 막히지 않아야 하기
-// 때문에 여기서는 절대 실패시키지 않는다(2026-08-01 보완).
+// cardNews/channelPriority/translationNotice는 2026-07-31에, shortForm은 2026-08-11에 추가됐다 —
+// 그 이전에 저장된 홍보자료(v1 초기 형태)에는 이 필드들이 아예 없다. 조회(레거시 파싱) 경로는 관대하게
+// 받는다: 필드가 없으면 기본값, "있지만 형식은 맞고 값 자체가 잘못된"(빈 배열·중복·일부 누락)
+// channelPriority도 조용히 채널을 숨기지 않도록 기본 순서로 안전하게 복구한다 — 기존 정상 데이터가
+// "형식 오류"로 막히지 않아야 하기 때문에 여기서는 절대 실패시키지 않는다(2026-08-01 보완).
 const promoContentReadSchema = z
   .object({
     ...baseObjectShape,
@@ -110,6 +127,7 @@ const promoContentReadSchema = z
   .transform((data) => ({
     ...data,
     cardNews: data.cardNews ?? { slides: [] },
+    shortForm: data.shortForm ?? EMPTY_SHORT_FORM,
     channelPriority: data.channelPriority && isValidChannelPriority(data.channelPriority) ? data.channelPriority : DEFAULT_CHANNEL_PRIORITY,
     translationNotice: data.translationNotice ?? null,
   }));
@@ -126,6 +144,7 @@ const promoContentSaveSchema = z
   .transform((data) => ({
     ...data,
     cardNews: data.cardNews ?? { slides: [] },
+    shortForm: data.shortForm ?? EMPTY_SHORT_FORM,
     translationNotice: data.translationNotice ?? null,
   }));
 

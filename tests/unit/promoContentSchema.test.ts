@@ -57,23 +57,23 @@ function withoutNewOptionalFields(
   return rest;
 }
 
-describe("promoContent.schema — 지원 채널 수 확인(2026-08-01 보완)", () => {
-  it("현재 지원 채널은 정확히 6개다", () => {
-    expect(ALL_PROMO_CHANNELS).toHaveLength(6);
-    expect(new Set(ALL_PROMO_CHANNELS).size).toBe(6);
+describe("promoContent.schema — 지원 채널 수 확인(2026-08-11: 숏폼 추가로 6개→7개)", () => {
+  it("현재 지원 채널은 정확히 7개다", () => {
+    expect(ALL_PROMO_CHANNELS).toHaveLength(7);
+    expect(new Set(ALL_PROMO_CHANNELS).size).toBe(7);
   });
 });
 
 describe("parsePromoContentForSave — 신규 저장 입력은 엄격하게 검증한다", () => {
-  it("6개 채널 전체를 포함한 정상 순열은 통과한다", () => {
+  it("7개 채널 전체를 포함한 정상 순열은 통과한다", () => {
     const content = withChannelPriority(baseContent(), [...ALL_PROMO_CHANNELS].reverse());
     const result = parsePromoContentForSave(content);
     expect(result.ok).toBe(true);
   });
 
   it("역할별로 순서가 달라도(순열이기만 하면) 통과한다", () => {
-    const orderA = ["roleContent", "instagram", "blog", "landing", "cardNews", "proposalSummary"];
-    const orderB = ["instagram", "cardNews", "roleContent", "proposalSummary", "landing", "blog"];
+    const orderA = ["roleContent", "instagram", "blog", "landing", "cardNews", "shortForm", "proposalSummary"];
+    const orderB = ["instagram", "cardNews", "roleContent", "proposalSummary", "landing", "shortForm", "blog"];
     expect(parsePromoContentForSave(withChannelPriority(baseContent(), orderA)).ok).toBe(true);
     expect(parsePromoContentForSave(withChannelPriority(baseContent(), orderB)).ok).toBe(true);
   });
@@ -105,6 +105,31 @@ describe("parsePromoContentForSave — 신규 저장 입력은 엄격하게 검�
     const content = withoutChannelPriority(baseContent());
     const result = parsePromoContentForSave(content);
     expect(result.ok).toBe(false);
+  });
+});
+
+/** shortForm(2026-08-11 도입) 이전 저장 데이터를 재현한다 — withoutNewOptionalFields와 동일한
+ * 구조분해 방식. */
+function withoutShortForm(content: PromoContent): Omit<PromoContent, "shortForm"> {
+  const { shortForm, ...rest } = content;
+  void shortForm;
+  return rest;
+}
+
+describe("parsePromoContent — shortForm 도입 이전 레거시 데이터 호환(2026-08-11)", () => {
+  it("shortForm 필드 자체가 없는 레거시 데이터는 크래시 없이 빈 상태로 정상 파싱된다", () => {
+    const content = withoutShortForm(baseContent());
+    const result = parsePromoContent(content);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.shortForm).toEqual({ title: "", hook: "", scenes: [], cta: "" });
+    }
+  });
+
+  it("shortForm이 없는 레거시 데이터도 저장(save) 스키마를 통과한다(DB schema 변경 없이 JSON 확장)", () => {
+    const content = withoutShortForm(baseContent());
+    const result = parsePromoContentForSave({ ...content, channelPriority: [...ALL_PROMO_CHANNELS] });
+    expect(result.ok).toBe(true);
   });
 });
 

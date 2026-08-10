@@ -139,6 +139,32 @@ describe("buildPromoContentInputFromProjectData", () => {
     expect(input.project.travelMonth).toBe(3);
     expect(input.strategy.name).toBe("전략명");
   });
+
+  const minimalArgs = {
+    project: { role: "TRAVEL_AGENCY" as const, travelYear: 2026, travelMonth: 9, regionName: "강릉시", nationality: "DOMESTIC" as const, preferredThemes: [] },
+    plan: { productName: "p", conceptText: "c", background: "b", targetSummary: "t", sellingPoints: [], course: { days: [] }, kpis: [], operationChecklist: [], risks: [] },
+    strategyName: "전략",
+    evidenceRows: [],
+  };
+
+  it("analysis(AnalysisResult 5축 점수)를 넘기면 dna.strengths/weaknesses가 채워진다(2026-08-11)", () => {
+    const input = buildPromoContentInputFromProjectData({
+      ...minimalArgs,
+      analysis: { demandScore: 90, stayScore: 20, spendScore: 50, diversityScore: 50, networkScore: 50 },
+    });
+    expect(input.dna?.strengths.map((s) => s.axis)).toContain("demand");
+    expect(input.dna?.weaknesses.map((s) => s.axis)).toContain("stay");
+  });
+
+  it("analysis를 넘기지 않으면(레거시 호출부) dna가 빈 강점/약점이다", () => {
+    const input = buildPromoContentInputFromProjectData(minimalArgs);
+    expect(input.dna).toEqual({ strengths: [], weaknesses: [] });
+  });
+
+  it("analysis를 null로 넘겨도(분석 결과 없는 프로젝트) 크래시 없이 빈 강점/약점이 된다", () => {
+    const input = buildPromoContentInputFromProjectData({ ...minimalArgs, analysis: null });
+    expect(input.dna).toEqual({ strengths: [], weaknesses: [] });
+  });
 });
 
 function samplePromoContent(): PromoContent {

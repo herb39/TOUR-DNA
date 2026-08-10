@@ -16,6 +16,7 @@ import {
   formatLandingForCopy,
   formatProposalSummaryForCopy,
   formatRoleContentForCopy,
+  formatShortFormForCopy,
   parseHashtagsInput,
 } from "@/lib/domain/promoContentFormat";
 import { PromoPosterPreview } from "./PromoPosterPreview";
@@ -24,18 +25,21 @@ import { PromoInstagramPreview } from "./PromoInstagramPreview";
 import { PromoBlogPreview } from "./PromoBlogPreview";
 import { PromoLandingPreview } from "./PromoLandingPreview";
 import { PromoProposalPreview } from "./PromoProposalPreview";
+import { PromoShortFormPreview } from "./PromoShortFormPreview";
 import { ProposalSummaryEditor } from "./ProposalSummaryEditor";
 import { LandingEditor } from "./LandingEditor";
 import { InstagramEditor } from "./InstagramEditor";
 import { BlogEditor } from "./BlogEditor";
 import { CardNewsEditor } from "./CardNewsEditor";
 import { RoleContentEditor } from "./RoleContentEditor";
+import { ShortFormEditor } from "./ShortFormEditor";
 
-type PreviewTab = "poster" | "cardNews" | "sns" | "blog" | "landing" | "proposal";
+type PreviewTab = "poster" | "cardNews" | "sns" | "blog" | "landing" | "proposal" | "shortForm";
 
 const TABS: { key: PreviewTab; label: string }[] = [
   { key: "poster", label: "포스터" },
   { key: "cardNews", label: "카드뉴스" },
+  { key: "shortForm", label: "숏폼" },
   { key: "sns", label: "SNS" },
   { key: "blog", label: "블로그" },
   { key: "landing", label: "랜딩" },
@@ -114,6 +118,7 @@ export function PromoPreviewPanel({
       <div className="mt-4" role="tabpanel">
         {tab === "poster" ? <PromoPosterPreview poster={poster} /> : null}
         {tab === "cardNews" ? <PromoCardNewsPreview slides={cardNewsSlides} /> : null}
+        {tab === "shortForm" ? <PromoShortFormPreview shortForm={content.shortForm} /> : null}
         {tab === "sns" ? <PromoInstagramPreview instagram={content.instagram} regionName={project.regionName} /> : null}
         {tab === "blog" ? <PromoBlogPreview blog={content.blog} /> : null}
         {tab === "landing" ? <PromoLandingPreview view={landingView} /> : null}
@@ -143,6 +148,14 @@ export function PromoPreviewPanel({
                   onChange={(next) => updateContent((prev) => ({ ...prev, cardNews: next }))}
                   onCopy={() => copyToClipboard("cardNews", formatCardNewsForCopy(content.cardNews))}
                   copied={copiedKey === "cardNews"}
+                />
+              ) : null}
+              {tab === "shortForm" ? (
+                <ShortFormEditor
+                  shortForm={content.shortForm}
+                  onChange={(next) => updateContent((prev) => ({ ...prev, shortForm: next }))}
+                  onCopy={() => copyToClipboard("shortForm", formatShortFormForCopy(content.shortForm))}
+                  copied={copiedKey === "shortForm"}
                 />
               ) : null}
               {tab === "sns" ? (

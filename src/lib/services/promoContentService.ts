@@ -62,6 +62,11 @@ async function loadProjectForGeneration(projectId: string) {
       region: { select: { name: true } },
       input: { select: { nationality: true, preferredThemes: true } },
       selectedPlan: { select: SELECTED_PLAN_SELECT },
+      // DNA 5축 강점/약점을 홍보 문구 근거로 쓰기 위한 조회(2026-08-11) — 원점수는 이 파일 밖으로
+      // 나가지 않고 promoContentAdapter.ts가 표시지수·자연어 문구로만 변환한다.
+      analysisResult: {
+        select: { demandScore: true, stayScore: true, spendScore: true, diversityScore: true, networkScore: true },
+      },
     },
   });
 }
@@ -134,6 +139,7 @@ export async function generatePromoContentForProject(
     plan: project.selectedPlan,
     strategyName: strategy.name,
     evidenceRows,
+    analysis: project.analysisResult ?? null,
   });
 
   const content = buildPromoContent(input);
