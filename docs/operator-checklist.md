@@ -96,7 +96,7 @@
       갱신 — 매달 자동으로 최신화되지 않으니 수동 유지보수 필요(단, `sync:tourism-data` CLI 자체는
       인자를 생략하면 이제 자동으로 최신 공통월을 찾으므로 이 수동 절차가 필수는 아니다)
 
-## 새 기준월 반영 절차 — ACTIVE Dataset 발견·증분 sync·안전 승격 (Phase 2-A/2-B/2-C, 2026-08-12)
+## 새 기준월 반영 절차 — ACTIVE Dataset 발견·증분 sync·안전 승격 (Phase 2-A/2-B/2-C/2-D, 2026-08-12)
 
 분석이 쓰는 baseYm은 `TOUR_DATA_BASE_YM`이 아니라 `Dataset` 테이블의 ACTIVE 행이다(위 항목의
 `TOUR_DATA_BASE_YM`은 sync 대상월 결정에만 쓰인다). 새 월을 실제 서비스 분석에 반영하려면:
@@ -109,7 +109,10 @@
 2. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 하루 API 호출
    한도에 맞는 `N`으로 여러 번 나눠 실행한다 — 이미 완료된 지역×소스는 자동으로 건너뛰고, 429가
    감지되면 그 시점까지 결과를 보존한 채 안전하게 멈춘다. 다음 실행에서 같은 명령을 그대로 다시
-   실행하면 이어서 진행된다.
+   실행하면 이어서 진행된다. **TOUR_INFO(POI)는 region의 최근 수집이 TTL(60일) 이내면 이 호출에서
+   자동으로 빠진다(Phase 2-D)** — 전국 255개 지역이 모두 fresh하면 이 배치에서 TOUR_INFO API
+   요청이 0건일 수 있다(quota는 통계 3종에만 실제로 쓰인다). 특정 지역 POI를 TTL과 무관하게 즉시
+   갱신해야 하면 `--force-tour-info`를 추가한다(`--all-regions` 없이는 쓸 수 없음).
 3. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR 수, source별 SUCCESS/EMPTY/ERROR/
    미수집 현황)과 promotion readiness(`INCOMPLETE`/`READY_FOR_DRIFT_CHECK`)를 확인한다.
 4. `READY_FOR_DRIFT_CHECK`가 뜨면, 승격 전에 **읽기 전용** `npm run dataset:drift -- --base-ym=YYYYMM`

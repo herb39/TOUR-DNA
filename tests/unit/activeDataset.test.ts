@@ -11,7 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const regionFindMany = vi.fn();
 const dataSourceFindMany = vi.fn();
+const dataSourceFindUnique = vi.fn();
 const dataSnapshotFindMany = vi.fn();
+const dataSnapshotGroupBy = vi.fn();
 const normalizedMetricFindMany = vi.fn();
 const poiFindMany = vi.fn();
 const datasetFindFirst = vi.fn();
@@ -24,8 +26,14 @@ const transaction = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
     region: { findMany: (...args: unknown[]) => regionFindMany(...args) },
-    dataSource: { findMany: (...args: unknown[]) => dataSourceFindMany(...args) },
-    dataSnapshot: { findMany: (...args: unknown[]) => dataSnapshotFindMany(...args) },
+    dataSource: {
+      findMany: (...args: unknown[]) => dataSourceFindMany(...args),
+      findUnique: (...args: unknown[]) => dataSourceFindUnique(...args),
+    },
+    dataSnapshot: {
+      findMany: (...args: unknown[]) => dataSnapshotFindMany(...args),
+      groupBy: (...args: unknown[]) => dataSnapshotGroupBy(...args),
+    },
     normalizedMetric: { findMany: (...args: unknown[]) => normalizedMetricFindMany(...args) },
     poi: { findMany: (...args: unknown[]) => poiFindMany(...args) },
     dataset: {
@@ -88,7 +96,9 @@ function baseMocks() {
 beforeEach(() => {
   regionFindMany.mockReset();
   dataSourceFindMany.mockReset();
+  dataSourceFindUnique.mockReset();
   dataSnapshotFindMany.mockReset();
+  dataSnapshotGroupBy.mockReset();
   normalizedMetricFindMany.mockReset();
   poiFindMany.mockReset();
   datasetFindFirst.mockReset();
@@ -101,6 +111,12 @@ beforeEach(() => {
   datasetUpdateMany.mockResolvedValue({ count: 0 });
   datasetUpsert.mockResolvedValue({ id: "ds-1", baseYm: "202606", status: "ACTIVE", activatedAt: new Date() });
   datasetCreate.mockResolvedValue({ id: "ds-2", baseYm: "202607", status: "STAGING", activatedAt: null });
+  // Phase 2-D(2026-08-12): checkDatasetCompleteness가 이제 fetchTourInfoLastFreshFetchByRegion()도
+  // 호출한다 — 기본값은 "TOUR_INFO DataSource를 찾지 못함"으로 두어 freshness가 항상 NEVER_FETCHED가
+  // 되게 한다(기존 테스트들의 completeSnapshots()가 이미 TOUR_INFO를 이번 baseYm에 SUCCESS로 채워
+  // 두므로 이 기본값과 무관하게 그대로 통과한다).
+  dataSourceFindUnique.mockResolvedValue(null);
+  dataSnapshotGroupBy.mockResolvedValue([]);
   // ensureStagingDataset/getStagingDatasetBaseYm은 dataSyncTargetGuard를 거친다 — 다른 스위트
   // (syncService.test.ts)와 동일한 관례로 기본은 로컬 호스트로 설정하고, 원격 차단 테스트에서만 덮어쓴다.
   process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/tour_dna_local";

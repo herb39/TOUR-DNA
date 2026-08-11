@@ -344,7 +344,7 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 > "기존 `DataSource`에 필드 3개만 추가"로 계획했지만, 실제로는 신규 `Dataset` 모델(baseYm+status)을
 > 만드는 방식으로 구현됐다. 아래는 그 실제 결과와, 이어서 진행할 다음 우선순위다. 상세 근거는
 > [docs/implementation-status.md](implementation-status.md)의 "2026-08-11 종합 갱신"/"2026-08-12
-> 갱신 — Phase 2-C" 절 참고.
+> 갱신 — Phase 2-C"/"2026-08-12 갱신 — Phase 2-D" 절 참고.
 
 ## 1. 이미 완료된 것 (로컬 DB 기준, Production 미반영)
 
@@ -378,19 +378,34 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
   전까지는 잠정 보수치다(`DRIFT_GATE_THRESHOLDS`). 읽기 전용 `npm run dataset:drift -- --base-ym=`
   로 승격 없이 결과만 미리 볼 수 있다. `npm run dataset:status`는 STAGING에 대해
   `INCOMPLETE`/`READY_FOR_DRIFT_CHECK`까지만 보여주고, 무거운 drift 계산은 자동 수행하지 않는다.
-  상세는 [docs/implementation-status.md](implementation-status.md)의 "2026-08-12 갱신" 절 참고.
+  상세는 [docs/implementation-status.md](implementation-status.md)의 "2026-08-12 갱신 — Phase 2-C"
+  절 참고.
+- **(2026-08-12 추가) Phase 2-D — TOUR_INFO Freshness TTL + POI Reuse**: TOUR_INFO(POI 목록 API)는
+  baseYm에 종속되지 않는 정적 API이고 `Poi` 모델에도 baseYm 필드가 없는데, 기존 completeness 게이트는
+  "이번 baseYm에 TOUR_INFO를 새로 호출했는가"만 봐서 새 STAGING baseYm마다 전국 255개 지역을 무조건
+  재호출했다(quota 낭비). `src/lib/domain/tourInfoFreshness.ts`의 `classifyTourInfoFreshness`(TTL
+  60일, 근거는 코드 주석 참고)와 `src/lib/services/tourInfoFreshnessLookup.ts`의
+  `fetchTourInfoLastFreshFetchByRegion()`(기존 `DataSnapshot.fetchedAt`만 재사용, 새 schema 없음)을
+  추가해, region의 최근 TOUR_INFO SUCCESS/EMPTY가 TTL 이내면 `runResumableLocalBatchSync`가 그
+  지역의 TOUR_INFO API를 호출하지 않고 SKIPPED로 처리한다(가짜 SUCCESS snapshot을 만들지 않음 —
+  이번 baseYm에 대한 DataSnapshot row 자체를 생성하지 않는다). `checkDatasetCompleteness`/
+  `auditTourismDataQuality`도 이 freshness를 함께 확인해, "이번 baseYm SUCCESS" 또는 "TTL 이내
+  재사용"이면 완전한 것으로 인정한다(TOUR_INFO를 게이트에서 제외하지 않음 — POI 자체가 없거나
+  stale이면 여전히 incomplete). 운영자가 TTL을 기다리지 않고 강제로 갱신하려면
+  `npm run sync:tourism-data -- --all-regions --max-regions=N --force-tour-info`(`--all-regions`
+  없이는 쓸 수 없음, 실수로 전국 강제 재호출되는 기본값 없음). 상세는
+  [docs/implementation-status.md](implementation-status.md)의 "2026-08-12 갱신 — Phase 2-D" 절
+  참고.
 
 ## 2. 다음 우선순위
 
-1. **TOUR_INFO(POI) 재수집 정책 재검토**: Phase 2-B 구현 중 확인한 사실 — `fetchTourInfo`는
-   baseYm에 종속되지 않는 정적 API이고 `Poi` 모델에도 baseYm 필드가 없는데, `DataSnapshot`은
-   baseYm별로 기록되기 때문에 새 STAGING baseYm마다 TOUR_INFO를 처음부터 다시 전국 재수집하게
-   된다(내용이 안 바뀌어도 quota를 쓴다). 이번 라운드에서도 TTL 정책을 구현하지 않았고
-   `checkDatasetCompleteness`도 TOUR_INFO를 여전히 필수 source로 취급한다 — 별도 TTL 도입이 적절해
-   보이지만 Phase 2-D 후보로만 남긴다.
-2. **Drift gate threshold 재조정**: 실제 두 번째 전국 dataset(예: 202607)이 완성되어 진짜 월간
+1. **Drift gate threshold 재조정**: 실제 두 번째 전국 dataset(예: 202607)이 완성되어 진짜 월간
    drift 분포를 관측하면, `DRIFT_GATE_THRESHOLDS`(2026-08-12 잠정치)를 그 실측 데이터 기준으로
    다시 검토해야 한다.
+2. **POI 폐업/삭제 반영 체계**: 현재 TOUR_INFO 재수집은 upsert만 하고 delete는 하지 않는다(API
+   응답에 더 이상 나타나지 않는 기존 POI가 DB에 그대로 남는다) — TTL이 길어질수록(60일) 폐업
+   반영이 그만큼 늦어질 위험이 있다. 이번 라운드에서는 대규모 폐업 감지 시스템을 만들지 않았다 —
+   "stale POI" 표시 같은 후속 Phase 후보로만 남긴다.
 3. **Demand 축 기술부채 검토**: `touResDemIxVal`이 전국 255개 지역 중 7개(2.8%)에서만 존재해,
    244개 지역(97%)의 Demand 점수가 사실상 `tarSvcDemIxVal` 단일 metric으로 결정된다. 이 metric
    coverage를 늘릴 수 있는지, 아니면 이 사실을 사용자에게 더 명확히 알릴지 검토가 필요하다.
@@ -404,8 +419,9 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 
 ## 3. 진행하지 않는 것
 
-Phase 2-C까지 완료했지만, 다음은 여전히 하지 않았다: 완전 자동(사람 개입 없는) 승격 스케줄링(사람이
+Phase 2-D까지 완료했지만, 다음은 여전히 하지 않았다: 완전 자동(사람 개입 없는) 승격 스케줄링(사람이
 `npm run dataset:activate`를 직접 실행해야만 승격됨), ACTIVE가 한 번도 없는 완전 신규 환경의
 부트스트랩(항상 기존 ACTIVE와 비교하는 구조라 이 경우는 다루지 않음 — 필요해지면 별도 운영자
-비상절차 검토), drift gate threshold의 실측 기반 확정(다음 전국 dataset이 나와야 가능), TOUR_INFO
-TTL, DNA weight·전략 scoring·POI 추천 로직 변경.
+비상절차 검토), drift gate threshold의 실측 기반 확정(다음 전국 dataset이 나와야 가능), POI
+폐업/삭제 자동 감지(TOUR_INFO 재수집은 upsert만 하고 delete는 하지 않음), DNA normalization·DNA
+weight·drift threshold·Demand/Network metric·LLM·전략 scoring·유사도 산식·POI 추천 로직 변경.

@@ -96,7 +96,14 @@ TOUR-DNA는 기관과 기업이 관광사업을 기획하고 예산·협력·성
   검토해야 한다 — `--force`/`--skip-drift` 같은 우회 옵션은 없다. 승격 전에 미리 결과만 보려면
   읽기 전용 `npm run dataset:drift -- --base-ym=YYYYMM`을 쓴다. threshold는 아직 실제 두 번째
   전국 dataset의 월간 drift를 관측하기 전이라 잠정값이다(`src/lib/domain/datasetDriftGate.ts`의
-  `DRIFT_GATE_THRESHOLDS` 참고).
+  `DRIFT_GATE_THRESHOLDS` 참고). **Phase 2-D(TOUR_INFO Freshness TTL + POI Reuse)도 구현
+  완료**했다(2026-08-12) — TOUR_INFO(POI 목록 API)는 baseYm에 종속되지 않는 정적 API인데도 이전에는
+  새 STAGING baseYm마다 전국 255개 지역을 무조건 재호출했다. 이제 region의 최근 TOUR_INFO
+  SUCCESS/EMPTY가 TTL(60일) 이내면 API를 다시 호출하지 않고 기존 POI를 그대로 재사용한다(가짜
+  SUCCESS snapshot을 만들지 않음). completeness/audit도 이 재사용을 함께 인정하되 TOUR_INFO를
+  게이트에서 빼지 않는다 — POI 자체가 없거나 정말 오래됐으면 여전히 미완료로 판정된다. TTL을
+  기다리지 않고 강제로 갱신하려면 `npm run sync:tourism-data -- --all-regions --max-regions=N
+  --force-tour-info`를 쓴다.
 - **홍보 콘텐츠 LLM(OpenRouter)**: provider는 OpenRouter, 기본 모델은 무료 티어
   `google/gemma-4-26b-a4b-it:free`(`OPENROUTER_API_KEY`/`OPENROUTER_PROMO_MODEL` 환경변수, Anthropic
   연동은 완전히 제거됨). 7개 채널(제안서 요약/랜딩/Instagram/블로그/카드뉴스/숏폼/역할별 콘텐츠)을
@@ -531,19 +538,21 @@ npm run build
 ### 전국 실사용 베타 확장
 
 2026-08-12 기준 로컬 DB에서는 전국 SIGUNGU 255/255 동기화·품질 감사(PASS)·DNA 분석 가능 확인, 최신
-기준월 저비용 발견 + STAGING 증분 sync(Phase 2-B), 그리고 completeness/audit + DNA drift gate를
-통과해야만 승격되는 안전 승격 경로(Phase 2-C)까지 끝났습니다(아래 표의 1~7단계에 해당). 남은 항목은
-**자동 승격(사람 개입 없는 스케줄링)·운영 안정성**이며, 단순 지역 수 확대 작업은 아닙니다.
+기준월 저비용 발견 + STAGING 증분 sync(Phase 2-B), completeness/audit + DNA drift gate를 통과해야만
+승격되는 안전 승격 경로(Phase 2-C), 그리고 TOUR_INFO(POI) TTL 재사용(Phase 2-D)까지 끝났습니다(아래
+표의 1~8단계에 해당). 남은 항목은 **POI 폐업 자동 감지·자동 승격(사람 개입 없는 스케줄링)·운영
+안정성**이며, 단순 지역 수 확대 작업은 아닙니다.
 
 | 단계 | 작업 | 상태 |
 |---:|---|---|
 | 1 | 전국 행정구역·TourAPI 코드 마스터 자동 생성 및 감사 | **완료(로컬)** — Region 마스터 SIDO 16 + SIGUNGU 255 |
 | 2 | 지역별 배치·재시도·중단 재개가 가능한 동기화 파이프라인 | **완료(로컬)** — `runResumableLocalBatchSync`, `--max-regions` 청크, 429 안전 중단 |
 | 3 | 전국 최초 적재·누락·기준월·이상치 검증 | **완료(로컬)** — `npm run audit:tourism-data` PASS, ERROR 0 |
-| 4 | 전국 POI 증분 동기화·중복·폐업·분류·추천 품질 관리 | 부분 완료 — 최초 적재는 끝났고, 증분/폐업 감지는 TODO |
+| 4 | 전국 POI 증분 동기화·중복·분류·추천 품질 관리 | 부분 완료 — 최초 적재·TTL 기반 재사용(Phase 2-D)은 끝났고, **폐업 자동 감지는 여전히 TODO**(현재는 upsert만, delete 없음) |
 | 5 | 검증된 기준월만 분석에 쓰는 기반(ACTIVE Dataset) | **완료(로컬, Phase 2-A)** |
 | 6 | source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync(Phase 2-B) | **완료(로컬)** — `npm run dataset:discover`, `sync:tourism-data -- --dataset=staging`, `dataset:status` 진행률 표시 |
 | 7 | completeness/audit + DNA drift gate 통과 시에만 승격하는 안전 경로(Phase 2-C) | **완료(로컬)** — `npm run dataset:drift`(읽기 전용 사전 확인), `dataset:activate`가 내부적으로 drift gate를 거침. **완전 자동(사람 개입 없는) 승격은 아직 없음** — PASS여도 사람이 `dataset:activate`를 직접 실행해야 한다 |
+| 8 | TOUR_INFO(POI) freshness TTL 기반 재사용(Phase 2-D) | **완료(로컬)** — TTL 60일, `classifyTourInfoFreshness`/`fetchTourInfoLastFreshFetchByRegion`, 새 STAGING baseYm에서 fresh 지역은 API 호출 0건. `--force-tour-info`로 강제 갱신 가능 |
 | 8 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | TODO |
 
 **로컬 DB 기준으로 완료된 것이며, Production Neon DB/Vercel 배포에는 아직 반영·검증하지 않았다** —

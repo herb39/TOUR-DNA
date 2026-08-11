@@ -264,3 +264,120 @@ describe("auditTourismDataQuality — Region 범위", () => {
     expect(report.region.analyzable).toBe(2);
   });
 });
+
+/** TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM 3개 통계 소스만 SUCCESS(TOUR_INFO는 이번 baseYm에 없음 —
+ * TTL 재사용 시나리오를 흉내낸다). */
+function statSnapshotsOnly(regionId: string): SnapshotForAudit[] {
+  return RESUMABLE_SOURCE_CODES.filter((c) => c !== "TOUR_INFO").map((code) => ({
+    regionId,
+    dataSourceCode: code,
+    status: "SUCCESS" as const,
+  }));
+}
+
+describe("auditTourismDataQuality — TOUR_INFO TTL 재사용(Phase 2-D, 2026-08-12)", () => {
+  const NOW = new Date("2026-08-12T00:00:00.000Z");
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("이번 baseYm에 TOUR_INFO를 호출하지 않았어도 최근 fetch가 TTL 이내면 완전한 것으로 인정한다", () => {
+    const r = region("SGG_A", "가군", { apiSigunguCode: "11110" });
+    const snapshots = statSnapshotsOnly(r.id); // TOUR_INFO는 이번 baseYm에 없음
+    const metrics = fullMetrics(r.id);
+
+    const report = auditTourismDataQuality({
+      baseYm: BASE_YM,
+      regions: [r],
+      snapshots,
+      metrics,
+      pois: [{ regionId: r.id, category: "ATTRACTION", sourceType: "API" }],
+      tourInfoFreshnessByRegion: { [r.id]: new Date(NOW.getTime() - 10 * DAY_MS) },
+      now: NOW,
+    });
+
+    expect(report.snapshot.incompleteRegions).toBe(0);
+    expect(report.snapshot.fullyCompleteRegions).toBe(1);
+    expect(report.poi.tourInfoCompleteRegions).toBe(1);
+    expect(report.poi.tourInfoFreshReuseRegions).toBe(1);
+    expect(report.verdict).toBe("PASS");
+  });
+
+  it("최근 TOUR_INFO fetch가 TTL을 초과(stale)했으면 여전히 미완료로 판정한다(승격 차단)", () => {
+    const r = region("SGG_A", "가군", { apiSigunguCode: "11110" });
+    const snapshots = statSnapshotsOnly(r.id);
+    const metrics = fullMetrics(r.id);
+
+    const report = auditTourismDataQuality({
+      baseYm: BASE_YM,
+      regions: [r],
+      snapshots,
+      metrics,
+      pois: [{ regionId: r.id, category: "ATTRACTION", sourceType: "API" }],
+      tourInfoFreshnessByRegion: { [r.id]: new Date(NOW.getTime() - 90 * DAY_MS) },
+      now: NOW,
+    });
+
+    expect(report.snapshot.incompleteRegions).toBe(1);
+    expect(report.snapshot.fullyCompleteRegions).toBe(0);
+    expect(report.poi.tourInfoFreshReuseRegions).toBe(0);
+    expect(report.poi.uncollectedRegions).toBe(1);
+    expect(report.verdict).toBe("INCOMPLETE");
+  });
+
+  it("TOUR_INFO 이력이 전혀 없으면(never fetched) 미완료로 판정한다", () => {
+    const r = region("SGG_A", "가군", { apiSigunguCode: "11110" });
+    const snapshots = statSnapshotsOnly(r.id);
+    const metrics = fullMetrics(r.id);
+
+    const report = auditTourismDataQuality({
+      baseYm: BASE_YM,
+      regions: [r],
+      snapshots,
+      metrics,
+      pois: [],
+      tourInfoFreshnessByRegion: {},
+      now: NOW,
+    });
+
+    expect(report.snapshot.incompleteRegions).toBe(1);
+    expect(report.verdict).toBe("INCOMPLETE");
+  });
+
+  it("이번 baseYm에 실제로 TOUR_INFO가 SUCCESS였으면 freshness와 무관하게 완전하다(회귀 없음)", () => {
+    const r = region("SGG_A", "가군", { apiSigunguCode: "11110" });
+    const snapshots = fullSnapshots(r.id); // TOUR_INFO 포함 전부 SUCCESS
+    const metrics = fullMetrics(r.id);
+
+    const report = auditTourismDataQuality({
+      baseYm: BASE_YM,
+      regions: [r],
+      snapshots,
+      metrics,
+      pois: [{ regionId: r.id, category: "ATTRACTION", sourceType: "API" }],
+      // freshness 이력이 전혀 없어도(stale로 잘못 걸릴 만한 상황) 이번 baseYm 자체가 SUCCESS라 문제없다.
+      tourInfoFreshnessByRegion: {},
+      now: NOW,
+    });
+
+    expect(report.snapshot.fullyCompleteRegions).toBe(1);
+    expect(report.poi.tourInfoFreshReuseRegions).toBe(0);
+    expect(report.verdict).toBe("PASS");
+  });
+
+  it("tourInfoFreshnessByRegion/now를 생략하면(기존 호출부 호환) 예전과 동일하게 이번 baseYm 스냅샷만 인정한다", () => {
+    const r = region("SGG_A", "가군", { apiSigunguCode: "11110" });
+    const snapshots = statSnapshotsOnly(r.id); // TOUR_INFO 없음, freshness 정보도 없음
+    const metrics = fullMetrics(r.id);
+
+    const report = auditTourismDataQuality({
+      baseYm: BASE_YM,
+      regions: [r],
+      snapshots,
+      metrics,
+      pois: [],
+      // tourInfoFreshnessByRegion/now 생략 — 이전 동작(NEVER_FETCHED로 취급)과 동일해야 한다.
+    });
+
+    expect(report.snapshot.incompleteRegions).toBe(1);
+    expect(report.poi.tourInfoFreshReuseRegions).toBe(0);
+  });
+});

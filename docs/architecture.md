@@ -95,6 +95,11 @@ npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N   (
   → getStagingDatasetBaseYm()으로 대상 baseYm 조회
   → runResumableLocalBatchSync({baseYm, maxRegions})  [3)과 동일한 함수 — SUCCESS/EMPTY skip,
                                                           429 안전 중단, regionCode ascending 순서]
+      → TOUR_INFO만 추가로: fetchTourInfoLastFreshFetchByRegion()을 배치 시작 시 1회 조회
+        → region의 최근 SUCCESS/EMPTY가 TTL(60일) 이내면 API 호출 없이 SKIPPED
+          (이번 baseYm에 대한 DataSnapshot row 자체를 생성하지 않음 — 가짜 SUCCESS 없음, Phase 2-D)
+        → STALE/NEVER_FETCHED면 기존과 동일하게 실제 호출
+        → --force-tour-info 지정 시 이 재사용을 끄고 항상 실제 호출(--all-regions 필수)
   → ACTIVE dataset의 DataSnapshot/NormalizedMetric은 baseYm이 달라 전혀 영향받지 않는다
 
 npm run dataset:status
@@ -112,7 +117,9 @@ npm run dataset:activate -- --base-ym=<staging baseYm>
       → evaluateDatasetPromotion(baseYm)
           → dataset 존재? status===STAGING? ACTIVE 존재? target>ACTIVE? (BLOCKED면 여기서 종료,
             무거운 DNA 재계산 시작 안 함)
-          → checkDatasetCompleteness(baseYm)  [Phase 2-A 재사용, completeness+audit 동시 판정]
+          → checkDatasetCompleteness(baseYm)  [Phase 2-A 재사용, completeness+audit 동시 판정 —
+                                                 TOUR_INFO는 이번 baseYm SUCCESS/EMPTY 또는 TTL
+                                                 freshness 재사용이면 완전으로 인정, Phase 2-D]
           → computeDatasetDriftReport(activeBaseYm, baseYm)
               → fetchRegionComparisonProfiles(baseYm) x2  [ACTIVE·candidate 전국 255개 DNA 재계산 —
                                                               기존 유사지역 비교와 동일 함수 재사용]
@@ -153,6 +160,8 @@ src/lib/domain/          순수 함수, DB/Next 의존 없음, 유닛테스트 �
   datasetDriftGate.ts    axis drift 통계(percentile/Spearman/decile churn)·strength-weakness drift·
                           similarity/전략 drift 집계·PASS/REVIEW_REQUIRED/BLOCKED 판정(Phase 2-C,
                           2026-08-12, DB 접근 없는 순수 함수)
+  tourInfoFreshness.ts   classifyTourInfoFreshness — TOUR_INFO(POI) freshness를 FRESH/STALE/
+                          NEVER_FETCHED로 판정하는 순수 함수, TTL=60일(Phase 2-D, 2026-08-12)
 
 src/lib/services/        DB 조회·조립 (Prisma 사용)
   db.ts                  PrismaClient 싱글턴(driver adapter 사용, Prisma 7)
@@ -169,7 +178,12 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
                           재사용, 산식 재구현 없음)
   datasetPromotion.ts     evaluateDatasetPromotion/promoteDataset — completeness→drift gate 순으로
                           확인해 PASS일 때만 승격하는 단일 경로(Phase 2-C, 2026-08-12)
-  tourismDataQualityAudit.ts  전국 dataset 완전성 판정 순수 함수(audit CLI·activeDataset.ts 공용)
+  tourismDataQualityAudit.ts  전국 dataset 완전성 판정 순수 함수(audit CLI·activeDataset.ts 공용) —
+                          TOUR_INFO는 이번 baseYm SUCCESS/EMPTY 또는 TTL freshness 재사용이면 완전으로
+                          인정(Phase 2-D, 2026-08-12)
+  tourInfoFreshnessLookup.ts  fetchTourInfoLastFreshFetchByRegion — region별 가장 최근 TOUR_INFO
+                          SUCCESS/EMPTY의 DataSnapshot.fetchedAt 조회(Phase 2-D, 새 schema 없음,
+                          syncService.ts·activeDataset.ts·audit-tourism-data.ts 공용)
   planService.ts          ensureSelectedPlan
   promoContentAdapter.ts  Prisma ↔ PromoContent 변환 경계(Evidence 매핑, JSON 직렬화, Phase 5-B)
   promoContentService.ts  generatePromoContentForProject / getPromoContentForProject / savePromoContentForProject — rule 생성 후 LLM 오버레이 시도(Phase 5-B + LLM, 2026-08-10~11)

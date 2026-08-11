@@ -1,6 +1,11 @@
-# 구현 상태 (2026-08-12 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B/2-C·홍보 LLM 반영)
+# 구현 상태 (2026-08-12 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B/2-C/2-D·홍보 LLM 반영)
 
-> **2026-08-12 최신 요약**: completeness/audit(Phase 2-A)만 통과하면 바로 승격되던 것과 달리,
+> **2026-08-12 최신 요약(2)**: TOUR_INFO(POI 목록 API)는 baseYm에 종속되지 않는 정적 데이터인데도
+> 새 STAGING baseYm마다 전국 255개 지역을 무조건 재호출하던 낭비를 없앴다(Phase 2-D) — region의
+> 최근 TOUR_INFO가 TTL(60일) 이내면 API를 다시 호출하지 않고 기존 POI를 그대로 재사용한다. 상세는
+> 맨 아래 "## 2026-08-12 갱신 — Phase 2-D" 절 참고.
+>
+> **2026-08-12 최신 요약(1)**: completeness/audit(Phase 2-A)만 통과하면 바로 승격되던 것과 달리,
 > **STAGING dataset이 ACTIVE로 승격되려면 이제 DNA drift gate까지 통과해야 한다(Phase 2-C)** —
 > `npm run dataset:activate`가 내부적으로 completeness → audit → DNA drift → 판정 순으로 확인하고
 > PASS일 때만 실제로 승격한다. 상세는 맨 아래 "## 2026-08-12 갱신 — Phase 2-C" 절 참고.
@@ -1507,3 +1512,71 @@ ACTIVE가 되지 않고, completeness·품질 감사·DNA 변화 안정성까지
     ACTIVE가 바뀌지 않음을 확인, (d) 검증 후 임시 baseYm 관련 데이터를 전부 삭제하고 ACTIVE가
     `202606`으로 그대로 유지됨을 최종 확인했다. 이 스모크 테스트 스크립트는 검증 후 삭제했다(임시
     파일이라 커밋 대상 아님).
+
+## 2026-08-12 갱신 — Phase 2-D(TOUR_INFO Freshness TTL + POI Reuse)
+
+> 이 절도 로컬 PostgreSQL(`tour_dna_local`) 기준으로만 검증했다. GitHub `main`에는 push했지만
+> **Production Neon DB/Vercel 배포에는 반영·검증하지 않았다.**
+
+Phase 2-A/B/C까지는 "월별 통계 데이터"만 다뤘지만, TOUR_INFO(POI 목록 API)는 성격이 다르다 —
+baseYm에 종속되지 않는 정적 API인데도 기존 completeness 게이트가 "이번 baseYm에 새로 호출했는가"만
+봤기 때문에, 새 STAGING baseYm마다 전국 255개 지역의 POI를 무조건 재호출하고 있었다(POI 내용이 지난
+달과 똑같아도). 이번 라운드는 "월별 dataset freshness"와 "POI freshness"를 분리했다.
+
+1. **기존 lifecycle 실제 확인(추정 없이 코드로 검증)**: `fetchTourInfo`(`src/lib/public-data/
+   adapters/tourInfo.ts`)는 baseYm 파라미터 자체를 받지 않고, `areaBasedList2`(현재 시점 POI 목록
+   스냅샷 API, 시계열 통계가 아님)를 호출한다. `Poi` 모델(schema.prisma)에는 baseYm 필드가 없고,
+   freshness를 판단할 수 있는 값은 `createdAt`/`updatedAt`과 `DataSnapshot(TOUR_INFO).fetchedAt`뿐이다.
+   `syncTourInfoForRegion`은 Poi를 `(regionId, name)` 복합 unique key로 upsert만 하고 **삭제 로직이
+   없다**(폐업 POI가 API 응답에 더 이상 안 나와도 DB에 그대로 남는다). 그런데도 `runResumableLocalBatchSync`
+   의 스킵 판정은 TOUR_INFO를 다른 3개 통계 소스와 완전히 동일하게 `DataSnapshot(dataSourceId,
+   regionId, baseYm)`(baseYm별 unique key)로 처리해, 새 baseYm에서는 항상 재호출 대상이 됐다.
+2. **TTL=60일 채택**: `src/lib/domain/tourInfoFreshness.ts`의 `TOUR_INFO_FRESHNESS_TTL_DAYS`. 관광
+   POI(등록 시설 목록)는 월별 통계 지표보다 훨씬 느리게 바뀐다는 전제 하에, 30일은 매월 sync
+   주기와 거의 같아 절감 효과가 없고 90일 이상은 최대 3회 sync 주기 동안 폐업 정보가 반영되지
+   않을 위험이 있어, "최소 한 sync 주기는 재호출을 건너뛰면서도 두 달을 넘겨 뒤처지지 않는" 중간값
+   60일을 택했다 — 실제 폐업률 데이터가 쌓이면 재조정 대상이다(코드 주석에도 명시).
+3. **freshness 판정과 재사용 방식**: 새 테이블/컬럼을 추가하지 않고 기존 `DataSnapshot.fetchedAt`만
+   재사용한다(`src/lib/services/tourInfoFreshnessLookup.ts`의 `fetchTourInfoLastFreshFetchByRegion()`
+   — `dataSnapshot.groupBy`로 region별 가장 최근 SUCCESS/EMPTY의 fetchedAt을 한 번의 쿼리로 조회).
+   `classifyTourInfoFreshness()`가 이 값과 TTL을 비교해 FRESH/STALE/NEVER_FETCHED를 판정한다.
+   **가짜 SUCCESS/LIVE_API snapshot을 만들지 않는다** — FRESH로 재사용하는 지역은 이번 baseYm에
+   대한 `DataSnapshot` row 자체를 생성하지 않고 그냥 SKIPPED로만 기록한다(설계 후보 A안 채택,
+   `docs/implementation-plan.md` Part 3 근거).
+4. **provenance는 변경하지 않음**: `Poi` 모델에는 원래 provenance 컬럼이 없다(스키마 확인 결과) —
+   LIVE_API/CACHED_API/CURATED 구분은 `buildDnaEngineInput.ts`가 분석 시점에 `Poi.sourceType`
+   분포를 즉석 집계해서만 만드는 값이라 DB에 저장되지 않는다. TTL 재사용은 `Poi` 테이블 자체를
+   전혀 건드리지 않으므로(그냥 API를 안 부르고 SKIPPED만 기록) 이 계산 로직도 그대로다 — provenance
+   계약을 변경하지 않았다.
+5. **completeness/audit 변경**: `auditTourismDataQuality`(`tourismDataQualityAudit.ts`)에
+   `tourInfoFreshnessByRegion`/`now`를 선택적 파라미터로 추가했다 — 생략하면(기존 호출부 호환)
+   모든 지역이 NEVER_FETCHED로 취급돼 이전 동작(이번 baseYm SUCCESS/EMPTY만 인정)과 정확히
+   동일하다. 지정하면 지역별로 "이번 baseYm SUCCESS/EMPTY" 또는 "TTL 이내 재사용 가능"이면
+   완전한 것으로 인정한다 — **TOUR_INFO를 게이트에서 제외하지 않았다**: POI 데이터 자체가 없거나
+   stale이면 여전히 incomplete/미완료로 판정되어 Phase 2-C의 drift gate 앞단(completeness)에서
+   막힌다. `checkDatasetCompleteness`(`activeDataset.ts`)와 `scripts/audit-tourism-data.ts`
+   양쪽 다 이 freshness를 조회해 넘기도록 갱신했다(중복 조회 로직 없이 같은
+   `fetchTourInfoLastFreshFetchByRegion()`을 공유).
+6. **sync 통합 범위**: `runResumableLocalBatchSync`(Phase 2-B STAGING 증분 sync 경로)에만 TTL
+   재사용을 연결했다 — cron/admin이 쓰는 `runTourismDataSync`(단일/정기 sync)는 이번 범위에서
+   손대지 않았다(작업 지시 원문의 "최소 범위로 연결" 원칙, quota가 가장 민감한 경로부터 우선
+   적용). region별 freshness는 배치 시작 시 한 번만 조회해 두고 지역 루프에서는 조회만 한다.
+   운영 중 특정 지역 POI를 TTL과 무관하게 즉시 갱신해야 하면
+   `npm run sync:tourism-data -- --all-regions --max-regions=N --force-tour-info`를 쓴다
+   (`--all-regions` 없이는 쓸 수 없어 실수로 전국을 강제 재호출하는 기본값이 없다).
+7. **검증(실 로컬 DB 포함)**: 신규 단위 테스트 3개 파일(`tourInfoFreshness.test.ts` 6개,
+   `tourInfoFreshnessLookup.test.ts` 3개) + `tourismDataQualityAudit.test.ts`/`syncService.test.ts`/
+   `syncCliArgs.test.ts`/`activeDataset.test.ts` 확장 — 전체 **1357개 테스트 통과**, typecheck/
+   lint/build 통과. 실제 로컬 DB로 202606의 TOUR_INFO 최근 fetchedAt을 읽기 전용으로 감사해
+   현재 255개 지역 전부 FRESH임을 확인했다(임시 스크립트, 검증 후 삭제) — 즉 지금 202607 같은 새
+   STAGING이 생기면 TOUR_INFO 재호출이 0건이 될 것으로 예상된다는 근거다. `npm run
+   audit:tourism-data -- --base-ym=202606`도 실행해 `tourInfoFreshReuseRegions` 필드가 정상
+   출력됨을 확인했다(현재는 0 — 이번 baseYm 자체가 이미 SUCCESS라 재사용이 필요 없는 상태이므로
+   정상).
+8. **남은 위험/후속 과제**: (a) POI 폐업/삭제 반영 체계가 없다(upsert만, delete 없음) — TTL이
+   길어질수록(60일) 반영이 늦어질 수 있다. 이번 라운드에서 해결하지 않았고, "stale POI" 표시 같은
+   후속 Phase 후보로만 남긴다. (b) `SelectedPlan.course`는 `poiId` 참조만 저장하고 좌표/이름을
+   복제하지 않는다 — Poi가 delete 없이 upsert만 되는 구조라 참조 무결성 자체는 안전하지만, 과거
+   실행안을 다시 열면 그 사이 API 재조회로 바뀐(TTL 재사용이 아니라 실제 재수집이 일어난 경우)
+   최신 좌표/주소가 보인다는 재현성 이슈가 있다 — 이번 라운드에서 대규모 스키마 변경 없이 사실만
+   기록해 둔다.

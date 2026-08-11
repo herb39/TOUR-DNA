@@ -3,15 +3,15 @@ import { parseSyncCliArgs } from "@/lib/services/syncCliArgs";
 
 describe("parseSyncCliArgs — CLI 기준월 입력 검증(2026-08-08)", () => {
   it("--base-ym=202606 형식을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null });
+    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null, forceTourInfoRefresh: false });
   });
 
   it("--base-ym 202606 형식(공백 구분)을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null });
+    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null, forceTourInfoRefresh: false });
   });
 
   it("인자가 없으면 명시적 CLI 지정 없음으로 처리한다(환경변수/자동탐색으로 넘어감)", () => {
-    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null, allRegions: false, maxRegions: null, dataset: null });
+    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null, allRegions: false, maxRegions: null, dataset: null, forceTourInfoRefresh: false });
   });
 
   it("구 위치 인자 형식(202606)은 더 이상 지원하지 않고 거부한다", () => {
@@ -87,6 +87,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       allRegions: false,
       maxRegions: null,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -98,6 +99,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       allRegions: false,
       maxRegions: null,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
     expect(parseSyncCliArgs(["--region-code=SGG_JECHEON", "--base-ym=202606"])).toEqual({
       ok: true,
@@ -106,6 +108,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       allRegions: false,
       maxRegions: null,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -117,6 +120,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       allRegions: false,
       maxRegions: null,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -145,6 +149,7 @@ describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배�
       allRegions: true,
       maxRegions: 20,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -156,6 +161,7 @@ describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배�
       allRegions: true,
       maxRegions: 5,
       dataset: null,
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -212,6 +218,7 @@ describe("parseSyncCliArgs — --dataset=staging 옵션(Phase 2-B, 2026-08-11 �
       allRegions: true,
       maxRegions: 20,
       dataset: "staging",
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -223,6 +230,7 @@ describe("parseSyncCliArgs — --dataset=staging 옵션(Phase 2-B, 2026-08-11 �
       allRegions: false,
       maxRegions: null,
       dataset: "staging",
+      forceTourInfoRefresh: false,
     });
   });
 
@@ -244,5 +252,41 @@ describe("parseSyncCliArgs — --dataset=staging 옵션(Phase 2-B, 2026-08-11 �
   it("--dataset= 빈 값은 거부한다", () => {
     const result = parseSyncCliArgs(["--dataset="]);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("parseSyncCliArgs — --force-tour-info 옵션(Phase 2-D, 2026-08-12 도입)", () => {
+  it("--all-regions --max-regions=N --force-tour-info를 정상 파싱한다", () => {
+    expect(parseSyncCliArgs(["--all-regions", "--max-regions=20", "--force-tour-info"])).toEqual({
+      ok: true,
+      baseYm: null,
+      regionCode: null,
+      allRegions: true,
+      maxRegions: 20,
+      dataset: null,
+      forceTourInfoRefresh: true,
+    });
+  });
+
+  it("--all-regions 없이 --force-tour-info만 쓰면 거부한다(전국 강제 재호출 실수 방지)", () => {
+    const result = parseSyncCliArgs(["--force-tour-info"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--force-tour-info를 두 번 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--all-regions", "--max-regions=10", "--force-tour-info", "--force-tour-info"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--dataset=staging과 --force-tour-info를 함께 써도 정상 파싱한다", () => {
+    expect(parseSyncCliArgs(["--dataset=staging", "--all-regions", "--max-regions=10", "--force-tour-info"])).toEqual({
+      ok: true,
+      baseYm: null,
+      regionCode: null,
+      allRegions: true,
+      maxRegions: 10,
+      dataset: "staging",
+      forceTourInfoRefresh: true,
+    });
   });
 });

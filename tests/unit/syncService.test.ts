@@ -43,6 +43,7 @@ const {
   dataSnapshotUpsert,
   dataSnapshotFindUnique,
   dataSnapshotFindMany,
+  dataSnapshotGroupBy,
   normalizedMetricStore,
   normalizedMetricUpsert,
   normalizedMetricUpdateMany,
@@ -54,6 +55,7 @@ const {
   SIDO_REGION,
   regionFindMany,
   regionFindUnique,
+  dataSourceFindUnique,
 } = vi.hoisted(() => {
   // 실제 DataSnapshot 테이블의 upsert/조회 동작을 흉내 내는 최소 인메모리 fake.
   // Phase 1-B 보완(2026-07-23)의 "기존 SUCCESS/EMPTY 보존" 정책은 upsertSnapshot()이 쓰기 전에
@@ -106,6 +108,11 @@ const {
         return matches;
       },
     ),
+    // Phase 2-D(2026-08-12) TOUR_INFO freshness 조회(fetchTourInfoLastFreshFetchByRegion)가 쓰는
+    // groupBy — 기본값은 빈 배열(이력 없음 = NEVER_FETCHED)이라 기존 테스트들의 "TOUR_INFO가 항상
+    // 실제로 호출된다"는 기대가 그대로 유지된다. TTL 재사용을 검증하는 테스트만 개별적으로
+    // mockResolvedValueOnce로 값을 채운다.
+    dataSnapshotGroupBy: vi.fn().mockResolvedValue([]),
     normalizedMetricStore: metricStore,
     normalizedMetricUpsert: vi.fn(async ({ where, update, create }: { where: { regionId_baseYm_metricCode: { regionId: string; baseYm: string; metricCode: string } }; update: Record<string, unknown>; create: Record<string, unknown> }) => {
       const k = metricKeyOf(where.regionId_baseYm_metricCode);
@@ -134,6 +141,7 @@ const {
     syncLogCreate: vi.fn().mockResolvedValue(undefined),
     regionFindMany: vi.fn(),
     regionFindUnique: vi.fn(),
+    dataSourceFindUnique: vi.fn(),
     DATA_SOURCES: [
       { id: "src-tar-svc-dem", code: "TAR_SVC_DEM", baseUrl: "https://example.test/tar-svc-dem" },
       { id: "src-tou-div-ix", code: "TOU_DIV_IX", baseUrl: "https://example.test/tou-div-ix" },
@@ -182,6 +190,11 @@ regionFindUnique.mockImplementation(async (args?: { where?: { code?: string } })
   return null;
 });
 
+// fetchTourInfoLastFreshFetchByRegion()이 조회하는 dataSource.findUnique({where:{code:"TOUR_INFO"}}).
+dataSourceFindUnique.mockImplementation(async (args?: { where?: { code?: string } }) => {
+  return DATA_SOURCES.find((d) => d.code === args?.where?.code) ?? null;
+});
+
 // 실제 외부 API를 호출하지 않는다 — 5개 어댑터를 전부 mock으로 대체한다.
 vi.mock("@/lib/public-data/adapters/tarSvcDem", () => ({ fetchTarSvcDem: vi.fn() }));
 vi.mock("@/lib/public-data/adapters/touDivIx", () => ({ fetchTouDivIx: vi.fn() }));
@@ -202,11 +215,16 @@ vi.mock("@/lib/public-data/adapters/tourInfo", () => ({
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    dataSource: { findMany: vi.fn().mockResolvedValue(DATA_SOURCES) },
+    dataSource: { findMany: vi.fn().mockResolvedValue(DATA_SOURCES), findUnique: dataSourceFindUnique },
     region: { findMany: regionFindMany, findUnique: regionFindUnique },
     poi: { findMany: poiFindMany, upsert: poiUpsert },
     normalizedMetric: { upsert: normalizedMetricUpsert, updateMany: normalizedMetricUpdateMany },
-    dataSnapshot: { upsert: dataSnapshotUpsert, findUnique: dataSnapshotFindUnique, findMany: dataSnapshotFindMany },
+    dataSnapshot: {
+      upsert: dataSnapshotUpsert,
+      findUnique: dataSnapshotFindUnique,
+      findMany: dataSnapshotFindMany,
+      groupBy: dataSnapshotGroupBy,
+    },
     syncLog: { create: syncLogCreate },
   },
 }));
@@ -1489,5 +1507,150 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
       expect(result.requestCounts).toBeDefined();
       expect(typeof result.requestCounts.total).toBe("number");
     });
+  });
+});
+
+describe("runResumableLocalBatchSync — TOUR_INFO TTL 재사용(Phase 2-D, 2026-08-12)", () => {
+  const REGION_B = {
+    ...REGION,
+    id: "region-2",
+    code: "TEST_REGION_B",
+    name: "테스트지역B",
+    apiAreaCode: "31",
+    apiSigunguCode: "31200",
+    tourApiLdongRegnCd: "31",
+    tourApiLdongSignguCd: "31200",
+  };
+
+  function mockRegions(regions: typeof REGION[]) {
+    regionFindMany.mockImplementation(async (args?: { where?: { level?: string } }) => {
+      if (args?.where?.level === "SIDO") return [];
+      return regions;
+    });
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("최근 TOUR_INFO SUCCESS가 TTL(60일) 이내면 API를 호출하지 않고 SKIPPED로 처리한다(가짜 스냅샷 생성 없음)", async () => {
+    mockRegions([REGION]);
+    dataSnapshotGroupBy.mockResolvedValueOnce([
+      { regionId: REGION.id, _max: { fetchedAt: new Date(Date.now() - 10 * DAY_MS) } },
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202607", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).not.toHaveBeenCalled();
+    const tourInfoResult = result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION.code}`);
+    expect(tourInfoResult?.status).toBe("SKIPPED");
+    expect(tourInfoResult?.errorMessage).toContain("TTL 재사용");
+    // 이번 baseYm(202607)에 대한 DataSnapshot row 자체가 생성되지 않아야 한다 — 가짜 SUCCESS 금지.
+    expect(dataSnapshotStore.has(`src-tour-info|${REGION.id}|202607`)).toBe(false);
+    const logs = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logs).toContain("TOUR_INFO 건너뜀(TTL 이내 재사용 가능)");
+    logSpy.mockRestore();
+  });
+
+  it("최근 TOUR_INFO SUCCESS가 TTL을 초과(stale)하면 실제로 API를 호출한다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotGroupBy.mockResolvedValueOnce([
+      { regionId: REGION.id, _max: { fetchedAt: new Date(Date.now() - 90 * DAY_MS) } },
+    ]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트 명소", addr1: "테스트지역 어딘가", contenttypeid: "12", mapx: 127.0, mapy: 37.0 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202607", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+    const tourInfoResult = result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION.code}`);
+    expect(tourInfoResult?.status).toBe("SUCCESS");
+  });
+
+  it("TOUR_INFO 이력이 전혀 없으면(never fetched) 실제로 API를 호출한다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotGroupBy.mockResolvedValueOnce([]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트 명소", addr1: "테스트지역 어딘가", contenttypeid: "12", mapx: 127.0, mapy: 37.0 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    await runResumableLocalBatchSync({ baseYm: "202607", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("일부 지역만 fresh하면 fresh 지역은 skip, stale/미이력 지역만 실제로 호출한다", async () => {
+    mockRegions([REGION, REGION_B]);
+    dataSnapshotGroupBy.mockResolvedValueOnce([
+      { regionId: REGION.id, _max: { fetchedAt: new Date(Date.now() - 5 * DAY_MS) } },
+      // REGION_B는 groupBy 결과에 없음 — never fetched로 처리되어 실제 호출 대상이 된다.
+    ]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트 명소B", addr1: "테스트지역B 어딘가", contenttypeid: "12", mapx: 127.0, mapy: 37.0 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202607", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+    expect(result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION.code}`)?.status).toBe("SKIPPED");
+    expect(result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION_B.code}`)?.status).toBe("SUCCESS");
+  });
+
+  it("같은 baseYm에 이미 TOUR_INFO SUCCESS 스냅샷이 있으면(기존 스킵 로직) freshness 조회와 무관하게 건너뛴다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tour-info|${REGION.id}|202607`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 3,
+      rawPayload: {},
+    });
+    // groupBy는 stale로 설정해도(즉 이번 baseYm에 이미 있으면 freshness를 볼 필요조차 없음) 결과는 같다.
+    dataSnapshotGroupBy.mockResolvedValueOnce([
+      { regionId: REGION.id, _max: { fetchedAt: new Date(Date.now() - 200 * DAY_MS) } },
+    ]);
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202607", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTourInfo).not.toHaveBeenCalled();
+    expect(result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION.code}`)?.errorMessage).toContain("이미 완료");
+  });
+
+  it("--force-tour-info(forceTourInfoRefresh)를 켜면 fresh해도 재사용을 끄고 항상 실제로 호출한다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotGroupBy.mockResolvedValueOnce([
+      { regionId: REGION.id, _max: { fetchedAt: new Date(Date.now() - 5 * DAY_MS) } },
+    ]);
+    vi.mocked(fetchTourInfo).mockResolvedValue({
+      status: "SUCCESS",
+      items: [{ title: "테스트 명소", addr1: "테스트지역 어딘가", contenttypeid: "12", mapx: 127.0, mapy: 37.0 }],
+      resultCode: "0000",
+      resultMsg: "OK",
+      raw: { pages: [{ dummy: true }] },
+    });
+
+    const result = await runResumableLocalBatchSync({
+      baseYm: "202607",
+      triggeredBy: "CLI",
+      maxRegions: 10,
+      forceTourInfoRefresh: true,
+    });
+
+    // forceTourInfoRefresh가 true면 freshness 조회(groupBy) 자체를 호출하지 않는다.
+    expect(dataSnapshotGroupBy).not.toHaveBeenCalled();
+    expect(fetchTourInfo).toHaveBeenCalledTimes(1);
+    expect(result.results.find((r) => r.sourceCode === `TOUR_INFO:${REGION.code}`)?.status).toBe("SUCCESS");
   });
 });

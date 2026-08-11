@@ -10,6 +10,7 @@ import {
   type TourismDataQualityReport,
 } from "./tourismDataQualityAudit";
 import { checkDataSyncTarget, ALLOW_REMOTE_DATA_SYNC_ENV } from "./dataSyncTargetGuard";
+import { fetchTourInfoLastFreshFetchByRegion } from "./tourInfoFreshnessLookup";
 
 /**
  * Phase 2-A(2026-08-11): "DB에 있는 가장 최신 baseYm"과 "서비스 분석이 실제로 쓰는 baseYm"을
@@ -54,7 +55,14 @@ async function fetchAuditInputs(baseYm: string) {
   const poiRows = await prisma.poi.findMany({ select: { regionId: true, category: true, sourceType: true } });
   const pois: PoiForAudit[] = poiRows as PoiForAudit[];
 
-  return { regions, snapshots, metrics, pois };
+  // Phase 2-D(2026-08-12): TOUR_INFO는 baseYm 무관 정적 API라, 완전성 판정에 이번 baseYm 스냅샷뿐
+  // 아니라 region별 최근 TTL freshness도 함께 넘긴다.
+  const tourInfoFreshnessMap = await fetchTourInfoLastFreshFetchByRegion();
+  const tourInfoFreshnessByRegion: Record<string, Date | null> = Object.fromEntries(
+    regions.map((r) => [r.id, tourInfoFreshnessMap.get(r.id) ?? null]),
+  );
+
+  return { regions, snapshots, metrics, pois, tourInfoFreshnessByRegion, now: new Date() };
 }
 
 export interface DatasetCompletenessResult {
@@ -74,8 +82,8 @@ export interface DatasetCompletenessResult {
  * 필요해지면 별도 검토). DNA drift 검사는 아직 하지 않는다 — Phase 2-C에서 이 결과에 이어붙인다.
  */
 export async function checkDatasetCompleteness(baseYm: string): Promise<DatasetCompletenessResult> {
-  const { regions, snapshots, metrics, pois } = await fetchAuditInputs(baseYm);
-  const report = auditTourismDataQuality({ baseYm, regions, snapshots, metrics, pois });
+  const { regions, snapshots, metrics, pois, tourInfoFreshnessByRegion, now } = await fetchAuditInputs(baseYm);
+  const report = auditTourismDataQuality({ baseYm, regions, snapshots, metrics, pois, tourInfoFreshnessByRegion, now });
   const complete =
     report.verdict !== "FAIL" && report.snapshot.incompleteRegions === 0 && report.snapshot.errorRegions === 0;
   return { baseYm, complete, report };

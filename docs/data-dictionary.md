@@ -9,7 +9,12 @@ DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다.
 > TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/TOUR_INFO 전부 SUCCESS 또는 EMPTY, ERROR 0,
 > `npm run audit:tourism-data` 최종 판정 PASS). 유사지역 비교 모집단도 대상 지역 제외 최대 254곳까지
 > 가능하다. DNA 코호트는 여전히 min-max 기반이지만, Demand/Spend 두 축은 log1p 압축이 추가됐다
-> (`docs/scoring-model.md` 참고). Production 배포 상태는 별도 확인이 필요하다.
+> (`docs/scoring-model.md` 참고). **2026-08-12 추가**: TOUR_INFO(POI 목록, 아래 표)는 baseYm에
+> 종속되지 않는 정적 API라는 점이 확인돼, 새 STAGING baseYm에서 region의 최근 TOUR_INFO가
+> TTL(60일) 이내면 재호출하지 않고 기존 POI를 재사용한다(Phase 2-D — `classifyTourInfoFreshness`,
+> `docs/implementation-status.md`의 "2026-08-12 갱신 — Phase 2-D" 절 참고). completeness 판정은
+> 이 재사용도 인정하지만 TOUR_INFO를 게이트에서 빼지는 않는다. Production 배포 상태는 별도 확인이
+> 필요하다.
 
 ## 입력 코드값
 
@@ -229,7 +234,7 @@ API로 완전 검증됨"처럼 근거의 완전성까지 보장하는 표현은 
 | TOU_DIV_IX | 한국관광공사_지역별 관광 다양성 | 실 키 확인(2026-07-21) — 3개 오퍼레이션 전부, 연령대별 코드(6종×2) + 국적 다양성 코드까지 확인 |
 | TOU_RES_DEM | 한국관광공사_지역별 관광 자원 수요 | 실 키 확인(2026-07-21) — `AreaTarResDemService`. `/areaTarSvcDemList`(관광서비스수요) 확인, `/areaCulResDemList`(문화자원수요)는 파라미터명만 확인 |
 | VISITOR_CNT | 한국관광공사_빅데이터 지역별 방문자수(DataLabService) | 실 API 구조 확인(2026-07-28) — `/locgoRegnVisitrDDList`(시군구)·`/metcoRegnVisitrDDList`(광역), 지역 필터 없이 전국 조회 후 매핑 |
-| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인(2026-07-21) — `areaBasedList2`로 POI 라이브 동기화 파이프라인 연결 완료(syncService.ts) |
+| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인(2026-07-21) — `areaBasedList2`로 POI 라이브 동기화 파이프라인 연결 완료(syncService.ts). baseYm 비종속 정적 API — 2026-08-12부터 region별 최근 SUCCESS/EMPTY가 TTL(60일) 이내면 재호출하지 않고 재사용(Phase 2-D) |
 | POI_RELATION | 기초지자체 중심 관광지 및 연관 관광지 | 정식 서비스명/URL 미확인 |
 
 ## POI 카테고리 (PoiCategory)

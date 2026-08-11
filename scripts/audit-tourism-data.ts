@@ -19,6 +19,7 @@ import {
   type MetricForAudit,
   type PoiForAudit,
 } from "../src/lib/services/tourismDataQualityAudit";
+import { fetchTourInfoLastFreshFetchByRegion } from "../src/lib/services/tourInfoFreshnessLookup";
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -74,7 +75,22 @@ async function main() {
   const poiRows = await prisma.poi.findMany({ select: { regionId: true, category: true, sourceType: true } });
   const pois: PoiForAudit[] = poiRows as PoiForAudit[];
 
-  const report = auditTourismDataQuality({ baseYm, regions, snapshots, metrics, pois });
+  // Phase 2-D(2026-08-12): TOUR_INFO는 baseYm 무관 정적 API라, region별 TTL freshness도 함께 넘긴다
+  // (activeDataset.ts의 checkDatasetCompleteness와 동일한 판정 기준을 이 수동 감사 도구도 따른다).
+  const tourInfoFreshnessMap = await fetchTourInfoLastFreshFetchByRegion();
+  const tourInfoFreshnessByRegion: Record<string, Date | null> = Object.fromEntries(
+    regions.map((r) => [r.id, tourInfoFreshnessMap.get(r.id) ?? null]),
+  );
+
+  const report = auditTourismDataQuality({
+    baseYm,
+    regions,
+    snapshots,
+    metrics,
+    pois,
+    tourInfoFreshnessByRegion,
+    now: new Date(),
+  });
 
   console.log(`[전국 관광 데이터 검증]`);
   console.log(`baseYm: ${report.baseYm}\n`);
@@ -128,6 +144,7 @@ async function main() {
 
   console.log(`\nPOI`);
   console.log(`- TOUR_INFO 완료 지역: ${report.poi.tourInfoCompleteRegions}`);
+  console.log(`  (그중 이번 baseYm 미호출·TTL 재사용으로 완료: ${report.poi.tourInfoFreshReuseRegions})`);
   console.log(`- TOUR_INFO 미수집 지역: ${report.poi.uncollectedRegions}`);
   console.log(`- POI 0건(TOUR_INFO는 SUCCESS) 지역: ${report.poi.zeroPoiRegions}`);
   if (report.poi.maxPoiRegion) {

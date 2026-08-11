@@ -162,3 +162,12 @@ migration 적용 후:
 Production에는 적용하지 않았고, 위 "Production 최초 ACTIVE 설정 시 알아야 할 것" 캡션에서 설명한
 대로 **Production의 최초(첫) ACTIVE 설정에는 이 새 gate가 그대로 적용되지 않는다**(비교할 기존
 ACTIVE가 없기 때문) — 완전 자동(사람 개입 없는) 승격 스케줄링도 아직 없다.
+
+**Phase 2-D(TOUR_INFO Freshness TTL + POI Reuse)도 로컬에서 구현·검증 완료했다**(2026-08-12) — 새
+환경변수는 필요 없다(TTL=60일은 `src/lib/domain/tourInfoFreshness.ts`의 코드 상수, 새 schema/컬럼도
+없음). 위 6번(`npm run sync:tourism-data -- --dataset=staging ...`)을 Production에서 실행할 때부터
+자동으로 적용된다 — region의 최근 TOUR_INFO SUCCESS/EMPTY가 TTL 이내면 그 지역은 API를 호출하지
+않는다. **주의**: Production Neon에는 아직 TOUR_INFO를 포함한 전국 데이터 자체가 이 세션에서
+동기화된 적이 없으므로, Production에 처음 적용할 때는 모든 지역이 NEVER_FETCHED로 시작해 이
+재사용 효과가 즉시 나타나지 않는다(첫 회차는 그대로 전량 호출됨 — 두 번째 STAGING baseYm부터
+절감 효과가 생긴다). 이 절차도 아직 Production에는 적용하지 않았다.

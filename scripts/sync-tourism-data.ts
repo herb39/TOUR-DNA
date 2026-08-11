@@ -82,8 +82,16 @@ async function main() {
 
   if (cliResult.allRegions) {
     console.log(`[sync-cli] 전국 재개형 배치 모드 — 최대 ${cliResult.maxRegions}개 지역까지 처리`);
+    if (cliResult.forceTourInfoRefresh) {
+      console.log(`[sync-cli] --force-tour-info 지정 — TOUR_INFO TTL 재사용을 끄고 항상 실제로 호출합니다`);
+    }
     console.log(`[sync-cli] baseYm=${baseYm} 배치 동기화 시작`);
-    const result = await runResumableLocalBatchSync({ baseYm, triggeredBy: "CLI", maxRegions: cliResult.maxRegions });
+    const result = await runResumableLocalBatchSync({
+      baseYm,
+      triggeredBy: "CLI",
+      maxRegions: cliResult.maxRegions,
+      forceTourInfoRefresh: cliResult.forceTourInfoRefresh,
+    });
     console.log(JSON.stringify(result, null, 2));
     if (result.failed > 0 && result.completed === 0 && result.skipped === 0) {
       process.exitCode = 1;

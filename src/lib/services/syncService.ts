@@ -8,6 +8,8 @@ import { withRequestCounter, type RequestCountSnapshot } from "@/lib/public-data
 import { enforceCombinedDateCompleteness } from "@/lib/services/visitorMonthCompleteness";
 import { checkDataSyncTarget, ALLOW_REMOTE_DATA_SYNC_ENV } from "@/lib/services/dataSyncTargetGuard";
 import { METRIC_CODES, type DataProvenance } from "@/lib/domain/types";
+import { classifyTourInfoFreshness } from "@/lib/domain/tourInfoFreshness";
+import { fetchTourInfoLastFreshFetchByRegion } from "@/lib/services/tourInfoFreshnessLookup";
 import type { RegionLevel } from "@/generated/prisma/enums";
 
 export type SyncTrigger = "CRON" | "ADMIN" | "CLI";
@@ -900,6 +902,12 @@ interface RunResumableLocalBatchSyncParams {
   /** 이번 실행에서 실제 API 호출을 시도할 최대 지역 수. 기본값을 추정하지 않으므로 호출부(CLI)가
    * 항상 명시적으로 넘겨야 한다. */
   maxRegions: number;
+  /** Phase 2-D(2026-08-12): TOUR_INFO는 기본적으로 TTL(60일) 이내 재사용 가능한 최신 POI가 있으면
+   * API를 다시 호출하지 않는다(아래 TOUR_INFO_FRESHNESS 처리 참고). true로 지정하면 이 재사용을
+   * 끄고 TTL과 무관하게 항상 실제로 호출을 시도한다 — 운영 중 특정 지역 POI 데이터에 문제가 발견돼
+   * TTL을 기다리지 않고 즉시 갱신해야 할 때만 명시적으로 켠다(기본값 false, 실수로 전국 강제
+   * 재호출이 되지 않도록 별도 플래그로 분리). */
+  forceTourInfoRefresh?: boolean;
 }
 
 /**
@@ -910,7 +918,7 @@ interface RunResumableLocalBatchSyncParams {
 async function runResumableLocalBatchSyncImpl(
   params: RunResumableLocalBatchSyncParams,
 ): Promise<Omit<LocalBatchSyncResult, "requestCounts">> {
-  const { baseYm, triggeredBy, maxRegions } = params;
+  const { baseYm, triggeredBy, maxRegions, forceTourInfoRefresh = false } = params;
   const startedAt = new Date();
   const serviceKey = process.env.TOUR_API_SERVICE_KEY;
   const dataMode = process.env.DATA_MODE ?? "hybrid";
@@ -968,6 +976,16 @@ async function runResumableLocalBatchSyncImpl(
   // 판단하므로(아래 루프), 지역당 단위 수는 언제나 activeSourceCodes.length다). 남은 항목(remaining)을
   // 어디서 멈추든 정확히 계산하기 위해 미리 총합을 구해 둔다(하드코딩 없음).
   const totalUnits = regions.length * activeSourceCodes.length;
+
+  // Phase 2-D(2026-08-12): TOUR_INFO는 baseYm에 종속되지 않는 정적 API라, region별로 TTL(60일) 이내
+  // 재사용 가능한 최신 POI가 있으면 이번 baseYm에 대해 전혀 호출하지 않는다(quota 절감). 한 번의
+  // 쿼리로 전 지역 freshness를 미리 조회해 두고 아래 지역 루프에서 참조만 한다. `forceTourInfoRefresh`
+  // 가 true면 이 재사용 자체를 끈다(맵을 비워 두면 전부 NEVER_FETCHED로 취급돼 항상 실제 호출된다).
+  const tourInfoFreshnessByRegion =
+    activeSourceCodes.includes("TOUR_INFO") && !forceTourInfoRefresh
+      ? await fetchTourInfoLastFreshFetchByRegion()
+      : new Map<string, Date>();
+  const tourInfoFreshnessNow = new Date();
 
   const visitorSource = sourceByCode.get("VISITOR_CNT");
   if (visitorSource) {
@@ -1037,6 +1055,28 @@ async function runResumableLocalBatchSyncImpl(
         });
         skipped++;
         continue;
+      }
+
+      // Phase 2-D(2026-08-12): TOUR_INFO는 이번 baseYm에 대한 스냅샷이 없어도(위 체크는 baseYm별
+      // 스냅샷만 본다), region의 최근 TOUR_INFO가 TTL(60일) 이내라면 재사용하고 API를 호출하지
+      // 않는다 — 가짜 SUCCESS DataSnapshot을 만들지 않고, 이번 baseYm에 대한 스냅샷 row 자체를
+      // 생성하지 않는다(completeness는 tourInfoFreshnessByRegion으로 별도 판정).
+      if (sourceCode === "TOUR_INFO") {
+        const freshness = classifyTourInfoFreshness(
+          { lastSuccessOrEmptyFetchedAt: tourInfoFreshnessByRegion.get(region.id) ?? null },
+          tourInfoFreshnessNow,
+        );
+        if (freshness === "FRESH") {
+          console.log(`[${idx + 1}/${totalRegions}] ${region.name} - TOUR_INFO 건너뜀(TTL 이내 재사용 가능)`);
+          results.push({
+            sourceCode: `${sourceCode}:${region.code}`,
+            status: "SKIPPED",
+            itemCount: 0,
+            errorMessage: "TOUR_INFO TTL 재사용 — 기존 POI가 아직 최신이라 재호출하지 않음",
+          });
+          skipped++;
+          continue;
+        }
       }
 
       let sourceResult: SyncSourceResult;

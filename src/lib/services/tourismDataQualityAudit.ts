@@ -1,3 +1,5 @@
+import { classifyTourInfoFreshness } from "@/lib/domain/tourInfoFreshness";
+
 /**
  * 전국 관광 데이터 품질 검증(2026-08-10 도입) — baseYm 기준으로 DataSnapshot/NormalizedMetric/Poi가
  * DNA 분석에 쓸 수 있는 상태인지 읽기 전용으로 점검하는 순수 함수다. DB/API 접근은 호출부
@@ -7,6 +9,10 @@
  * "EMPTY 때문에 NormalizedMetric이 없는 것"은 정상이다(syncService.ts의 upsertMetric은 SUCCESS이고
  * 실제 값이 있을 때만 호출되고, EMPTY/ERROR에서는 호출되지 않는다) — 이 함수는 그 구분을 그대로
  * 반영해, 대응하는 DataSnapshot이 EMPTY인 metric 결측은 문제로 잡지 않는다.
+ *
+ * TOUR_INFO 완전성 판정(2026-08-12, Phase 2-D): TOUR_INFO는 baseYm에 종속되지 않는 정적 API라
+ * "이번 baseYm에 성공했는가"뿐 아니라 "재사용 가능한 최신 POI 데이터가 있는가"(TTL freshness)도
+ * 완전성으로 인정한다 — `classifyTourInfoFreshness` 참고.
  */
 
 export type SnapshotStatusLike = "SUCCESS" | "EMPTY" | "ERROR";
@@ -79,6 +85,16 @@ export interface AuditTourismDataQualityParams {
   metrics: MetricForAudit[];
   /** 전체 Poi(카테고리·출처만 있으면 됨). */
   pois: PoiForAudit[];
+  /** Phase 2-D(2026-08-12): region별 TOUR_INFO가 SUCCESS/EMPTY였던 가장 최근 시점(baseYm 무관,
+   * `fetchTourInfoLastFreshFetchByRegion()` 결과). TOUR_INFO는 baseYm에 종속되지 않는 정적 API라
+   * "이번 baseYm에 새로 호출했는가"가 아니라 "재사용 가능한 최신 POI 데이터가 있는가"로 완전성을
+   * 판정한다. 생략하면(기존 호출부 호환) 모든 지역이 NEVER_FETCHED로 취급돼 이 필드가 없던 이전
+   * 동작(이번 baseYm의 TOUR_INFO SUCCESS/EMPTY만 인정)과 정확히 동일하게 동작한다. */
+  tourInfoFreshnessByRegion?: Record<string, Date | null>;
+  /** freshness 판정 기준 시각. `tourInfoFreshnessByRegion`을 생략하면 이 값은 결과에 영향을 주지
+   * 않는다(모든 지역이 NEVER_FETCHED이므로). 생략 시 함수 자체의 순수성을 지키기 위해 임의로
+   * `new Date()`를 넣지 않는다 — 호출부가 freshness를 실제로 쓰려면 반드시 명시해야 한다. */
+  now?: Date;
 }
 
 export interface SourceStatusCount {
@@ -159,6 +175,9 @@ export interface TourismDataQualityReport {
   distribution: DistributionReport[];
   poi: {
     tourInfoCompleteRegions: number;
+    /** 이번 baseYm에 새로 SUCCESS/EMPTY하지 않았지만 TTL 이내 재사용으로 완료 처리된 지역 수(Phase
+     * 2-D, 2026-08-12) — tourInfoCompleteRegions의 부분집합. */
+    tourInfoFreshReuseRegions: number;
     zeroPoiRegions: number;
     uncollectedRegions: number;
     maxPoiRegion: { code: string; name: string; count: number } | null;
@@ -187,6 +206,20 @@ export function auditTourismDataQuality(params: AuditTourismDataQualityParams): 
   const regions = params.regions.filter((r) => r.level === "SIGUNGU");
   const regionById = new Map(regions.map((r) => [r.id, r]));
   const warnings: string[] = [];
+
+  // TOUR_INFO freshness(Phase 2-D) — 두 곳(완전성 집계, POI 절)에서 같은 판정을 반복 계산하지 않도록
+  // region별로 한 번만 계산해 둔다. now를 생략한 호출부는 tourInfoFreshnessByRegion도 비워 두는 게
+  // 정상이라(둘 다 optional, 함께 생략) 항상 NEVER_FETCHED가 되어 이전 동작과 동일하게 유지된다.
+  const tourInfoFreshnessNow = params.now ?? new Date(0);
+  const tourInfoFreshnessById = new Map(
+    regions.map((r) => [
+      r.id,
+      classifyTourInfoFreshness(
+        { lastSuccessOrEmptyFetchedAt: params.tourInfoFreshnessByRegion?.[r.id] ?? null },
+        tourInfoFreshnessNow,
+      ),
+    ]),
+  );
 
   // --- 1) Region 범위 ---
   const codeCounts = new Map<string, number>();
@@ -237,9 +270,16 @@ export function auditTourismDataQuality(params: AuditTourismDataQualityParams): 
   let fullyCompleteRegions = 0;
   let incompleteRegions = 0;
   let errorRegions = 0;
+  const STAT_SOURCE_CODES_ONLY = RESUMABLE_SOURCE_CODES.filter((c) => c !== "TOUR_INFO");
   for (const r of regions) {
     const statuses = statusByRegionSource.get(r.id) ?? {};
-    const allDone = RESUMABLE_SOURCE_CODES.every((c) => statuses[c] === "SUCCESS" || statuses[c] === "EMPTY");
+    const statSourcesDone = STAT_SOURCE_CODES_ONLY.every((c) => statuses[c] === "SUCCESS" || statuses[c] === "EMPTY");
+    // TOUR_INFO는 이번 baseYm에 SUCCESS/EMPTY였거나(실제로 재호출됨), 재사용 가능한 최신 POI가
+    // 있으면(TTL freshness) 완전한 것으로 본다 — "이번 baseYm에 새로 호출했는가"가 아니라 "지금 쓸 수
+    // 있는 POI 데이터가 있는가"가 기준이다(Phase 2-D).
+    const tourInfoDone =
+      statuses.TOUR_INFO === "SUCCESS" || statuses.TOUR_INFO === "EMPTY" || tourInfoFreshnessById.get(r.id) === "FRESH";
+    const allDone = statSourcesDone && tourInfoDone;
     if (allDone) fullyCompleteRegions++;
     else incompleteRegions++;
     if (RESUMABLE_SOURCE_CODES.some((c) => statuses[c] === "ERROR")) errorRegions++;
@@ -330,6 +370,7 @@ export function auditTourismDataQuality(params: AuditTourismDataQualityParams): 
   const poiCountByRegion = new Map<string, number>();
   for (const p of pois) poiCountByRegion.set(p.regionId, (poiCountByRegion.get(p.regionId) ?? 0) + 1);
   let tourInfoCompleteRegions = 0;
+  let tourInfoFreshReuseRegions = 0;
   let zeroPoiRegions = 0;
   let uncollectedRegions = 0;
   let maxPoiRegion: { code: string; name: string; count: number } | null = null;
@@ -342,6 +383,10 @@ export function auditTourismDataQuality(params: AuditTourismDataQualityParams): 
     if (tourInfoStatus === "SUCCESS" || tourInfoStatus === "EMPTY") {
       tourInfoCompleteRegions++;
       if (tourInfoStatus === "SUCCESS" && count === 0) zeroPoiRegions++;
+    } else if (tourInfoFreshnessById.get(r.id) === "FRESH") {
+      // 이번 baseYm에는 호출하지 않았지만(TTL 재사용), 기존 POI 데이터가 여전히 유효하다(Phase 2-D).
+      tourInfoCompleteRegions++;
+      tourInfoFreshReuseRegions++;
     } else {
       uncollectedRegions++;
     }
@@ -428,7 +473,14 @@ export function auditTourismDataQuality(params: AuditTourismDataQualityParams): 
     metric: { byMetricCode, baseYmMismatchCount, duplicateCount },
     dna: { axisCohorts, networkEligibleRegions, analyzableRegions, excludedRegions, exclusionReasons },
     distribution,
-    poi: { tourInfoCompleteRegions, zeroPoiRegions, uncollectedRegions, maxPoiRegion, suspiciouslyHighRegions },
+    poi: {
+      tourInfoCompleteRegions,
+      tourInfoFreshReuseRegions,
+      zeroPoiRegions,
+      uncollectedRegions,
+      maxPoiRegion,
+      suspiciouslyHighRegions,
+    },
     highlights,
     warnings,
     verdict,
