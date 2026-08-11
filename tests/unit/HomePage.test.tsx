@@ -19,6 +19,11 @@ vi.mock("@/lib/services/projectQueries", () => ({
   getDemoProject: () => getDemoProject(),
 }));
 
+const getActiveDatasetBaseYm = vi.fn(async () => "202606");
+vi.mock("@/lib/services/activeDataset", () => ({
+  getActiveDatasetBaseYm: () => getActiveDatasetBaseYm(),
+}));
+
 import HomePage, { ProjectListSection } from "@/app/page";
 import { ProjectPageSizeSelect } from "@/components/project/ProjectPageSizeSelect";
 

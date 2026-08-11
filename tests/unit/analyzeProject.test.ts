@@ -39,6 +39,11 @@ vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
   fetchRegionComparisonProfiles: (...args: unknown[]) => fetchRegionComparisonProfiles(...args),
 }));
 
+const getActiveDatasetBaseYm = vi.fn();
+vi.mock("@/lib/services/activeDataset", () => ({
+  getActiveDatasetBaseYm: (...args: unknown[]) => getActiveDatasetBaseYm(...args),
+}));
+
 import { computeProjectAnalysis, persistProjectAnalysis, type AnalysisComputeInput } from "@/lib/services/analyzeProject";
 
 function minimalComputeInput(overrides: Partial<AnalysisComputeInput> = {}): AnalysisComputeInput {
@@ -66,6 +71,8 @@ beforeEach(() => {
   buildDnaEngineInput.mockReset();
   fetchPoisByCategory.mockReset();
   fetchRegionComparisonProfiles.mockReset();
+  getActiveDatasetBaseYm.mockReset();
+  getActiveDatasetBaseYm.mockResolvedValue("202606");
   buildDnaEngineInput.mockResolvedValue({
     regionCode: "SGG_TESTCITY",
     baseYm: "202606",
@@ -75,6 +82,22 @@ beforeEach(() => {
   });
   fetchPoisByCategory.mockResolvedValue({});
   fetchRegionComparisonProfiles.mockResolvedValue([]);
+});
+
+describe("computeProjectAnalysis — Phase 2-A: ACTIVE dataset baseYm만 사용한다", () => {
+  it("ACTIVE dataset의 baseYm을 buildDnaEngineInput/fetchRegionComparisonProfiles에 그대로 전달한다", async () => {
+    getActiveDatasetBaseYm.mockResolvedValue("202609");
+    await computeProjectAnalysis(minimalComputeInput());
+    expect(buildDnaEngineInput).toHaveBeenCalledWith("SGG_TESTCITY", "202609");
+    expect(fetchRegionComparisonProfiles).toHaveBeenCalledWith("202609");
+  });
+
+  it("ACTIVE dataset이 없으면(null) DB의 다른 최신 baseYm을 조용히 대신 쓰지 않고 명확한 에러를 던진다", async () => {
+    getActiveDatasetBaseYm.mockResolvedValue(null);
+    await expect(computeProjectAnalysis(minimalComputeInput())).rejects.toThrow(/ACTIVE/);
+    // 에러가 나기 전에 다른 baseYm으로 조회를 시도하지 않았어야 한다(폴백 없음의 증거).
+    expect(buildDnaEngineInput).not.toHaveBeenCalled();
+  });
 });
 
 describe("computeProjectAnalysis — DB에 아무것도 쓰지 않는다", () => {

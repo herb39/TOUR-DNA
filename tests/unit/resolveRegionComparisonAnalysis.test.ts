@@ -13,10 +13,17 @@ vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
   fetchRegionComparisonProfiles: (...args: unknown[]) => fetchRegionComparisonProfiles(...args),
 }));
 
+const getActiveDatasetBaseYm = vi.fn();
+vi.mock("@/lib/services/activeDataset", () => ({
+  getActiveDatasetBaseYm: (...args: unknown[]) => getActiveDatasetBaseYm(...args),
+}));
+
 import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 
 beforeEach(() => {
   fetchRegionComparisonProfiles.mockReset();
+  getActiveDatasetBaseYm.mockReset();
+  getActiveDatasetBaseYm.mockResolvedValue("202606");
 });
 
 describe("resolveRegionComparisonAnalysis — 스냅샷 우선 사용", () => {
@@ -63,8 +70,9 @@ describe("resolveRegionComparisonAnalysis — 스냅샷 우선 사용", () => {
     expect(analysis.note).not.toBeNull();
   });
 
-  it("analysisOwnBaseYm이 없으면 DEFAULT_BASE_YM으로 실시간 재계산한다", async () => {
+  it("analysisOwnBaseYm이 없으면 ACTIVE dataset의 baseYm으로 실시간 재계산한다(Phase 2-A)", async () => {
     fetchRegionComparisonProfiles.mockResolvedValue([]);
+    getActiveDatasetBaseYm.mockResolvedValue("202609");
 
     await resolveRegionComparisonAnalysis({
       regionCode: "SGG_TESTCITY",
@@ -73,9 +81,22 @@ describe("resolveRegionComparisonAnalysis — 스냅샷 우선 사용", () => {
       analysisOwnBaseYm: null,
     });
 
-    expect(fetchRegionComparisonProfiles).toHaveBeenCalledTimes(1);
-    const calledBaseYm = fetchRegionComparisonProfiles.mock.calls[0][0];
-    expect(typeof calledBaseYm).toBe("string");
-    expect(calledBaseYm.length).toBeGreaterThan(0);
+    expect(fetchRegionComparisonProfiles).toHaveBeenCalledWith("202609");
+  });
+
+  it("analysisOwnBaseYm도 없고 ACTIVE dataset도 없으면 다른 baseYm을 조용히 대신 쓰지 않고 빈 결과+안내문구를 반환한다", async () => {
+    getActiveDatasetBaseYm.mockResolvedValue(null);
+
+    const { analysis, usingLiveFallback } = await resolveRegionComparisonAnalysis({
+      regionCode: "SGG_TESTCITY",
+      regionName: "테스트시",
+      snapshot: undefined,
+      analysisOwnBaseYm: null,
+    });
+
+    expect(usingLiveFallback).toBe(true);
+    expect(fetchRegionComparisonProfiles).not.toHaveBeenCalled();
+    expect(analysis.comparisons).toEqual([]);
+    expect(analysis.note).toMatch(/ACTIVE/);
   });
 });

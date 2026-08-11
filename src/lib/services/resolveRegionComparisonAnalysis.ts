@@ -4,7 +4,7 @@ import {
   type RegionComparisonAnalysis,
 } from "@/lib/domain/regionSimilarity";
 import { fetchRegionComparisonProfiles } from "./fetchRegionComparisonProfiles";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { getActiveDatasetBaseYm } from "./activeDataset";
 
 export interface ResolveRegionComparisonAnalysisInput {
   regionCode: string;
@@ -35,24 +35,39 @@ export async function resolveRegionComparisonAnalysis(
     };
   }
 
-  const regionComparisonBaseYm = input.analysisOwnBaseYm ?? DEFAULT_BASE_YM;
+  function emptyAnalysis(comparisonBaseYm: string, note: string): RegionComparisonAnalysis {
+    return {
+      targetRegionName: input.regionName,
+      comparisonBaseYm,
+      mixedBaseYm: false,
+      baseYmNote: null,
+      comparisons: [],
+      uniqueStrengthNote: null,
+      note,
+      commonLimitationNote: null,
+      candidatePoolSize: 0,
+      isSmallCandidatePool: true,
+      ruleVersion: REGION_SIMILARITY_RULE_VERSION,
+    };
+  }
+
+  // Phase 2-A(2026-08-11): 레거시 분석(스냅샷 없음)을 다시 계산할 때도 "지금 DB에 있는 아무 baseYm"이
+  // 아니라 ACTIVE dataset만 쓴다. 분석 당시 기준월(analysisOwnBaseYm)이 있으면 그 값을 그대로 우선
+  // 신뢰하고(이미 그때 저장된 값이므로), 없을 때만 ACTIVE로 대체한다 — ACTIVE조차 없으면 조용히 다른
+  // 값을 쓰지 않고 빈 결과 + 안내 문구로 안전하게 실패한다(페이지 렌더 자체는 깨지지 않게 한다).
+  const regionComparisonBaseYm = input.analysisOwnBaseYm ?? (await getActiveDatasetBaseYm());
+  if (!regionComparisonBaseYm) {
+    return {
+      analysis: emptyAnalysis("", "검증된 ACTIVE 데이터셋이 없어 유사지역 비교를 다시 계산할 수 없습니다."),
+      usingLiveFallback: true,
+    };
+  }
+
   const regionProfiles = await fetchRegionComparisonProfiles(regionComparisonBaseYm);
   const targetRegionProfile = regionProfiles.find((p) => p.code === input.regionCode);
   const analysis: RegionComparisonAnalysis = targetRegionProfile
     ? computeRegionSimilarityComparisons(targetRegionProfile, regionProfiles)
-    : {
-        targetRegionName: input.regionName,
-        comparisonBaseYm: regionComparisonBaseYm,
-        mixedBaseYm: false,
-        baseYmNote: null,
-        comparisons: [],
-        uniqueStrengthNote: null,
-        note: "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.",
-        commonLimitationNote: null,
-        candidatePoolSize: 0,
-        isSmallCandidatePool: true,
-        ruleVersion: REGION_SIMILARITY_RULE_VERSION,
-      };
+    : emptyAnalysis(regionComparisonBaseYm, "이 지역의 비교 데이터를 찾지 못해 유사지역 비교를 생성하지 못했습니다.");
 
   return { analysis, usingLiveFallback: true };
 }

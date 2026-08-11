@@ -16,7 +16,7 @@ import {
 import { buildAnalysisContext } from "@/lib/domain/audienceContext";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import type { DnaResult, EvidenceItem } from "@/lib/domain/types";
-import { DEFAULT_BASE_YM } from "@/lib/fixtures/metrics";
+import { getActiveDatasetBaseYm } from "./activeDataset";
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 import { fetchRegionComparisonProfiles } from "./fetchRegionComparisonProfiles";
@@ -87,7 +87,17 @@ export interface ComputedProjectAnalysis {
  * 이 함수를 공유해, "같은 조건이면 같은 분석 로직"을 보장한다.
  */
 export async function computeProjectAnalysis(input: AnalysisComputeInput): Promise<ComputedProjectAnalysis> {
-  const baseYm = process.env.TOUR_DATA_BASE_YM ?? DEFAULT_BASE_YM;
+  // Phase 2-A(2026-08-11): "DB에 있는 가장 최신 baseYm"이 아니라 명시적으로 검증·승격된 ACTIVE
+  // dataset만 분석에 쓴다 — 예전에는 process.env.TOUR_DATA_BASE_YM ?? DEFAULT_BASE_YM(정적값)을
+  // 그대로 썼는데, 이 값을 사람이 갱신하지 않는 한 새 데이터가 얼마나 들어와도 반영되지 않았고,
+  // 반대로 검증되지 않은 값을 넣어도 막을 방법이 없었다. ACTIVE가 없으면 "최신 partial dataset을
+  // 조용히 대신 쓰는" 폴백 없이 여기서 명확하게 실패한다(호출부가 사용자에게 그대로 보여준다).
+  const baseYm = await getActiveDatasetBaseYm();
+  if (!baseYm) {
+    throw new Error(
+      "검증된 ACTIVE 데이터셋이 없어 분석을 진행할 수 없습니다. 관리자가 데이터셋을 활성화해야 합니다.",
+    );
+  }
   const dnaInput = await buildDnaEngineInput(input.regionCode, baseYm);
   const dna = computeDna(dnaInput);
   const dataVersion = computeDataVersion(dnaInput);

@@ -30,6 +30,12 @@ vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
   fetchRegionComparisonProfiles: vi.fn().mockResolvedValue([]),
 }));
 
+// Phase 2-A(2026-08-11)에서 resolveRegionComparisonAnalysis.ts가 getActiveDatasetBaseYm(@/lib/db 로드)을
+// import하게 됐다 — 같은 이유로 모킹한다(이 테스트는 실제 DB 연결이 필요 없어야 한다).
+vi.mock("@/lib/services/activeDataset", () => ({
+  getActiveDatasetBaseYm: vi.fn().mockResolvedValue("202606"),
+}));
+
 import PrintPage from "@/app/projects/[id]/print/page";
 import { buildPromoContent } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { ProjectPageSizeSelect } from "@/components/project/ProjectPageSizeSelect";
 import { getLatestDataFreshness, getDemoProject, listProjectSummaries } from "@/lib/services/projectQueries";
+import { getActiveDatasetBaseYm } from "@/lib/services/activeDataset";
 import { labelForRole } from "@/lib/validation/codes";
 import { PROJECT_STATUS_LABEL, formatBaseYm, formatDateTime } from "@/lib/format";
 import {
@@ -196,8 +197,17 @@ export default async function HomePage({
 
   let freshness: Awaited<ReturnType<typeof getLatestDataFreshness>> = { baseYm: null, lastSyncedAt: null };
   let demoProject: Awaited<ReturnType<typeof getDemoProject>> = null;
+  // Phase 2-A(2026-08-11): "데이터 기준월"은 DB의 가장 최신 DataSnapshot이 아니라 실제 분석에 쓰이는
+  // ACTIVE dataset을 보여준다 — 둘이 다를 수 있다는 점(202607이 STAGING으로 일부 들어와 있어도 분석은
+  // 여전히 202606 ACTIVE를 쓰는 상황)이 바로 이 화면의 오해 소지였다. lastSyncedAt은 "동기화 자체가
+  // 언제 마지막으로 있었는지"라는 별개 정보라 그대로 둔다.
+  let activeBaseYm: string | null = null;
   try {
-    [freshness, demoProject] = await Promise.all([getLatestDataFreshness(), getDemoProject()]);
+    [freshness, demoProject, activeBaseYm] = await Promise.all([
+      getLatestDataFreshness(),
+      getDemoProject(),
+      getActiveDatasetBaseYm(),
+    ]);
   } catch {
     // 데이터 기준월/데모 프로젝트 조회 실패는 치명적이지 않으므로 조용히 기본값을 사용한다.
   }
@@ -236,7 +246,7 @@ export default async function HomePage({
               </Link>
             ) : null}
             <p className="text-xs text-slate-500">
-              데이터 기준월 {formatBaseYm(freshness.baseYm)} · 마지막 동기화{" "}
+              데이터 기준월 {activeBaseYm ? formatBaseYm(activeBaseYm) : "미설정"} · 마지막 동기화{" "}
               {formatDateTime(freshness.lastSyncedAt)}
             </p>
           </div>

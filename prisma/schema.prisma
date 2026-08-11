@@ -158,6 +158,31 @@ model DataSource {
   updatedAt DateTime @updatedAt
 }
 
+enum DatasetStatus {
+  STAGING
+  ACTIVE
+  ARCHIVED
+}
+
+/// Phase 2-A(2026-08-11): "DB에 있는 가장 최신 baseYm"과 "서비스 분석이 실제로 쓰는 baseYm"을
+/// 분리하기 위한 최소 레지스트리. DataSnapshot/NormalizedMetric은 그대로 두고(대규모 재설계 없음),
+/// 이 테이블 하나로 baseYm별 승격 상태만 추적한다. 동시에 ACTIVE는 최대 1개만 존재해야 하며, 이
+/// 불변조건은 DB 제약이 아니라 activateDataset()이 트랜잭션 안에서 기존 ACTIVE를 ARCHIVED로 내린
+/// 뒤에만 새 ACTIVE를 만드는 방식으로 보장한다(부분 유니크 인덱스 같은 별도 장치를 새로 두지 않음).
+model Dataset {
+  id     String        @id @default(cuid())
+  baseYm String        @unique
+  status DatasetStatus @default(STAGING)
+
+  /// ACTIVE로 승격된 시각 — STAGING/ARCHIVED면 null.
+  activatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
 /// 공공데이터 API 원본 응답(raw)을 그대로 보관하는 스냅샷. 정규화 이전 레이어.
 model DataSnapshot {
   id           String         @id @default(cuid())

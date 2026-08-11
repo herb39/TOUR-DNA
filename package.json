@@ -27,7 +27,9 @@
     "verify:region": "tsx --env-file=.env.local scripts/verify-region-codes.ts",
     "verify:visitor-api": "tsx --env-file-if-exists=.env.local scripts/verify-visitor-api.ts",
     "audit:region-codes": "tsx --env-file=.env.local scripts/audit-region-codes.ts",
-    "audit:tourism-data": "tsx --env-file=.env.local scripts/audit-tourism-data.ts"
+    "audit:tourism-data": "tsx --env-file=.env.local scripts/audit-tourism-data.ts",
+    "dataset:activate": "tsx --env-file=.env.local scripts/activate-dataset.ts",
+    "dataset:status": "tsx --env-file=.env.local scripts/dataset-status.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
