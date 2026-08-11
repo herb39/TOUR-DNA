@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeDna } from "@/lib/domain/dna";
+import { minMaxNormalize } from "@/lib/domain/normalize";
 import { METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
 
 const BASE_YM = "202509";
@@ -359,5 +360,87 @@ describe("computeDna", () => {
     const r1 = computeDna(input);
     const r2 = computeDna(input);
     expect(r1).toEqual(r2);
+  });
+
+  describe("2026-08-11: 수요·소비 축 log1p+min-max 전환(전국 감사 결과 극단값 민감도 완화)", () => {
+    it("Demand의 tarSvcDemIxVal/touResDemIxVal 근거는 log1p 변환이 적용됐음을 appliedRule에 명시한다", () => {
+      const result = computeDna(baseInput());
+      const serviceEvidence = result.demand.evidence.find((e) => e.metricCode === METRIC_CODES.DEMAND_SERVICE);
+      const resourceEvidence = result.demand.evidence.find((e) => e.metricCode === METRIC_CODES.DEMAND_RESOURCE);
+      expect(serviceEvidence?.appliedRule).toContain("log1p");
+      expect(resourceEvidence?.appliedRule).toContain("log1p");
+    });
+
+    it("Spend(tarExpDsIxVal) 근거도 log1p 변환이 적용됐음을 appliedRule에 명시한다", () => {
+      const result = computeDna(baseInput());
+      const spendEvidence = result.spend.evidence.find((e) => e.metricCode === METRIC_CODES.SPEND);
+      expect(spendEvidence?.appliedRule).toContain("log1p");
+    });
+
+    it("Stay/Diversity 근거는 그대로 선형 min-max를 쓴다(appliedRule에 log1p가 없음) — 회귀 없음", () => {
+      const result = computeDna(baseInput());
+      const stayEvidence = result.stay.evidence.find((e) => e.metricCode === METRIC_CODES.STAY);
+      const diversityEvidence = result.diversity.evidence.find((e) => e.metricCode === METRIC_CODES.DIVERSITY);
+      expect(stayEvidence?.appliedRule).not.toContain("log1p");
+      expect(diversityEvidence?.appliedRule).not.toContain("log1p");
+    });
+
+    it("Network 축 점수는 log1p 전환과 무관하게 그대로다(회귀 없음)", () => {
+      const before = computeDna(baseInput());
+      // Spend 코호트에 극단값을 섞어도 Network 산식(POI 개수 기반)에는 영향이 없어야 한다.
+      const withExtremeSpend = baseInput();
+      withExtremeSpend.metricCohorts[METRIC_CODES.SPEND] = [
+        ...withExtremeSpend.metricCohorts[METRIC_CODES.SPEND]!,
+        metric("EXTREME", 5000, METRIC_CODES.SPEND),
+      ];
+      const after = computeDna(withExtremeSpend);
+      expect(after.network.score).toBe(before.network.score);
+    });
+
+    it("극단값이 섞인 코호트에서 Spend는 기존 선형 min-max보다 중하위 지역을 더 잘 구분한다", () => {
+      // 실제 전국 데이터 규모(60~200대)를 흉내낸 코호트 — YANGYANG(65)은 최솟값(60)이 아닌 중하위권이다.
+      const input = baseInput({ regionCode: "YANGYANG" });
+      input.metricCohorts[METRIC_CODES.SPEND] = [
+        metric("DAEJEON", 60, METRIC_CODES.SPEND),
+        metric("JECHEON", 62, METRIC_CODES.SPEND),
+        metric("YANGYANG", 65, METRIC_CODES.SPEND),
+        metric("EXTREME", 201, METRIC_CODES.SPEND),
+      ];
+      const result = computeDna(input);
+      const linearYangyang = minMaxNormalize(65, [60, 62, 65, 201]);
+      // 선형 min-max라면 (65-60)/(201-60)*100 ≈ 3.5점으로 뭉개진다. log1p+min-max는 약 6.6점으로
+      // 유의미하게(1.5배 이상) 더 넓게 펼쳐 보여줘야 한다 — Spend 축은 metric이 1개뿐이라 평균 없이
+      // 바로 점수가 되므로 정확히 비교 가능하다.
+      expect(result.spend.score as number).toBeGreaterThan(linearYangyang * 1.5);
+    });
+
+    it("방문자수 증감률이 음수여도(방문객 감소) NaN 없이 정상적인 0~100 범위 값을 낸다", () => {
+      const input = baseInput({
+        previousVisitorCount: {
+          value: 2000,
+          baseYm: "202508",
+          sourceCode: "VISITOR_CNT",
+          collectedAt: "2026-06-01T00:00:00.000Z",
+          provenance: "LIVE_API",
+          isSnapshotFallback: false,
+        },
+        currentVisitorCount: {
+          value: 1000,
+          baseYm: "202509",
+          sourceCode: "VISITOR_CNT",
+          collectedAt: "2026-07-01T00:00:00.000Z",
+          provenance: "LIVE_API",
+          isSnapshotFallback: false,
+        },
+      });
+      const result = computeDna(input);
+      const growthEvidence = result.demand.evidence.find((e) => e.metricCode === METRIC_CODES.DEMAND_VISITOR_GROWTH);
+      expect(growthEvidence?.rawValue).toBeLessThan(0); // 실제로 감소했음을 확인
+      expect(Number.isFinite(growthEvidence?.normalizedValue)).toBe(true);
+      expect(growthEvidence?.normalizedValue).toBeGreaterThanOrEqual(0);
+      expect(growthEvidence?.normalizedValue).toBeLessThanOrEqual(100);
+      expect(growthEvidence?.appliedRule).not.toContain("log1p");
+      expect(Number.isFinite(result.demand.score)).toBe(true);
+    });
   });
 });

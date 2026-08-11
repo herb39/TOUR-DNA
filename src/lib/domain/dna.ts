@@ -1,4 +1,4 @@
-import { clamp, minMaxNormalize, roundForDisplay } from "./normalize";
+import { clamp, normalizeByTransform, roundForDisplay, type NormalizationTransform } from "./normalize";
 import {
   AXIS_LABEL_KO,
   type AxisStatus,
@@ -11,6 +11,26 @@ import {
   type RegionMetricValue,
 } from "./types";
 
+/**
+ * 2026-08-11: 전국 감사 결과 극단값 민감도가 확인된 우편향 규모형 metric만 log1p+min-max를 쓴다
+ * (normalize.ts의 normalizeByTransform 참고). 방문자수 증감률(METRIC_CODES.DEMAND_VISITOR_GROWTH)은
+ * lookupMetric을 아예 거치지 않고 별도의 clamp(50+증감률) 공식을 쓰므로 이 맵과 무관하다 — 부호가
+ * 있는 값에 log1p를 적용하는 실수를 구조적으로 막는다. Stay/Diversity는 그대로 LINEAR_MIN_MAX다.
+ */
+const LOG1P_METRIC_CODES = new Set<string>([
+  METRIC_CODES.DEMAND_SERVICE,
+  METRIC_CODES.DEMAND_RESOURCE,
+  METRIC_CODES.SPEND,
+]);
+
+function transformForMetric(metricCode: string): NormalizationTransform {
+  return LOG1P_METRIC_CODES.has(metricCode) ? "LOG1P_MIN_MAX" : "LINEAR_MIN_MAX";
+}
+
+function normalizationRuleLabel(transform: NormalizationTransform): string {
+  return transform === "LOG1P_MIN_MAX" ? "log1p 변환 후 SIGUNGU 코호트 내 min-max" : "SIGUNGU 코호트 내 min-max";
+}
+
 interface MetricLookupResult {
   entry: RegionMetricValue;
   normalizedValue: number;
@@ -20,12 +40,14 @@ function lookupMetric(
   cohort: RegionMetricValue[] | undefined,
   regionCode: string,
   baseYm: string,
+  metricCode: string,
 ): MetricLookupResult | null {
   if (!cohort || cohort.length === 0) return null;
   const entry = cohort.find((c) => c.regionCode === regionCode && c.baseYm === baseYm);
   if (!entry) return null;
   const cohortValues = cohort.filter((c) => c.baseYm === baseYm).map((c) => c.rawValue);
-  return { entry, normalizedValue: minMaxNormalize(entry.rawValue, cohortValues) };
+  const normalizedValue = normalizeByTransform(transformForMetric(metricCode), entry.rawValue, cohortValues);
+  return { entry, normalizedValue };
 }
 
 function toEvidence(
@@ -64,7 +86,7 @@ function buildAxis(evidence: EvidenceItem[], entries: RegionMetricValue[]): DnaA
 }
 
 function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
-  const rule = (code: string) => `SIGUNGU 코호트 내 min-max, baseYm=${input.baseYm}, metric=${code}`;
+  const rule = (code: string) => `${normalizationRuleLabel(transformForMetric(code))}, baseYm=${input.baseYm}, metric=${code}`;
   const evidence: EvidenceItem[] = [];
   const entries: RegionMetricValue[] = [];
 
@@ -72,6 +94,7 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
     input.metricCohorts[METRIC_CODES.DEMAND_SERVICE],
     input.regionCode,
     input.baseYm,
+    METRIC_CODES.DEMAND_SERVICE,
   );
   if (service) {
     evidence.push(toEvidence("demand", service, rule(METRIC_CODES.DEMAND_SERVICE)));
@@ -82,6 +105,7 @@ function computeDemandAxis(input: DnaEngineInput): DnaAxisResult {
     input.metricCohorts[METRIC_CODES.DEMAND_RESOURCE],
     input.regionCode,
     input.baseYm,
+    METRIC_CODES.DEMAND_RESOURCE,
   );
   if (resource) {
     evidence.push(toEvidence("demand", resource, rule(METRIC_CODES.DEMAND_RESOURCE)));
@@ -186,13 +210,13 @@ function computeSimpleAxis(
   metricCode: string,
   input: DnaEngineInput,
 ): DnaAxisResult {
-  const result = lookupMetric(input.metricCohorts[metricCode], input.regionCode, input.baseYm);
+  const result = lookupMetric(input.metricCohorts[metricCode], input.regionCode, input.baseYm, metricCode);
   if (!result) return { score: null, status: "MISSING", evidence: [] };
   const evidence = [
     toEvidence(
       axis,
       result,
-      `SIGUNGU 코호트 내 min-max, baseYm=${input.baseYm}, metric=${metricCode}`,
+      `${normalizationRuleLabel(transformForMetric(metricCode))}, baseYm=${input.baseYm}, metric=${metricCode}`,
     ),
   ];
   return buildAxis(evidence, [result.entry]);
