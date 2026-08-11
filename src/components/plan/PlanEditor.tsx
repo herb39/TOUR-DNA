@@ -71,6 +71,29 @@ const FIT_GRADE_LABEL: Record<PoiFitResult["grade"], string> = {
   LOW: "적합도 낮음",
 };
 
+/**
+ * 적합도 배지 표시(2026-08-11, 라벨 정확성 감사) — poiFit.ts의 grade/threshold는 그대로 두고, 화면
+ * 문구만 실제 의미에 맞게 세분화한다. category(CORE/SUPPLEMENT)는 확실히 일치하는데 선호 테마
+ * 키워드만 장소명에서 확인되지 않아 grade가 LOW로 떨어진 경우("확인된 부적합"이 아니라 "이름만으로는
+ * 근거 불확실")까지 "적합도 낮음"이라고 부르면, FOOD/LODGING처럼 등급과 무관하게 항상 코스에 포함되는
+ * 필수 슬롯에도 이 문구가 그대로 붙어 마치 그 장소 선택 자체가 나쁜 것처럼 오해하게 만든다
+ * (recommendationStatus는 이 경우 BELOW_MINIMUM_FIT이 아니라 정상적으로 포함될 수도 있는
+ * INSUFFICIENT_EVALUATION_DATA/REQUIRED_SLOT과 섞여 관찰됨). 카테고리 자체가 전략과 무관한
+ * FALLBACK 티어인 경우는 실제로 낮은 게 맞으므로 "적합도 낮음"을 그대로 유지한다.
+ */
+function resolveFitBadge(fit: PoiFitResult): { label: string; className: string } {
+  if (fit.grade !== "LOW") {
+    return { label: FIT_GRADE_LABEL[fit.grade], className: FIT_GRADE_BADGE_CLASS[fit.grade] };
+  }
+  const { categoryFit, themeFit } = fit.breakdown;
+  const themeUnconfirmedOnly = themeFit.evaluated && !themeFit.matched && categoryFit.tier !== "FALLBACK";
+  if (themeUnconfirmedOnly) {
+    const tierLabel = categoryFit.tier === "CORE" ? "핵심 카테고리 일치" : "보완 카테고리 일치";
+    return { label: `${tierLabel} · 테마 근거 약함`, className: FIT_GRADE_BADGE_CLASS.MEDIUM };
+  }
+  return { label: FIT_GRADE_LABEL.LOW, className: FIT_GRADE_BADGE_CLASS.LOW };
+}
+
 export function PlanEditor({
   plan,
   poiFits,
@@ -479,9 +502,9 @@ export function PlanEditor({
                             <details className="mt-1">
                               <summary className="cursor-pointer text-xs">
                                 <span
-                                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${FIT_GRADE_BADGE_CLASS[fit.grade]}`}
+                                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
                                 >
-                                  {FIT_GRADE_LABEL[fit.grade]}
+                                  {resolveFitBadge(fit).label}
                                 </span>
                                 <span className="ml-1 text-slate-400">추천 근거 보기</span>
                               </summary>

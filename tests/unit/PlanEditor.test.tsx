@@ -11,6 +11,7 @@ vi.mock("@/app/projects/[id]/plan/actions", () => ({
 
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { savePlanAction, searchAvailablePoisAction } from "@/app/projects/[id]/plan/actions";
+import type { PoiFitResult } from "@/lib/domain/poiFit";
 
 function makePlan(): PlanEditorData {
   return {
@@ -601,5 +602,70 @@ describe("PlanEditor — 저장 후 카카오 실제 경로 결과가 새로고�
     await screen.findByText("모든 변경사항이 저장되었습니다.");
 
     expect(currentDays()[0].items[1].travel).toBe("이동 약 41분(약 13.6km, 차량 기준)");
+  });
+});
+
+/**
+ * 2026-08-11 감사: "적합도 낮음" 배지는 원래 grade==="LOW"에만 그대로 매핑됐다. 그런데 grade가 LOW로
+ * 떨어지는 이유 중 하나는 "카테고리(CORE)는 확실히 일치하지만 선호 테마 키워드만 장소명에서 확인되지
+ * 않은 경우"인데, 이 경우는 "확인된 부적합"이 아니라 "이름만으로는 근거가 약함"이라는 뜻이다(poiFit.ts의
+ * recommendationStatus가 BELOW_MINIMUM_FIT이 아니라 INSUFFICIENT_EVALUATION_DATA/REQUIRED_SLOT일
+ * 수도 있음). FOOD/LODGING처럼 등급과 무관하게 항상 코스에 남는 필수 슬롯에도 "낮음"이 그대로 붙어
+ * 실제보다 부정적으로 보이는 문제가 있었다 — poiFit.ts의 점수/threshold는 건드리지 않고 화면 라벨만
+ * 세분화했다.
+ */
+describe("PlanEditor 적합도 배지 라벨(2026-08-11 감사)", () => {
+  function makeFit(overrides: {
+    tier?: PoiFitResult["breakdown"]["categoryFit"]["tier"];
+    themeEvaluated?: boolean;
+    themeMatched?: boolean;
+  } = {}): PoiFitResult {
+    const tier = overrides.tier ?? "CORE";
+    const themeEvaluated = overrides.themeEvaluated ?? true;
+    const themeMatched = overrides.themeMatched ?? false;
+    return {
+      totalScore: 53,
+      grade: "LOW",
+      recommendationStatus: tier === "FALLBACK" || (themeEvaluated && !themeMatched) ? "BELOW_MINIMUM_FIT" : "INSUFFICIENT_EVALUATION_DATA",
+      breakdown: {
+        categoryFit: { score: tier === "CORE" ? 30 : tier === "SUPPLEMENT" ? 15 : 6, tier },
+        themeFit: { score: 0, evaluated: themeEvaluated, matched: themeMatched },
+        seasonFit: { score: 20, isIdealMonth: true },
+      },
+      positiveReasons: ["전략 핵심 카테고리(음식)와 일치합니다."],
+      cautions: themeEvaluated && !themeMatched ? ["선호 테마와 일치하는 키워드를 장소명에서 확인하지 못했습니다."] : [],
+      dataSource: {
+        provenance: "LIVE_API",
+        sourceLabel: "실제 공공데이터 동기화 결과",
+        operatingHoursConfirmed: false,
+        operatingHoursText: null,
+        closedDaysText: null,
+      },
+    };
+  }
+
+  it("카테고리는 핵심(CORE)과 일치하지만 선호 테마 키워드만 불일치해 LOW인 경우, '적합도 낮음' 대신 근거를 정확히 전달하는 라벨을 보여준다", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeFit({ tier: "CORE", themeEvaluated: true, themeMatched: false }) }} />);
+
+    expect(screen.getByText("핵심 카테고리 일치 · 테마 근거 약함")).toBeInTheDocument();
+    expect(screen.queryByText("적합도 낮음")).not.toBeInTheDocument();
+  });
+
+  it("보완 카테고리(SUPPLEMENT)와 일치하지만 선호 테마 키워드만 불일치해 LOW인 경우도 같은 방식으로 세분화한다", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeFit({ tier: "SUPPLEMENT", themeEvaluated: true, themeMatched: false }) }} />);
+
+    expect(screen.getByText("보완 카테고리 일치 · 테마 근거 약함")).toBeInTheDocument();
+  });
+
+  it("카테고리 자체가 전략과 무관한 FALLBACK 티어라 실제로 근거 있게 부적합한 경우에는 '적합도 낮음'을 그대로 표시한다", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeFit({ tier: "FALLBACK", themeEvaluated: true, themeMatched: false }) }} />);
+
+    expect(screen.getByText("적합도 낮음")).toBeInTheDocument();
+  });
+
+  it("선호 테마 자체를 입력하지 않아 테마 판단 근거가 없는 경우(themeEvaluated=false)에는 '적합도 낮음'을 그대로 표시한다", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeFit({ tier: "CORE", themeEvaluated: false, themeMatched: false }) }} />);
+
+    expect(screen.getByText("적합도 낮음")).toBeInTheDocument();
   });
 });
