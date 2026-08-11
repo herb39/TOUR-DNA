@@ -154,6 +154,44 @@ describe("callPromoLlmTool", () => {
     expect(result).toEqual({ ok: false, reason: "timeout", detail: expect.any(String) });
   });
 
+  it(
+    "응답 헤더는 빨리 오지만 본문을 읽는 도중(res.json()) timeoutMs가 지나면 timeout으로 분류한다 " +
+      "(2026-08-11 — clearTimeout을 fetch() resolve 직후 호출하면 본문 읽기 단계가 timeout 보호를 " +
+      "받지 못하는 실제 버그가 있었다: 무료 오픈모델이 헤더는 빨리 보내고 본문을 훨씬 늦게 스트리밍하는 " +
+      "경우, 20초 timeout 설정과 무관하게 42~79초가 걸려도 abort되지 않았다)",
+    async () => {
+      vi.useFakeTimers();
+      try {
+        let capturedSignal: AbortSignal | undefined;
+        vi.spyOn(globalThis, "fetch").mockImplementation((_url, opts) => {
+          capturedSignal = (opts as RequestInit).signal as AbortSignal;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            // 헤더는 즉시 도착했다고 가정하지만(fetch()는 바로 resolve), 본문(json())은 signal이
+            // abort되기 전까지 절대 resolve되지 않는다 — 느린 body 스트리밍을 재현한다.
+            json: () =>
+              new Promise((_resolve, reject) => {
+                capturedSignal?.addEventListener("abort", () => {
+                  const err = new Error("aborted");
+                  err.name = "AbortError";
+                  reject(err);
+                });
+              }),
+            text: async () => "",
+          } as unknown as Response);
+        });
+
+        const promise = callPromoLlmTool({ ...baseOptions, timeoutMs: 5000 });
+        await vi.advanceTimersByTimeAsync(5000);
+        const result = await promise;
+        expect(result).toEqual({ ok: false, reason: "timeout", detail: expect.any(String) });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("fetch가 일반 네트워크 오류를 던지면 request_failed로 분류한다", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
     const result = await callPromoLlmTool(baseOptions);

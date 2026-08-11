@@ -86,6 +86,15 @@ function logLlmUsage(usage: PromoLlmUsage): void {
   console.log(JSON.stringify({ level: "info", scope: "promo-llm:usage", ...usage }));
 }
 
+/** QA/운영 확인용 — 응답 헤더 수신까지 걸린 시간과 본문을 읽는 데 걸린 시간을 구분해 남긴다
+ * (2026-08-11). 무료 오픈모델은 헤더가 먼저 오고 본문(실제 생성 결과)이 그보다 훨씬 늦게 오는 경우가
+ * 있어, 이 둘을 합친 전체 시간만으로는 "timeout이 왜 안 걸렸는지"를 진단할 수 없었다. */
+function logLlmTiming(fetchMs: number, bodyReadMs: number): void {
+  console.log(
+    JSON.stringify({ level: "info", scope: "promo-llm:timing", fetchMs: Math.round(fetchMs), bodyReadMs: Math.round(bodyReadMs), totalMs: Math.round(fetchMs + bodyReadMs) }),
+  );
+}
+
 /** OpenRouter Chat Completions API를 `response_format: { type: "json_schema", strict: true }`로
  * 강제해 호출한다. 실패 원인을 구체적으로 분류해 반환하되, API key·응답 원문 등 민감하거나 장황한
  * 내용은 로그에만 남기고 호출부/사용자에게는 분류값만 전달한다. */
@@ -98,7 +107,16 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchStart = performance.now();
 
+  // 주의(2026-08-11): 이전에는 `await fetch(...)` 직후(= 응답 헤더 수신 시점)에 곧바로
+  // clearTimeout을 호출했다. `fetch()`의 Promise는 헤더가 도착하면 resolve되고 본문은 그 뒤
+  // `res.json()`/`res.text()`로 별도로 읽으므로, 그 시점에 타이머를 지우면 본문을 읽는 동안은
+  // timeout 보호가 전혀 없어진다 — 무료 오픈모델이 헤더는 빨리 보내고 본문(실제 생성 결과)을
+  // 그보다 훨씬 늦게 스트리밍하는 경우, 실제 소요시간이 `timeoutMs`를 몇 배 넘겨도 abort되지 않는
+  // 실제 버그였다(2026-08-11 실 호출에서 42~79초가 걸리는 것을 발견해 확인). 이제 `clearTimeout`은
+  // 함수를 벗어나는 모든 경로(finally)에서 한 번만 호출해, 같은 AbortController가 헤더 수신부터
+  // 본문 파싱까지 전체 구간을 보호하게 한다.
   try {
     const res = await fetch(OPENROUTER_API_URL, {
       method: "POST",
@@ -124,7 +142,7 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
         },
       }),
     });
-    clearTimeout(timer);
+    const fetchResolved = performance.now();
 
     if (res.status === 429) {
       logLlmError("call", `HTTP 429`);
@@ -151,10 +169,14 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
     let body: unknown;
     try {
       body = await res.json();
-    } catch {
+    } catch (e) {
+      // AbortError는 본문을 읽는 도중 timeout이 발생했다는 뜻이다 — "본문이 JSON이 아니다"와는
+      // 다른 사유이므로 여기서 삼키지 않고 바깥 catch(timeout 분류)로 넘긴다.
+      if (e instanceof Error && e.name === "AbortError") throw e;
       logLlmError("call", "non-JSON response body");
       return { ok: false, reason: "invalid_response", detail: "non-JSON response body" };
     }
+    logLlmTiming(fetchResolved - fetchStart, performance.now() - fetchResolved);
 
     const content = extractMessageContent(body);
     if (content === null) {
@@ -175,7 +197,6 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
 
     return { ok: true, input: parsedInput, usage };
   } catch (e) {
-    clearTimeout(timer);
     if (e instanceof Error && e.name === "AbortError") {
       logLlmError("call", `timeout after ${timeoutMs}ms`);
       return { ok: false, reason: "timeout", detail: "timeout" };
@@ -183,6 +204,8 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
     const message = e instanceof Error ? e.message : "unknown fetch error";
     logLlmError("call", message);
     return { ok: false, reason: "request_failed", detail: message };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
