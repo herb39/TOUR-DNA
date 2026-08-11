@@ -553,7 +553,7 @@ npm run build
 | 6 | source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync(Phase 2-B) | **완료(로컬)** — `npm run dataset:discover`, `sync:tourism-data -- --dataset=staging`, `dataset:status` 진행률 표시 |
 | 7 | completeness/audit + DNA drift gate 통과 시에만 승격하는 안전 경로(Phase 2-C) | **완료(로컬)** — `npm run dataset:drift`(읽기 전용 사전 확인), `dataset:activate`가 내부적으로 drift gate를 거침. **완전 자동(사람 개입 없는) 승격은 아직 없음** — PASS여도 사람이 `dataset:activate`를 직접 실행해야 한다 |
 | 8 | TOUR_INFO(POI) freshness TTL 기반 재사용(Phase 2-D) | **완료(로컬)** — TTL 60일, `classifyTourInfoFreshness`/`fetchTourInfoLastFreshFetchByRegion`, 새 STAGING baseYm에서 fresh 지역은 API 호출 0건. `--force-tour-info`로 강제 갱신 가능 |
-| 8 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | TODO |
+| 9 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | TODO |
 
 **로컬 DB 기준으로 완료된 것이며, Production Neon DB/Vercel 배포에는 아직 반영·검증하지 않았다** —
 Production에 실제로 적용하려면 migration 적용, `npm run dataset:activate`로 ACTIVE 재설정, 실
