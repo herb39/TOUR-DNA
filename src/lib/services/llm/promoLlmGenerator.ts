@@ -68,6 +68,7 @@ export type PromoLlmGenerationResult =
 const roleContentJsonSchemaByRole: Record<PromoUserRole, Record<string, unknown>> = {
   TRAVEL_AGENCY: {
     type: "object",
+    additionalProperties: false,
     properties: {
       productName: { type: "string" },
       targetAudience: { type: "string" },
@@ -78,6 +79,7 @@ const roleContentJsonSchemaByRole: Record<PromoUserRole, Record<string, unknown>
   },
   LOCAL_GOV: {
     type: "object",
+    additionalProperties: false,
     properties: {
       title: { type: "string" },
       lead: { type: "string" },
@@ -90,6 +92,7 @@ const roleContentJsonSchemaByRole: Record<PromoUserRole, Record<string, unknown>
   },
   FESTIVAL_PLANNER: {
     type: "object",
+    additionalProperties: false,
     properties: {
       title: { type: "string" },
       programHighlight: { type: "string" },
@@ -102,40 +105,49 @@ const roleContentJsonSchemaByRole: Record<PromoUserRole, Record<string, unknown>
   },
 };
 
-/** Anthropic tool_choice가 강제로 채우게 할 JSON Schema. 자유 텍스트 응답을 regex로 파싱하지 않기
- * 위해 채널별 필드를 전부 명시한다 — role별로 roleContent 모양만 다르다. */
+/** OpenRouter의 `response_format: { type: "json_schema", strict: true }`가 강제로 채우게 할 JSON
+ * Schema. 자유 텍스트 응답을 regex로 파싱하지 않기 위해 채널별 필드를 전부 명시한다 — role별로
+ * roleContent 모양만 다르다. 모든 object 노드에 `additionalProperties: false`를 명시해 strict
+ * structured output 요구사항(모든 object가 닫혀 있어야 함)을 만족한다. */
 function buildToolInputSchema(role: PromoUserRole): Record<string, unknown> {
   return {
     type: "object",
+    additionalProperties: false,
     properties: {
       proposalSummary: {
         type: "object",
+        additionalProperties: false,
         properties: { sentences: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 } },
         required: ["sentences"],
       },
       landing: {
         type: "object",
+        additionalProperties: false,
         properties: { title: { type: "string" }, body: { type: "string" } },
         required: ["title", "body"],
       },
       instagram: {
         type: "object",
+        additionalProperties: false,
         properties: { caption: { type: "string" }, hashtags: { type: "array", items: { type: "string" } } },
         required: ["caption", "hashtags"],
       },
       blog: {
         type: "object",
+        additionalProperties: false,
         properties: { title: { type: "string" }, body: { type: "string" } },
         required: ["title", "body"],
       },
       cardNews: {
         type: "object",
+        additionalProperties: false,
         properties: {
           slides: {
             type: "array",
             minItems: 3,
             items: {
               type: "object",
+              additionalProperties: false,
               properties: { title: { type: "string" }, body: { type: "string" } },
               required: ["title", "body"],
             },
@@ -145,6 +157,7 @@ function buildToolInputSchema(role: PromoUserRole): Record<string, unknown> {
       },
       shortForm: {
         type: "object",
+        additionalProperties: false,
         properties: {
           title: { type: "string" },
           hook: { type: "string" },
@@ -153,6 +166,7 @@ function buildToolInputSchema(role: PromoUserRole): Record<string, unknown> {
             minItems: 2,
             items: {
               type: "object",
+              additionalProperties: false,
               properties: {
                 scene: { type: "integer" },
                 visual: { type: "string" },
