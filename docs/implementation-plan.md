@@ -334,3 +334,50 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 
 (재분석 정책 질문과 `ProjectOwnerRecovery` 여부는 이번 재조정으로 해소됨 — 재분석은 P1 이후로 보류,
 복구코드는 P1 이후로 명시적으로 미룸.)
+
+---
+
+# Part 3. 2026-08-11 현재 상태 및 다음 작업
+
+> Part 1/2는 2026-07-20~23 시점 원본 계획으로 그대로 보존한다. 그 사이(특히 2026-08-08~11) 실제로
+> 진행된 작업은 Part 1/2가 세운 계획과 상당 부분 다른 방식으로 구현됐다 — 예를 들어 P1-6(Phase 2)은
+> "기존 `DataSource`에 필드 3개만 추가"로 계획했지만, 실제로는 신규 `Dataset` 모델(baseYm+status)을
+> 만드는 방식으로 구현됐다. 아래는 그 실제 결과와, 이어서 진행할 다음 우선순위다. 상세 근거는
+> [docs/implementation-status.md](implementation-status.md)의 "2026-08-11 종합 갱신" 절 참고.
+
+## 1. 이미 완료된 것 (로컬 DB 기준, Production 미반영)
+
+- 전국 SIGUNGU 255/255 동기화 완료, ERROR 0, `npm run audit:tourism-data` PASS.
+- Demand/Spend DNA normalization을 log1p+min-max로 개선(Stay/Diversity/Network는 변경 없음).
+- 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 기반 도입 — `Dataset` 레지스트리 + `activeDataset.ts`
+  + `npm run dataset:activate`/`dataset:status`. 로컬 ACTIVE는 `202606`.
+- 홍보 콘텐츠 LLM을 OpenRouter 무료 모델(Gemma)로 연동 + `promoLlmClient.ts`의 timeout 구조적 버그
+  수정 + rule fallback 검증.
+- 대표 프로젝트(강릉/경주/제천) 재분석 완료.
+
+## 2. 다음 우선순위
+
+1. **Phase 2-B — Latest Data Discovery + Incremental Sync**: source별 최신 baseYm 자동 탐지, 새 월
+   발견 시 STAGING dataset 생성, 하루/회차별 `maxRegions` 제한, 기존 resumable sync 재사용,
+   SUCCESS/EMPTY skip·missing/error만 retry, 429 시 안전 중단, 기존 ACTIVE는 계속 서비스.
+2. **Phase 2-C — Validation + Promotion**: 255/255 completeness + tourism audit PASS + **DNA drift
+   gate**(축별 median/p90/p95 변화, region별 median absolute drift, Spearman rank correlation,
+   top/bottom decile churn, similarity Top-N 변화, strength/weakness 변화율, 대표/샘플 시나리오
+   전략 1위 변화율, 신규 extreme raw value 탐지)를 모두 통과해야 자동 ACTIVE 승격, 실패 시 기존
+   ACTIVE 유지. threshold는 아직 확정하지 않았다.
+3. **Demand 축 기술부채 검토**: `touResDemIxVal`이 전국 255개 지역 중 7개(2.8%)에서만 존재해,
+   244개 지역(97%)의 Demand 점수가 사실상 `tarSvcDemIxVal` 단일 metric으로 결정된다. 이 metric
+   coverage를 늘릴 수 있는지, 아니면 이 사실을 사용자에게 더 명확히 알릴지 검토가 필요하다.
+4. **Network 축 relation coverage 검토**: `POI_RELATION`(연관 관광지 관계) 데이터가 전국 255개 중
+   3개 지역에서만 존재해, Network 축의 relation 가중치(20%)가 나머지 252개 지역에서 사실상 항상
+   0으로 처리된다. 실제 API 확보 가능 여부 재조사 또는 가중치 재검토가 필요하다(단, 가중치 변경
+   자체는 별도 명시적 승인이 있을 때만 진행).
+5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: Phase 2-B/C 완료 후 전국 규모에서 실제로
+   의미 있는 다음 제품 기능(관리자 모니터링, 프로젝트별 접근 제어 세분화, 카카오모빌리티 실제 경로
+   확대 등)의 우선순위를 다시 정한다.
+
+## 3. 진행하지 않는 것
+
+이번 라운드는 Phase 2-B/C(자동 incremental sync, drift gate, 자동 승격)를 구현하지 않았다 — 사람이
+CLI로 수동 승격하는 최소 기반(Phase 2-A)까지만 완료했다. DNA weight·전략 scoring·POI 추천 로직도
+이번 라운드에서 변경하지 않았다.

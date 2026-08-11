@@ -1,5 +1,12 @@
 # 운영자 체크리스트
 
+> **2026-08-11 갱신**: 아래 "37곳"/"Batch 3 남해군 1곳만 완료" 등은 그 시점(2026-08-08) 기록으로
+> 보존한다. 로컬 DB 기준으로는 이후 Neon 쿼터와 무관한 로컬 PostgreSQL(`tour_dna_local`)에서 배치
+> 동기화를 이어가 **전국 SIGUNGU 255/255 완료**(ERROR 0, `npm run audit:tourism-data` PASS)됐고,
+> 분석은 이제 `npm run dataset:activate -- --base-ym=202606`으로 승격한 ACTIVE Dataset만 사용한다
+> (`docs/deployment.md` "검증된 데이터셋(ACTIVE Dataset)" 절 참고). Production Neon은 이 갱신에서
+> 건드리지 않았다.
+
 ## 최초 배포 전
 
 - [x] Neon 프로젝트 생성, `DATABASE_URL`/`DIRECT_URL` 발급 및 등록

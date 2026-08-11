@@ -5,8 +5,22 @@
 ## 1. 정규화 규칙
 
 - 모든 지표는 **동일 행정단위(SIDO/SIGUNGU) · 동일 기준월(baseYm) · 동일 지표(metricCode)** 코호트
-  안에서 min-max 정규화한다 (`src/lib/domain/normalize.ts#minMaxNormalize`).
-- 코호트에 비교 대상이 1개뿐이거나 모든 값이 같으면 비교가 불가능하므로 중립값 **50**을 반환한다.
+  안에서 정규화한다(`src/lib/domain/normalize.ts`). **2026-08-11부터 metric마다 다른 transform을
+  쓴다** — 전국 255개 지역 감사에서 Demand/Spend가 강한 우편향 분포와 극단값 민감도(소수 극단
+  지역이 코호트에 들고나는 것만으로 나머지 지역 점수가 최대 58점까지 흔들림)를 보여, 아래 두
+  transform으로 분리했다(`normalizeByTransform`):
+  - **LOG1P_MIN_MAX**: `tarSvcDemIxVal`/`touResDemIxVal`(Demand), `tarExpDsIxVal`(Spend) — raw와
+    코호트 값 전체에 `Math.log1p`를 먼저 적용한 뒤 min-max. 순위는 그대로 유지하면서 극단값의
+    지배력만 줄인다(같은 조건에서 변동폭 약 25~35% 감소, QA로 검증).
+  - **LINEAR_MIN_MAX**(기존과 동일): `tarSjrnDsIxVal`(Stay), `touDivIxVal`(Diversity) — 이 두 축은
+    QA에서 극단값 문제가 확인되지 않아 그대로 두었다.
+  - 방문자수 증감률(부호가 있는 값)은 애초에 이 코호트 정규화 경로를 타지 않고 별도 `clamp(50+증감률,
+    0, 100)` 공식을 쓰므로 log1p 적용 대상이 아니다.
+  - percentile rank 방식도 비교 검토했으나, strength/weakness 라벨이 대규모(20개 표본 중 90%)로
+    바뀌고 유사지역 후보가 일부 지역에서 완전히 달라지며 대표 시나리오 1위 전략까지 바뀌는 사례가
+    확인돼 채택하지 않았다 — log1p+min-max는 이 downstream 결과를 대부분 보존한다.
+- 코호트에 비교 대상이 1개뿐이거나 모든 값이 같으면(log1p 적용 후에도 동일) 비교가 불가능하므로
+  중립값 **50**을 반환한다.
 - 내부 계산은 소수점 둘째 자리까지, 화면 표시는 정수로 반올림한다(`roundForDisplay`).
 - 광역(SIDO)과 기초지자체(SIGUNGU) 값은 절대 같은 코호트로 섞지 않는다(코호트 조회 시 `adminLevel`로 분리).
 - **내부 분석점수와 사용자 표시지수는 다른 계층이다(2026-08-07)**: 위 정규화·가중치·전략 계산은 전부
@@ -16,13 +30,13 @@
 
 ## 2. DNA 5축
 
-| 축 | 구성 지표 | 비고 |
-|---|---|---|
-| Demand | tarSvcDemIxVal + touResDemIxVal + visitorGrowthRateVal(선택) | 존재하는 지표만 단순 평균 |
-| Stay | tarSjrnDsIxVal | 단일 지표 |
-| Spend | tarExpDsIxVal | 단일 지표 |
-| Diversity | touDivIxVal(아래 재계산 산식으로 합성) | 3개 하위 지표 조합 |
-| Network | 구조적 산식(아래) | 외부 지표 아님 |
+| 축 | 구성 지표 | 정규화 transform | 비고 |
+|---|---|---|---|
+| Demand | tarSvcDemIxVal + touResDemIxVal + visitorGrowthRateVal(선택) | **LOG1P_MIN_MAX**(방문자수 증감률만 별도 clamp 공식) | 존재하는 지표만 단순 평균 |
+| Stay | tarSjrnDsIxVal | LINEAR_MIN_MAX | 단일 지표 |
+| Spend | tarExpDsIxVal | **LOG1P_MIN_MAX** | 단일 지표 |
+| Diversity | touDivIxVal(아래 재계산 산식으로 합성) | LINEAR_MIN_MAX | 3개 하위 지표 조합 |
+| Network | 구조적 산식(아래) | 해당 없음(정규화 대상 아님) | 외부 지표 아님 |
 
 **다양성(touDivIxVal) 재계산 산식(2026-07-21 구현, `src/lib/public-data/adapters/touDivIx.ts`)**:
 관광 다양성 API의 개별 코드(예: `touDivIxCd=3103`="30대 방문객수")는 그 자체로는 종합 다양성 점수가
@@ -61,16 +75,25 @@ score = clamp(raw, 0, 100)
 
 ## 3. 전략 점수
 
+> **갱신(Phase 4, 역할 적합도 도입)**: 원래 공식(가중치 demandFit 0.35/supplyFit 0.25/targetFit
+> 0.10/feasibilityFit 0.10, roleFit 없음)은 `roleFit`(역할별 목표 우선순위 반영) 도입으로 아래처럼
+> 바뀌었다. 지정과제 심사에서 중요한 "사용자가 명시적으로 고른 테마"가 순위에 실질적으로 반영되도록
+> targetFit 비중도 함께 올렸다.
+
 ```
 strategyScore =
-  demandFit      * 0.35 +
-  supplyFit      * 0.25 +
+  demandFit      * 0.30 +
+  supplyFit      * 0.20 +
   seasonFit      * 0.20 +
-  targetFit      * 0.10 +
-  feasibilityFit * 0.10
+  targetFit      * 0.15 +
+  feasibilityFit * 0.05 +
+  roleFit        * 0.10
 ```
 
-모든 하위 점수는 0~100으로 clamp하고 정수로 반올림한다.
+모든 하위 점수는 0~100으로 clamp하고 정수로 반올림한다. `roleFit`은 사용자 역할(여행사/DMC·지자체/
+관광재단·축제 기획자)별 목표 우선순위 테이블(`audienceContext.ts`)을 반영하며, 지역의 객관적 DNA
+원시 점수(`demandFit`/`supplyFit`이 참조하는 축)는 건드리지 않는다 — 역할은 전략 우선순위에만
+영향을 준다.
 
 - **demandFit / supplyFit**: 전략 템플릿마다 정의된 DNA 축 가중치(`demandAxisWeights`/`supplyAxisWeights`)로
   가중평균. 결측 축은 제외하고 남은 가중치를 재정규화한다. 관련 축이 전부 결측이면 중립값 50.

@@ -43,10 +43,13 @@ seed는 항상 별도 명령으로 수동/CI 스텝에서 실행한다.
 ## 5. Vercel 배포 (사용자 수행 + Claude Code 준비 완료)
 
 1. Vercel에서 이 저장소를 Import
-2. 환경변수 등록: `DATABASE_URL`, `DIRECT_URL`, `TOUR_API_SERVICE_KEY`, `TOUR_DATA_BASE_YM`,
-   `NEXT_PUBLIC_KAKAO_MAP_KEY`, `NEXT_PUBLIC_APP_URL`(운영 URL로), `DATA_MODE`, `CRON_SECRET`,
-   `SITE_ACCESS_PASSWORD`(사이트 전체 접근 게이트 — 비워두면 로그인 없이 전체 공개 상태가 되니 운영
-   배포에서는 반드시 강한 값으로 설정할 것)
+2. 환경변수 등록: `DATABASE_URL`, `DIRECT_URL`, `TOUR_API_SERVICE_KEY`, `TOUR_DATA_BASE_YM`(동기화
+   대상월 지정용 — 2026-08-11부터 실제 분석 baseYm에는 쓰이지 않는다, 아래 "검증된 데이터셋(ACTIVE
+   Dataset)" 참고), `NEXT_PUBLIC_KAKAO_MAP_KEY`, `NEXT_PUBLIC_APP_URL`(운영 URL로), `DATA_MODE`,
+   `CRON_SECRET`, `SITE_ACCESS_PASSWORD`(사이트 전체 접근 게이트 — 비워두면 로그인 없이 전체 공개
+   상태가 되니 운영 배포에서는 반드시 강한 값으로 설정할 것), `OPENROUTER_API_KEY`(선택 — 홍보
+   콘텐츠 LLM 생성용, 비어 있으면 rule 생성기만 동작), `OPENROUTER_PROMO_MODEL`(선택 — 기본값
+   `google/gemma-4-26b-a4b-it:free`)
 3. Build Command는 기본값(`next build`, `npm run build`) 그대로 사용 — seed를 build 훅에 넣지 않는다
 4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tour-dna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
 
@@ -106,3 +109,26 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 버튼 등 `onClick` 기반 기능이 전혀 반응하지 않는 것처럼 보이는 현상을 발견했다 — 실제 앱 결함이
 아니라 도구 쪽 문제였다(독립된 Playwright로 `document.hidden === false`인 상태에서 열자 정상 동작).
 향후 자동화 검증 시 이 값을 먼저 확인할 것.
+
+## 9. 검증된 데이터셋(ACTIVE Dataset) — Phase 2-A (2026-08-11)
+
+> **이 절차는 로컬 PostgreSQL(`tour_dna_local`)에서만 실행·검증했다. Production Neon DB에는 아직
+> migration을 적용하지도, ACTIVE dataset을 설정하지도 않았다** — GitHub `main` 반영과 Production
+> DB 상태는 서로 다른 사실이라는 점을 이 문서의 다른 절과 동일한 원칙으로 명시한다.
+
+`Dataset`(baseYm+status: STAGING/ACTIVE/ARCHIVED) 모델이 추가되면서(`20260811060333_add_dataset_registry`),
+분석은 더 이상 `TOUR_DATA_BASE_YM`/`DEFAULT_BASE_YM` 같은 정적값이 아니라 이 테이블의 ACTIVE 행만
+기준으로 삼는다. Production에 실제로 이 기능을 반영하려면:
+
+1. `npm run db:migrate`로 `20260811060333_add_dataset_registry`를 포함한 누적 migration을 적용한다
+   (additive — 신규 테이블 하나만 생성, 기존 데이터 변경 없음).
+2. 해당 baseYm의 전국 데이터가 이미 완전하다면(`npm run audit:tourism-data -- --base-ym=YYYYMM`
+   PASS) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE 설정한다 — completeness 검증을
+   통과하지 못하면 자동으로 거부되고 DB에 아무것도 쓰지 않는다.
+3. `npm run dataset:status`로 정확히 1개의 ACTIVE만 있는지 확인한다.
+4. ACTIVE가 설정되지 않은 상태에서는 신규 프로젝트 분석이 명확한 오류로 안전하게 실패한다(다른
+   baseYm으로 조용히 대체하지 않음) — Production에 처음 도입할 때는 배포 직후 반드시 1단계를 먼저
+   수행해야 한다.
+
+Phase 2-B(source별 최신월 자동 탐지 + 증분 sync)와 Phase 2-C(감사 PASS + DNA drift gate 통과 후
+자동 ACTIVE 승격)는 아직 구현하지 않았다 — 지금은 사람이 위 절차를 수동으로 실행해야 한다.

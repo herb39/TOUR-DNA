@@ -3,6 +3,14 @@
 DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다. 코드-라벨 매핑의 단일 출처는
 `src/lib/validation/codes.ts`이며, 아래 표는 그 스냅샷이다.
 
+> **2026-08-11 갱신**: 아래 지역 확장 관련 절(Batch 1/2/3, "27개"/"37개" 지역 수, "Batch 3 관광
+> 데이터 동기화 미완료" 등)은 그 시점(2026-08-07~09)까지의 기록으로 그대로 보존한다. 로컬 DB
+> 기준으로는 이후 배치 동기화가 이어져 **전국 SIGUNGU 255/255가 전부 완료**됐다(필수 source
+> TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/TOUR_INFO 전부 SUCCESS 또는 EMPTY, ERROR 0,
+> `npm run audit:tourism-data` 최종 판정 PASS). 유사지역 비교 모집단도 대상 지역 제외 최대 254곳까지
+> 가능하다. DNA 코호트는 여전히 min-max 기반이지만, Demand/Spend 두 축은 log1p 압축이 추가됐다
+> (`docs/scoring-model.md` 참고). Production 배포 상태는 별도 확인이 필요하다.
+
 ## 입력 코드값
 
 | 필드 | 코드 | 한글 라벨 |

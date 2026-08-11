@@ -1,4 +1,10 @@
-# 구현 상태 (2026-08-07 갱신 — 지원지역 확대 Batch 1+2 반영)
+# 구현 상태 (2026-08-11 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·홍보 LLM 반영)
+
+> **2026-08-11 최신 요약**: 이 문서는 2026-08-07 이후 갱신이 멈춰 있었다. 그 사이(2026-08-08~11)
+> 진행된 핵심 변경 — 전국 SIGUNGU 255/255 동기화 완료, Demand/Spend DNA normalization을 log1p로
+> 개선, 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 도입, OpenRouter 무료 LLM(Gemma) 기반 홍보
+> 콘텐츠 생성 도입 — 은 맨 아래 "## 2026-08-11 종합 갱신" 절에 정리했다. 그 사이 시점의 기존 섹션
+> (Batch 1/2/3 지역 확대 등)은 그대로 보존한다.
 
 > 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C+보완·문서 갱신·Phase 4, 2026-07-27
 > P0-2(대표 시나리오 3개), 2026-07-29 사용자 화면 데이터 신뢰도 1차 개선, 2026-07-29~30 역할 적합도·
@@ -1249,3 +1255,114 @@ Phase 1에서 만든 view model(`promoPreview.ts`)과 미리보기 컴포넌트�
 조건·역할만 변경 비교, 역할별 목적 어휘 확인, 내부 역할 코드 미노출 확인, 사실 데이터 동일성 확인,
 환각 방지 확인) — 기존 29개(19+새로 추가된 7개, 결정론·구조·근거·환각 방지 등)까지 전부 회귀 없이
 통과. 전체 유닛 테스트 985→**993개** 통과, typecheck/lint/build 통과.
+
+## 2026-08-11 종합 갱신 — 전국 255/255 동기화, DNA normalization(log1p), ACTIVE Dataset(Phase 2-A), 홍보 LLM(OpenRouter Gemma)
+
+> 이 절은 2026-08-08~11 사이 여러 세션에 걸쳐 진행된 작업을 시간순으로 정리한다. 모두 로컬
+> PostgreSQL(`tour_dna_local`) 기준으로 검증했고, GitHub `main`에는 push했지만 **Production Neon
+> DB/Vercel 배포에는 반영·검증하지 않았다.**
+
+### 1. 전국 SIGUNGU 255/255 동기화 완료
+
+Batch 3(2026-08-08)까지 37개였던 지원 SIGUNGU를, 재개 가능한 배치 동기화
+(`runResumableLocalBatchSync`, `--max-regions` 청크 단위, SUCCESS/EMPTY는 재요청하지 않고 429 시
+안전 중단)로 이어서 전국 255개 전체까지 완료했다.
+
+- 필수 source(`TAR_SVC_DEM`/`TOU_DIV_IX`/`TOU_RES_DEM`/`TOUR_INFO`) 전부 SUCCESS 또는 EMPTY, ERROR 0.
+- `npm run audit:tourism-data -- --base-ym=202606` 최종 판정 **PASS**(미완료 지역 0, ERROR 0).
+- DNA 분석 가능 지역 255/255, POI 미수집 지역 0.
+- `VISITOR_CNT`는 SIGUNGU 255 + SIDO 15 = 270건(기초·광역 원자적 게이트로 별도 관리, 이미 완전한
+  달은 재요청하지 않아 이번 배치 동안 관련 HTTP 요청 0건).
+- Region master: SIDO 16 + SIGUNGU 255 = 총 271.
+- 인천 2026 행정구역 개편으로 신설된 자치구 4곳(제물포구·영종구·서해구·검단구)은 필수 4개 source
+  전부 EMPTY로 정상 기록됐다(상위 공공 API가 아직 신설 코드에 데이터를 제공하지 않음 — ERROR 아님).
+
+### 2. 전국 DNA 품질 감사 및 Demand/Spend normalization(log1p) 적용
+
+전국 255개 지역이 갖춰진 뒤 DNA 5축 분포·유사지역·전략 결과의 실질적 품질을 감사했다.
+
+**발견한 문제**: Demand(`tarSvcDemIxVal`)와 Spend(`tarExpDsIxVal`)가 강한 우편향 분포를 보였고,
+극단값(서울 중구급 초고소비 상권 등)이 코호트에 새로 들어오는 것만으로 나머지 지역의 정규화 점수가
+leave-3-out 기준 최대 58.86점까지 흔들리는 것을 실측으로 확인했다(같은 세션에 서울 주요 상권
+데이터가 새로 채워지며 실제로 재현됨).
+
+**검토한 대안과 최종 선택**:
+- **percentile rank**: 안정성은 가장 좋았지만(민감도 약 98% 감소), 20개 표본 지역 중 strength/
+  weakness 라벨이 18곳(90%)에서 바뀌고, 유사지역 Top3가 일부 지역(울릉군 등)에서 완전히
+  교체되며(0/3 overlap), 대표 시나리오(경주) 1위 전략까지 바뀌는 downstream 영향이 확인돼 채택하지
+  않았다.
+- **log1p + min-max**(채택): `tarSvcDemIxVal`/`touResDemIxVal`(Demand), `tarExpDsIxVal`(Spend)에만
+  적용. 순위 상관은 그대로 유지하면서 극단값 민감도를 약 24~35% 낮췄고, strength/weakness 변경률
+  40%(20개 중 8곳), 유사지역 Top3는 대부분 2/3~3/3 유지, 강릉/경주/제천 1위 전략은 전부 유지됨을
+  확인했다.
+- Stay(`tarSjrnDsIxVal`)·Diversity(`touDivIxVal`)는 QA에서 극단값 문제가 확인되지 않아 기존 선형
+  min-max 그대로 유지했다. Network는 산식 자체를 건드리지 않았다. 방문자수 증감률은 부호가 있는
+  값이라 log1p 적용 대상에서 원천적으로 제외했다(별도 clamp 공식 유지).
+
+**구현**: `src/lib/domain/normalize.ts`에 `NormalizationTransform`("LINEAR_MIN_MAX"|"LOG1P_MIN_MAX")과
+`normalizeByTransform()`을 추가하고, `dna.ts`의 `lookupMetric()`이 metricCode별로 transform을
+선택하도록 최소 수정했다(`LOG1P_METRIC_CODES` Set 기반). 사용자 표시(`toDisplayDnaScore`, 10~90
+변환)와 내부 raw(0~100) 정책은 변경하지 않았다. 신규 테스트 13건 추가(정상/edge case/회귀 확인),
+전체 unit test 1261/1261, typecheck/lint/build 통과.
+
+**부수 발견**: 정수 반올림(`roundForDisplay`) 단계에서 log1p 압축이 고유 점수 개수를 크게 줄이는
+부작용이 확인됐다(Demand 237→56/251, Spend 224→45/251, 순위 자체는 완전히 보존). 정밀도 정책 자체를
+바꾸는 추가 작업은 하지 않았다 — 향후 검토 과제로 남긴다.
+
+### 3. 검증된 데이터셋(ACTIVE Dataset) 기반 — Phase 2-A
+
+전국 데이터가 완전해진 뒤에도, 서비스 분석이 "DB에 있는 가장 최신 baseYm"이 아니라 명시적으로
+검증·승격된 baseYm만 쓰도록 하는 기반을 추가했다. 기존에는 `computeProjectAnalysis`가
+`process.env.TOUR_DATA_BASE_YM ?? DEFAULT_BASE_YM`(정적값)을 그대로 썼다 — 새 baseYm이 DB에 일부만
+채워져도(STAGING) 이 값을 사람이 수동으로 바꾸지 않는 한 반영되지 않았고, 반대로 검증되지 않은
+값을 넣어도 막을 방법이 없었다.
+
+- 신규 `Dataset`(baseYm+status: STAGING/ACTIVE/ARCHIVED) 테이블 하나만 추가
+  (`20260811060333_add_dataset_registry`, 기존 DataSnapshot/NormalizedMetric 재설계 없음).
+- `src/lib/services/activeDataset.ts`: `getActiveDatasetBaseYm()`(분석의 유일한 baseYm 출처),
+  `checkDatasetCompleteness(baseYm)`(기존 `auditTourismDataQuality` 재사용, 중복 구현 없음),
+  `activateDataset(baseYm)`(incomplete 거부, ACTIVE 최대 1개 유지, 승격 시 이전 ACTIVE는 ARCHIVED).
+- `computeProjectAnalysis`(analyzeProject.ts)와 레거시 유사지역 재계산(`resolveRegionComparisonAnalysis.ts`)이
+  이 함수만 신뢰하도록 교체 — ACTIVE가 없으면 다른 baseYm으로 조용히 대체하지 않고 명확한 한국어
+  에러로 즉시 실패한다.
+- 홈페이지·새 프로젝트 화면의 "데이터 기준월" 표시도 ACTIVE 기준으로 일치시켰다.
+- 실제 로컬 DB에 202607 가짜 STAGING 데이터(강릉시 하나만, 극단값 포함)를 주입한 뒤 실제 프로젝트로
+  분석을 실행해 **혼입되지 않음을 실증 확인**했다(evidence의 baseYm 전체가 202606으로만 유지됨).
+- 로컬 ACTIVE는 `npm run dataset:activate -- --base-ym=202606`으로 승격 완료(`npm run dataset:status`
+  로 확인 가능).
+- 신규 테스트 22건 추가, 전체 unit test 1273/1273, typecheck/lint/build 통과.
+- **Phase 2-B**(source별 최신월 자동 탐지 + 증분 sync)와 **Phase 2-C**(감사 PASS + DNA drift gate
+  통과 후 자동 ACTIVE 승격)는 아직 구현하지 않았다 — 지금은 사람이 CLI로 수동 승격해야 한다.
+
+### 4. 홍보 콘텐츠 LLM — OpenRouter 무료 Gemma 전환 및 안정성 검증
+
+홍보 콘텐츠 채널 문구 생성에 LLM 오버레이가 도입됐다(정량 계산 — DNA/전략/POI/실행안/유사지역 —
+에는 LLM을 전혀 관여시키지 않는다).
+
+- **Provider/모델**: OpenRouter, 기본 모델 `google/gemma-4-26b-a4b-it:free`
+  (`OPENROUTER_API_KEY`/`OPENROUTER_PROMO_MODEL`). Anthropic 연동은 완전히 제거됐다. 이전에 무료
+  Qwen 계열 모델(`qwen/qwen3-next-80b-a3b-instruct:free`)을 시도했으나 404로 사용할 수 없어 Gemma로
+  교체했다(코드 주석에 이력만 남김).
+- **구조**: 7개 채널(제안서 요약/랜딩/Instagram/블로그/카드뉴스/숏폼/역할별 콘텐츠)을 JSON Schema
+  structured output으로 한 번에 생성한 뒤 Zod로 재검증. 실패(timeout/429/구조화 출력 미지원/응답
+  형식 오류 등) 시 예외 없이 기존 결정론적 rule 생성기로 자동 대체된다(`generatedBy: "ai" | "rule"`
+  로 결과 구분 저장) — LLM 장애가 사용자 흐름을 끊지 않는다는 원칙을 그대로 지켰다.
+- **timeout 버그 수정**: `promoLlmClient.ts`에서 `clearTimeout`이 `fetch()` 응답 헤더 수신 직후
+  호출돼, 응답 본문(`res.json()`)을 읽는 동안 20초 timeout 보호가 전혀 적용되지 않는 구조적 버그를
+  코드 리딩으로 확인해 수정했다(`finally`로 이동, 헤더 수신~본문 파싱 전체를 보호). 회귀 테스트 추가.
+- **실 QA 결과**: 실제 OpenRouter 호출에서 한국어 품질·역할별/채널별 차별화·hallucination 없음을
+  확인했다. 다만 무료 endpoint의 운영 안정성은 낮았다 — 반복된 실 호출에서 긴 응답 시간(수십 초),
+  HTTP 429, timeout이 모두 관찰됐다. **결론: 기능은 유지하되(비용 0원 목표 유지, 실패 시 rule
+  fallback), 공모전 라이브 시연에서 실시간 생성 버튼을 핵심 시연 동선의 필수 의존성으로 쓰지 않을
+  것을 권장한다.**
+- **대표 프로젝트(강릉/경주/제천)**: 이번 라운드의 log1p normalization + 전국 202606 cohort로
+  재분석했다. 홍보 콘텐츠는 무료 LLM을 호출하지 않고(스크립트 프로세스 안에서만 API 키를 제거해
+  rule 경로만 타도록 강제) rule 생성기로 재생성해, 현재 세 프로젝트 전부 `generatedBy: "rule"`로
+  저장돼 있다 — "AI가 생성한 홍보자료"라고 서술하면 안 된다.
+
+### 5. Production 배포 상태
+
+이 절이 다루는 모든 항목(전국 255/255 동기화, log1p normalization, Dataset/ACTIVE 레지스트리,
+LLM 통합, timeout 버그 수정)은 GitHub `main`에는 push됐지만, **Production Neon DB에 migration을
+적용하지도, Vercel에 재배포하지도 않았다.** Production에 반영하려면 `docs/deployment.md`의
+"검증된 데이터셋(ACTIVE Dataset)" 절 절차를 따라야 한다.

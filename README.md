@@ -47,17 +47,58 @@ TOUR-DNA는 기관과 기업이 관광사업을 기획하고 예산·협력·성
 
 ### 대상 수상과 실서비스를 함께 잡는 전략
 
-공모전에서는 강릉·경주·제천 대표 시나리오를 완성도 높게 검증하되, 제품 구조는 전국 226개
-시·군·구로 확장할 수 있도록 설계합니다. 전국 데이터의 품질을 자동 검사하고 지역별 A/B/C 등급을
-공개해, 데이터가 부족한 지역에서는 결과를 지어내지 않는 것이 핵심 경쟁력입니다.
+공모전에서는 강릉·경주·제천 대표 시나리오를 완성도 높게 검증하며, 로컬 개발 DB 기준으로는 이미
+전국 SIGUNGU 255/255 지역의 관광 데이터 동기화·품질 감사(PASS)·DNA 분석을 완료했습니다(2026-08-11,
+아래 "현재 구현 상태" 참고 — Production 배포는 별도 확인 필요). 전국 데이터의 품질을 자동 검사하고
+검증된 기준월(ACTIVE Dataset)만 분석에 사용해, 데이터가 부족하거나 아직 검증되지 않은 지역/기준월
+에서는 결과를 지어내지 않는 것이 핵심 경쟁력입니다.
 
 > 전국 관광 데이터를 기반으로 지역의 관광 문제와 사업 기회를 발견하고, 유사지역과 비교하여
 > 사업전략 수립부터 사전검증·실행안·성과관리까지 지원합니다.
 
-## 현재 구현 상태 (2026-08-02 기준)
+## 현재 구현 상태 (2026-08-11 기준)
 
 로컬 코드 구현, 로컬 자동 테스트, GitHub 반영, DB 적용, 실제 배포는 서로 다른 단계다 — 아래 표는 이
 네 가지를 섞지 않고 구분한다. 상세 근거와 커밋 단위는 [docs/implementation-status.md](docs/implementation-status.md) 참고.
+
+### 2026-08-11 최신 라운드 요약(로컬 DB 기준, `main` 최신 커밋 `ccc09a8`까지 push 완료)
+
+이번 라운드는 GitHub `main`에는 전부 반영됐지만, **Production Neon DB/Vercel 배포에는 아직
+검증·반영하지 않았다** — 아래 항목은 전부 로컬 PostgreSQL(`tour_dna_local`) 기준이다.
+
+- **전국 데이터 동기화**: SIGUNGU 255/255 완료, 필수 source(TAR_SVC_DEM/TOU_DIV_IX/TOU_RES_DEM/
+  TOUR_INFO) 전부 SUCCESS 또는 EMPTY, ERROR 0. `npm run audit:tourism-data -- --base-ym=202606` 최종
+  판정 **PASS**. DNA 분석 가능 지역 255/255, POI 미수집 지역 0. VISITOR_CNT는 SIGUNGU 255 + SIDO 15 =
+  270건(기초·광역 원자적 게이트로 별도 관리). Region master는 SIDO 16 + SIGUNGU 255 = 총 271.
+- **DNA normalization 개선**: 전국 255개 지역 감사에서 Demand(`tarSvcDemIxVal`/`touResDemIxVal`)와
+  Spend(`tarExpDsIxVal`)가 강한 우편향 분포·극단값 민감도(소수 극단 지역만 코호트에 들고나도 나머지
+  지역 점수가 크게 흔들림)를 보여, 이 세 metric에 한해 `log1p(raw) → 동일 SIGUNGU/baseYm 코호트
+  min-max`를 적용했다(`src/lib/domain/normalize.ts`/`dna.ts`). Stay(`tarSjrnDsIxVal`)·
+  Diversity(`touDivIxVal`)는 기존 선형 min-max 그대로, Network는 별도 산식 그대로, 방문자수 증감률은
+  부호가 있는 값이라 log1p를 쓰지 않고 기존 계산식을 유지했다. percentile 방식도 비교했으나 강점/약점
+  라벨이 대규모로 바뀌고 유사지역·전략 1위 결과가 흔들려 채택하지 않았다(자세한 QA 근거는
+  `docs/scoring-model.md`/`docs/implementation-status.md` 참고). 사용자 화면 표시는 기존과 동일하게
+  `toDisplayDnaScore`로 10~90 범위 변환한다(내부 raw는 0~100 그대로).
+- **검증된 데이터셋(ACTIVE Dataset) 기반, Phase 2-A**: 신규 `Dataset`(baseYm+status:
+  STAGING/ACTIVE/ARCHIVED) 레지스트리를 추가해, 분석이 "DB에 있는 가장 최신 baseYm"이 아니라
+  명시적으로 검증·승격된 baseYm만 쓰도록 바꿨다(`src/lib/services/activeDataset.ts`의
+  `getActiveDatasetBaseYm()`). 현재 로컬 ACTIVE는 `202606`이며, `npm run dataset:activate -- --base-ym=202606`으로
+  승격했다. 새 baseYm이 일부 지역만 수집돼 있어도(STAGING) ACTIVE로 승격 전까지는 분석에 전혀
+  섞이지 않는다(실제 DB에 가짜 202607 데이터를 넣어 혼입되지 않음을 확인). Phase 2-B(source별 최신월
+  탐지 + 증분 sync)·2-C(감사 PASS + DNA drift gate 통과 후 자동 승격)는 아직 미구현이다.
+- **홍보 콘텐츠 LLM(OpenRouter)**: provider는 OpenRouter, 기본 모델은 무료 티어
+  `google/gemma-4-26b-a4b-it:free`(`OPENROUTER_API_KEY`/`OPENROUTER_PROMO_MODEL` 환경변수, Anthropic
+  연동은 완전히 제거됨). 7개 채널(제안서 요약/랜딩/Instagram/블로그/카드뉴스/숏폼/역할별 콘텐츠)을
+  JSON Schema structured output으로 한 번에 생성한 뒤 Zod로 재검증하고, DNA·전략·POI·실행안·유사지역
+  같은 정량 계산에는 LLM을 전혀 관여시키지 않는다. 무료 모델이 timeout·429·구조화 출력 실패 등으로
+  응답하지 못하면 예외 없이 기존 결정론적 rule 생성기로 자동 대체된다(`generatedBy: "ai" | "rule"`로
+  구분 저장) — 실제 QA에서 한국어 품질·역할별 차별화는 확인됐지만 무료 endpoint의 응답 지연·429·
+  timeout이 반복 관찰돼, **공모전 라이브 시연에서 실시간 생성 버튼에 의존하지 않는 것을 권장**한다.
+  대표 프로젝트(강릉/경주/제천)는 이번 라운드에서 최신 normalization으로 재분석했고, 홍보자료는
+  LLM을 호출하지 않고 rule 생성기로만 재생성해 현재 `generatedBy: "rule"` 상태로 저장돼 있다.
+
+상세 근거·QA 수치·코드 경로는 [docs/implementation-status.md](docs/implementation-status.md)의
+"2026-08-11 종합 갱신" 절 참고.
 
 | 기능 영역 | 로컬 구현 | 로컬 자동 테스트 | GitHub `main` 반영 | DB migration 적용 | 운영 배포 |
 |---|---|---|---|---|---|
@@ -90,7 +131,7 @@ TOUR-DNA는 기관과 기업이 관광사업을 기획하고 예산·협력·성
 ## 목차
 
 - [제품 방향과 핵심 차별점](#제품-방향과-핵심-차별점)
-- [현재 구현 상태](#현재-구현-상태-2026-07-30-기준)
+- [현재 구현 상태](#현재-구현-상태-2026-08-11-기준)
 - [빠른 시작](#빠른-시작)
 - [환경변수](#환경변수)
 - [데이터베이스 준비](#데이터베이스-준비)
@@ -126,7 +167,9 @@ http://localhost:3000 접속 → "데모 프로젝트 열기"로 대전 9월 시
 | `DATABASE_URL` | PostgreSQL 연결 문자열(Neon 권장, 풀링 연결) |
 | `DIRECT_URL` | 마이그레이션용 direct(non-pooled) 연결 문자열 |
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 공공데이터포털 서비스키. 비어 있으면 자동으로 스냅샷 모드로 동작 |
-| `TOUR_DATA_BASE_YM` | (선택) 분석·동기화에 사용할 기준월(YYYYMM)을 강제 지정. 비워두면 화면은 마지막으로 확인된 값(`DEFAULT_BASE_YM`, `202606`)을 표시용으로 쓰고, `sync:tourism-data`는 최신 공통월을 자동 탐색한다(운영자 체크리스트 참고) |
+| `TOUR_DATA_BASE_YM` | (선택) `sync:tourism-data`가 기준월을 자동 탐색하지 않고 강제로 쓸 기준월(YYYYMM). **2026-08-11부터 실제 분석(`computeProjectAnalysis`)은 이 값을 더 이상 쓰지 않는다** — 분석은 오직 검증·승격된 ACTIVE Dataset(`npm run dataset:status`/`dataset:activate`, 아래 "검증된 데이터셋(ACTIVE Dataset)" 절)만 기준으로 삼는다 |
+| `OPENROUTER_API_KEY` | (선택) 홍보 콘텐츠 LLM 문구 생성에 쓰는 OpenRouter API 키. 비어 있으면 LLM을 호출하지 않고 기존 결정론적 rule 생성기만 쓴다(에러 아님, 정상 동작) |
+| `OPENROUTER_PROMO_MODEL` | (선택) 홍보 콘텐츠 생성에 쓸 OpenRouter 모델 override. 비워두면 기본값 `google/gemma-4-26b-a4b-it:free` 사용 |
 | `NEXT_PUBLIC_KAKAO_MAP_KEY` | 카카오맵 JavaScript 키. 비어 있으면 좌표/주소 목록 fallback 사용 |
 | `NEXT_PUBLIC_APP_URL` | 배포 URL(운영 `https://tour-dna.lib.lc`, 로컬 `http://localhost:3000`) |
 | `DATA_MODE` | `live` \| `hybrid` \| `snapshot`. `snapshot`이면 라이브 호출을 완전히 생략 |
@@ -386,9 +429,11 @@ npm run build
   DMC·지자체/관광재단·축제 기획자)에 따라 목적·강조점·마무리 문구가 실제로 달라진다(Phase 2,
   2026-08-07 도입) — 여행사는 판매 가능한 상품 구성, 지자체는 지역 관광 활성화 사업 추진, 축제
   기획자는 행사 프로그램 운영을 목적으로 서로 다른 문장을 쓴다. DNA 5축 원시 점수와 대표 코스·근거
-  데이터 같은 사실 값은 역할과 무관하게 동일하게 유지된다. 여전히 LLM은 쓰지 않으며(결정론적 규칙
-  기반), LLM을 활용한 카피 생성은 Phase 3 이후 검토 대상이다. PNG/PDF 내보내기, 이미지 사용은 이번
-  Phase들에 포함되지 않았다.
+  데이터 같은 사실 값은 역할과 무관하게 동일하게 유지된다. 이 Phase 자체는 결정론적 규칙 기반이었고,
+  이후(2026-08-10~11) 이 규칙 기반 결과 위에 OpenRouter LLM(`google/gemma-4-26b-a4b-it:free`)이
+  문구만 다시 써주는 선택적 오버레이가 추가됐다(위 "현재 구현 상태"의 2026-08-11 요약 참고) — LLM이
+  실패하면 예외 없이 이 Phase의 규칙 기반 문구 그대로 쓰인다. PNG/PDF 내보내기, 이미지 사용은 여전히
+  범위 밖이다.
 - 문화자원수요(`AreaTarResDemService/areaCulResDemList`)·연관관광지 API는 base URL·오퍼레이션명 또는
   유효 코드값이 아직 미확인이다. 그 외(다양성·체류·소비·관광서비스수요·국문관광정보·방문자수)는 실제
   데이터로 확인됐다(docs/public-api-status.md).
@@ -427,13 +472,14 @@ npm run build
 - "저장하지 않은 변경 이탈 경고"는 브라우저 새로고침/닫기(`beforeunload`)만 감지하며, 앱 내부 라우트
   이동(Link 클릭) 시에는 경고하지 않는다.
 - 전략 재선택 시 실행안은 새 전략 기준으로 재생성되며, 이전에 사용자가 편집한 상품명/메모는 초기화된다.
-- DNA 5축 점수는 같은 행정단위 코호트 안에서 min-max 정규화한다(scoring-model.md). SIGUNGU 코호트가
-  작을수록 최댓값/최솟값 지역이 정확히 100점/0점으로 나올 확률이 높아진다 — 2026-07-21에 강릉·경주·
-  제주·통영 4개 지역을 추가해 코호트를 3개→7개로 늘렸고, 2026-08-07에 20개 지역(Batch 1+2)을 더
-  추가해 7개→27개로, 2026-08-08에 10개 지역(Batch 3: 남해군·옹진군·기장군·서산시·무주군·함양군·
-  단양군·영월군·연수구·수성구)을 추가해 27개→37개로 늘려 이 현상을 완화했다(완전히 없어지지는
-  않는다 — 37개 중에서도 최댓값/최솟값은 여전히 100/0이 되는 게 정상이다). 지역별 목록·데이터
-  품질 등급은 `docs/data-dictionary.md` 참고.
+- DNA 5축 점수는 같은 행정단위(SIGUNGU) · 동일 기준월 코호트 안에서 정규화한다(scoring-model.md).
+  2026-08-11 기준 로컬 DB는 SIGUNGU 255/255 전체가 코호트에 들어와 있다(3→7→27→37개로 단계적으로
+  늘려온 이력은 `docs/implementation-status.md` 참고). Demand(`tarSvcDemIxVal`/`touResDemIxVal`)와
+  Spend(`tarExpDsIxVal`)는 코호트가 전국 규모로 커지면서 소수 극단값(초고소비 상권 등)이 나머지
+  지역 점수를 크게 흔드는 문제가 실제로 확인돼, `log1p(raw) → min-max` 방식으로 바꿨다 — Stay/
+  Diversity는 기존 선형 min-max 그대로다. 코호트가 아무리 커져도 그 안의 최댓값/최솟값 지역은
+  여전히 100점/0점에 가깝게 나오는 것이 정상이다. 지역별 목록·데이터 품질 등급은
+  `docs/data-dictionary.md` 참고.
   다만 이 내부 0/100은 화면에 그대로 노출하지 않는다 — **내부 분석점수와 사용자 표시지수를
   분리**해(2026-08-07 도입, `src/lib/domain/dnaDisplayScore.ts`), 화면에는 내부 0~100을 10~90
   범위로 균등 압축한 "DNA 상대지수"만 보여준다(순위·비율 관계는 그대로 유지되는 단순 선형 변환).
@@ -442,7 +488,10 @@ npm run build
 - 방문자수 증감률 요약카드는 전년 동월 데이터를 우선 비교하고, 없으면 직전 확인 가능 월로 대체한다
   (2026-07-29~30). 체류·소비 지표는 실제 저장 단위가 "시간"·"원"이 아니라 상대적 강도를 나타내는
   "지수"이므로, 화면도 원래 단위 그대로 지수로 표시한다(임의로 시간/금액 단위로 환산하지 않는다).
-- LLM 기반 문장 다듬기(P2)는 구현하지 않았다 — 모든 문구는 결정론적 템플릿으로 생성된다.
+- 홍보 콘텐츠 채널 문구는 OpenRouter 무료 모델(`google/gemma-4-26b-a4b-it:free`)이 우선 시도되고,
+  실패하면 결정론적 rule 생성기로 자동 대체된다(위 "현재 구현 상태" 참고) — DNA/전략/POI/실행안 계산
+  자체에는 LLM을 쓰지 않는다. 무료 endpoint의 응답 지연·429가 반복 관찰되어, 라이브 시연에서는 실시간
+  생성 버튼보다 사전에 저장해둔 결과를 보여주는 방식을 권장한다.
 - 프로젝트 비교, 관리자 동기화 UI, 공유 링크(P2)는 구현하지 않았다.
 - 실행안 코스는 POI 좌표를 최근접 이웃(그리디) 순서로 재정렬해 하루 동선을 구성한다(2026-07-21,
   `src/lib/domain/geo.ts`). 이동 시간·거리는 haversine 직선거리와 이동 수단별 평균 속도 가정으로 계산한
@@ -470,23 +519,26 @@ npm run build
 
 ### 전국 실사용 베타 확장
 
-전국 226개 시·군·구를 실제로 지원하는 폐쇄형 베타는 개발자 1명 기준 약 **45~60인일(9~12주)**로
-예상합니다. 단순 지역 추가가 아니라 다음 운영 기반까지 포함한 추정입니다.
+2026-08-11 기준 로컬 DB에서는 전국 SIGUNGU 255/255 동기화·품질 감사(PASS)·DNA 분석 가능 확인까지
+이미 끝났습니다(아래 표의 1~4단계에 해당). 남은 항목은 **자동화·운영 안정성**이며, 단순 지역 수
+확대 작업은 아닙니다.
 
-| 단계 | 작업 | 예상 작업량 |
-|---:|---|---:|
-| 1 | 전국 행정구역·TourAPI 코드 마스터 자동 생성 및 감사 | 4~6인일 |
-| 2 | 지역별 배치·재시도·중단 재개가 가능한 동기화 파이프라인 | 8~11인일 |
-| 3 | 전국 최초 적재·누락·기준월·이상치 검증 | 6~9인일 |
-| 4 | 전국 POI 증분 동기화·중복·폐업·분류·추천 품질 관리 | 8~12인일 |
-| 5 | 전국/유사지역 DNA 비교 산식과 모델 버전 관리 | 6~9인일 |
-| 6 | 지역별 데이터 품질 등급과 분석 제한 정책 | 4~6인일 |
-| 7 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | 5~7인일 |
+| 단계 | 작업 | 상태 |
+|---:|---|---|
+| 1 | 전국 행정구역·TourAPI 코드 마스터 자동 생성 및 감사 | **완료(로컬)** — Region 마스터 SIDO 16 + SIGUNGU 255 |
+| 2 | 지역별 배치·재시도·중단 재개가 가능한 동기화 파이프라인 | **완료(로컬)** — `runResumableLocalBatchSync`, `--max-regions` 청크, 429 안전 중단 |
+| 3 | 전국 최초 적재·누락·기준월·이상치 검증 | **완료(로컬)** — `npm run audit:tourism-data` PASS, ERROR 0 |
+| 4 | 전국 POI 증분 동기화·중복·폐업·분류·추천 품질 관리 | 부분 완료 — 최초 적재는 끝났고, 증분/폐업 감지는 TODO |
+| 5 | 검증된 기준월만 분석에 쓰는 기반(ACTIVE Dataset) | **완료(로컬, Phase 2-A)** — 자동 승격(Phase 2-B/C)은 TODO |
+| 6 | source별 최신월 자동 탐지 + 증분 sync(Phase 2-B) | TODO |
+| 7 | 감사 PASS + DNA drift gate 통과 후 자동 ACTIVE 승격(Phase 2-C) | TODO |
+| 8 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | TODO |
 
-전국 확장은 전국 226개 지역을 시스템상 지원하되, 강릉·경주·제천과 유형별 대표 지역을 우선
-검증합니다(2026-08-08 기준 37곳 검증 완료 — `docs/data-dictionary.md` 지역 표 참고). 나머지는
-데이터 품질에 따라 정상 분석·제한 분석·분석 불가로 구분하며, 품질이 부족하면 추천 결과를 임의
-생성하지 않습니다.
+**로컬 DB 기준으로 완료된 것이며, Production Neon DB/Vercel 배포에는 아직 반영·검증하지 않았다** —
+Production에 실제로 적용하려면 migration 적용, `npm run dataset:activate`로 ACTIVE 재설정, 실
+브라우저 검증이 필요합니다. 상세는 [docs/implementation-status.md](docs/implementation-status.md)
+"2026-08-11 종합 갱신" 절과 [docs/implementation-plan.md](docs/implementation-plan.md)의 최신 상태
+절 참고.
 
 ### 공모전 이후 운영 확장
 
@@ -535,7 +587,13 @@ npm run build
 11. **카카오맵 검색으로 코스에 장소 추가(P1)** — 동선 표시(위 완료)와 달리 이건 ① Kakao Places 검색
     연동 ② 검색된 곳이 DB에 없으면 새 POI로 저장하는 쓰기 경로 ③ `Poi.sourceType`에 새 값 추가(Prisma
     마이그레이션 필요)까지 묶여 있어 별도 작업으로 분리했다. 대략 2~3일.
-12. **전국 지역 확대 — 일괄 사전 동기화 대신 온디맨드 캐싱으로 방향 정함(2026-07-22)** — 조회 시점에
+12. **[2026-08-11 갱신: 실제로는 온디맨드가 아니라 배치 방식으로 255/255 완료했다]** 아래는
+    2026-07-22 시점 계획 기록이다 — 실제로는 온디맨드 캐싱 대신 재개 가능한 배치 동기화
+    (`runResumableLocalBatchSync`, `--max-regions` 청크 단위)로 로컬 DB SIGUNGU 255/255를 전부
+    채웠다(원래 우려했던 "229개 코드 매핑"은 REGION_SEED에 255개 전부 이미 등록돼 있어 해소됐고,
+    "일일 API 할당량 초과" 우려도 청크를 나눠 여러 회차로 실행해 실제로는 문제가 되지 않았다). 아래
+    원본 계획은 참고용으로 남긴다.
+12-원본. **전국 지역 확대 — 일괄 사전 동기화 대신 온디맨드 캐싱으로 방향 정함(2026-07-22)** — 조회 시점에
     DB에 해당 지역 데이터가 없으면 그때 공공데이터 API를 호출해 저장하고, 이후 같은 지역·같은 기준월
     조회는 DB에서 바로 서빙하는 방식(현재 `DataSnapshot`/`NormalizedMetric`이 이미 지역+기준월+지표
     키로 upsert되는 구조라 이 캐시 자체는 이미 있다 — 지금은 그걸 채우는 트리거가 cron/수동뿐이라는
@@ -551,7 +609,14 @@ npm run build
       호출이 필요한데, 지금 `runTourismDataSync`는 이 4종을 순차로(await 하나씩) 호출한다 — 온디맨드로
       쓰려면 `Promise.all`로 병렬화해서 지연을 줄이고, 그래도 오래 걸리면 로딩 문구를 보여주거나 Vercel
       요금제의 함수 실행시간 제한(Hobby 10초 등)을 검토해야 한다.
-13. **DNA 코호트 재설계(전국 확대 시 필요)** — 시/군/구를 229개로 늘리면 지금처럼 전국 단일 코호트로
+13. **[2026-08-11 갱신: 실제로는 코호트를 나누지 않고 min-max를 log1p로 보완하는 쪽을 택했다]**
+    아래는 2026-07-22 시점 계획 기록이다 — 실제 255개 확대 후 QA에서 문제가 된 것은 "성격이 다른
+    지역 간 비교"가 아니라 "Demand/Spend 축의 극단값 민감도"였다. 코호트를 시/도·행정유형별로
+    쪼개는 대신(비교 모집단이 오히려 작아지는 부작용), Demand/Spend 두 축에만 `log1p` 압축을 추가해
+    코호트는 그대로 전국 SIGUNGU 255개로 유지했다(percentile rank도 비교했으나 strength/weakness·
+    유사지역·전략 결과가 크게 흔들려 채택하지 않음 — `docs/scoring-model.md` 참고). 아래 원본 계획은
+    참고용으로 남긴다.
+13-원본. **DNA 코호트 재설계(전국 확대 시 필요)** — 시/군/구를 229개로 늘리면 지금처럼 전국 단일 코호트로
     min-max 정규화하면 "양양군과 부산"처럼 성격이 다른 지역이 직접 비교된다. 후보:
     - (a) 같은 시/도 안에서만 비교 — 지리적으로는 맞지만 시/도별 시/군/구 수가 들쭉날쭉해(세종·제주 등)
       작은 코호트 문제가 다시 생길 수 있음

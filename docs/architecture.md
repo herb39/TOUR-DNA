@@ -42,6 +42,8 @@ Bearer 인증을 그대로 쓴다(쿠키 게이트와 무관).
   → projectInputSchema.safeParse (서버 재검증)
   → prisma.project.create (+ProjectInput)
   → runAnalysisForProject(projectId)
+      → getActiveDatasetBaseYm()                   [Dataset에서 ACTIVE baseYm 조회, 2026-08-11 — 없으면
+                                                      다른 baseYm으로 조용히 대체하지 않고 즉시 실패]
       → buildDnaEngineInput(regionCode, baseYm)   [DB에서 NormalizedMetric/Poi 조회]
       → computeDna(input)                          [순수 함수]
       → computeDataVersion(input)                  [순수 함수, 해시]
@@ -100,7 +102,7 @@ src/lib/domain/          순수 함수, DB/Next 의존 없음, 유닛테스트 �
   analysisKey.ts         analysisKey 해시
   dataVersion.ts         dataVersion 해시
   constants.ts           MODEL_VERSION
-  promoContent.ts        buildPromoContent — 홍보자료 5종 결정론적 생성(Phase 5-A)
+  promoContent.ts        buildPromoContent — 홍보자료 7채널 결정론적 생성(Phase 5-A, rule fallback 원천)
   promoContentFormat.ts  홍보자료 복사용 텍스트 포맷 순수 함수(Phase 5-C)
 
 src/lib/services/        DB 조회·조립 (Prisma 사용)
@@ -108,15 +110,19 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
   buildDnaEngineInput.ts  DB → DnaEngineInput 변환
   fetchPoisByCategory.ts
   poiDetails.ts           fetchPoiDetailsInOrder, searchPoisInRegion(실행안 "장소 추가" 검색)
-  analyzeProject.ts       runAnalysisForProject — 분석 실행+저장
+  analyzeProject.ts       runAnalysisForProject — 분석 실행+저장(baseYm은 activeDataset.ts에서만 받음)
+  activeDataset.ts        getActiveDatasetBaseYm/checkDatasetCompleteness/activateDataset(Phase 2-A, 2026-08-11)
+  tourismDataQualityAudit.ts  전국 dataset 완전성 판정 순수 함수(audit CLI·activeDataset.ts 공용)
   planService.ts          ensureSelectedPlan
   promoContentAdapter.ts  Prisma ↔ PromoContent 변환 경계(Evidence 매핑, JSON 직렬화, Phase 5-B)
-  promoContentService.ts  generatePromoContentForProject / getPromoContentForProject / savePromoContentForProject(Phase 5-B)
+  promoContentService.ts  generatePromoContentForProject / getPromoContentForProject / savePromoContentForProject — rule 생성 후 LLM 오버레이 시도(Phase 5-B + LLM, 2026-08-10~11)
+  llm/promoLlmClient.ts   OpenRouter fetch 클라이언트(timeout/구조화 출력, provider 무료 모델 고정)
+  llm/promoLlmGenerator.ts  홍보 채널 7종 생성 컨텍스트 구성 + 결과 Zod 재검증, 실패 시 rule 유지
   projectQueries.ts       목록/상세 조회 (읽기 전용 페이지용)
   regionQueries.ts        시도/시군구 드롭다운 옵션
   syncService.ts          runTourismDataSync
   cronAuth.ts             CRON_SECRET 검증
-  baseYm.ts               기준월 계산 유틸
+  baseYm.ts               기준월 계산 유틸(동기화 대상월 계산 — 분석 baseYm과는 별개, activeDataset.ts 참고)
   siteAuth.ts             SITE_ACCESS_PASSWORD 서명 쿠키 생성/검증(계정 없는 사이트 전체 게이트)
 
 src/lib/public-data/      공공데이터 API 어댑터
@@ -146,7 +152,9 @@ scripts/                   CLI (sync-tourism-data.ts)
 ## 데이터 모드와 상태 표시
 
 - `DataSnapshot`: API 원본 응답 그대로 보관(정규화 이전 레이어). `status`는 `SUCCESS`/`EMPTY`/`ERROR`.
-- `NormalizedMetric`: 정규화 계층의 단일 출처. `rawValue`만 저장하고, 정규화(min-max)는 분석 요청 시점의
-  코호트를 기준으로 매번 계산한다(코호트가 늘어나면 값도 갱신될 수 있음 — 결정론은 `dataVersion` 해시로 보장).
+- `NormalizedMetric`: 정규화 계층의 단일 출처. `rawValue`만 저장하고, 정규화는 분석 요청 시점의 코호트를
+  기준으로 매번 계산한다(코호트가 늘어나면 값도 갱신될 수 있음 — 결정론은 `dataVersion` 해시로 보장).
+  Stay/Diversity는 선형 min-max, Demand(`tarSvcDemIxVal`/`touResDemIxVal`)·Spend(`tarExpDsIxVal`)는
+  극단값 민감도 완화를 위해 `log1p(raw) → min-max`를 쓴다(2026-08-11, `docs/scoring-model.md` 참고).
 - `AnalysisResult`의 축별 `xxxStatus`(`LIVE`/`SNAPSHOT`/`MISSING`)와 `overallDataMode`/`liveAxisCount`가
   UI의 `LIVE 5/5` 배지로 이어진다. **모든 축이 이번 동기화의 라이브 데이터로 계산됐을 때만 `LIVE 5/5`.**
