@@ -1,5 +1,11 @@
 # API 검증 요청 (사용자 확인 필요, 2026-07-23 REVIEW_ONLY 재검증)
 
+> **2026-08-11 갱신**: 아래 "## 2. 지역별 방문자수 API"는 2026-07-23 작성 당시 미확인 상태를 그대로
+> 기록한 것이다. 이후 2026-07-28에 실제 게이트웨이(`DataLabService`)가 확인되어 이 항목은 더 이상
+> 사용자 확인 대기 상태가 아니다 — 상세는 아래 2번 항목 본문 및 `docs/public-api-status.md`의
+> "5-B) 지역별 방문자수 API 실제 확인 결과(2026-07-28)" 참고. 자원수요(1번)·연관 관광지(3번)는
+> 2026-08-11 기준으로도 여전히 미확인 상태다.
+
 마스터 프롬프트 3-1 원칙에 따라, 아래 항목은 엔드포인트·파라미터·필드 의미를 추측하지 않고 사용자의
 실제 신청/Swagger 확인을 기다린다. `docs/public-api-status.md`에 이미 기록된 내용을 지정과제 매핑
 관점에서 재정리했으며, 새로 추측한 URL/코드는 없다.
@@ -23,7 +29,14 @@ Swagger에 표시된 필드 설명/단위: 미확인 — Swagger UI 접근 시 �
 **막힌 기능**: `METRIC_CODES.DEMAND_RESOURCE`(문화자원수요)에 실제 값을 채울 수 없어 계속 `MISSING` 처리.
 Demand 축이 서비스수요(`tarSvcDemIxVal`)와 방문자수 증감률만으로 계산됨(코드 변경 불필요, 정보만 있으면 됨).
 
-## 2. 지역별 방문자수 API — 서비스명/엔드포인트 미확인
+## 2. 지역별 방문자수 API — 2026-07-28 확인 완료 (더 이상 사용자 확인 불필요)
+
+> 아래는 2026-07-23 작성 당시의 미확인 기록이다(이력 보존). **2026-07-28에 실제 게이트웨이가
+> 확인됐다**: 한국관광공사_빅데이터_지역별 방문자수(`DataLabService`), base
+> `https://apis.data.go.kr/B551011/DataLabService`, 시군구 분석은 `/locgoRegnVisitrDDList` 오퍼레이션.
+> `visitorCnt.ts`가 이 실제 API 구조로 재작성됐고(`METRIC_CODES.VISITOR_CNT_LOCAL` 포함), 더 이상
+> fixture 추정치가 아니다. 상세는 `docs/public-api-status.md`의 "5-B) 지역별 방문자수 API 실제 확인
+> 결과(2026-07-28)" 참고.
 
 ```text
 API 이름: 한국관광공사_빅데이터_지역별 방문자수_GW (추정 명칭, 확정 아님)
@@ -39,9 +52,8 @@ Swagger에 표시된 필드 설명/단위: 미확인
 코드표 또는 공식 문서 링크: https://www.data.go.kr/data/15101972/openapi.do
 ```
 
-**막힌 기능**: `visitorCnt`(현재/이전 월 방문자수, Demand 축 보조지표)가 fixture 추정치로 남아 있음.
-Phase 1 완료 후에도 이 지표는 `ESTIMATED` 상태를 유지해야 한다(3-3절 규칙). Swagger UI에서 정확한
-base URL·오퍼레이션명·응답 필드를 확인해 주시면 어댑터를 작성한다.
+**해소됨**: `visitorCnt`(현재/이전 월 방문자수, Demand 축 보조지표)는 2026-07-28 이후 실제 API로
+동기화되며, `ESTIMATED`가 아니라 `LIVE_API`/`CACHED_API` 근거로 저장된다.
 
 ## 3. 기초지자체 중심 관광지 및 연관 관광지 API — 정식 서비스명 미확인
 
@@ -80,5 +92,6 @@ Swagger에 표시된 필드 설명/단위: 미확인
 `docs/public-api-status.md`에 실키로 검증 완료된 것으로 기록된 항목 — 이번 REVIEW_ONLY에서 재검증
 요청하지 않는다: 지역 코드 체계(통계청/TourAPI 2종), `AreaTarDemDsService`(체류/소비), `AreaTarDivService`
 (다양성 전체 코드), `AreaTarResDemService/areaTarSvcDemList`(서비스수요), `KorService2/areaBasedList2`
-(POI). 단, "검증 완료"는 2026-07-21 시점 기록이며 data.go.kr 정책이 그 사이 바뀌었을 가능성은 사용자가
-재확인해야 한다(REVIEW_ONLY는 코드 재실행을 하지 않았으므로 실시간 재확인은 아님).
+(POI), **지역별 방문자수(`DataLabService`, 2026-07-28 확인 완료 — 위 2번 항목 참고)**. 단, "검증 완료"는
+각 확인 시점 기록이며 data.go.kr 정책이 그 사이 바뀌었을 가능성은 사용자가 재확인해야 한다
+(REVIEW_ONLY는 코드 재실행을 하지 않았으므로 실시간 재확인은 아니다).

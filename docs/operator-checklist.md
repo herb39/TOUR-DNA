@@ -132,6 +132,11 @@
   함께 바뀔 수 있다(예: 제천 체류 축 0→34점, 강릉 다양성 72→54점) — 이미 저장된 `AnalysisResult`는
   자동 재계산되지 않으며, 새로 분석을 실행해야 새 코호트 기준 점수가 반영된다. 유사지역 비교 후보도
   6곳→26곳으로 늘어 소규모 모집단 경고(`isSmallCandidatePool`, 임계값 10)가 더 이상 뜨지 않는다.
+  **2026-08-11 후속**: 로컬 배치 동기화(`runResumableLocalBatchSync`)로 전국 SIGUNGU 255개까지
+  코호트를 늘렸다. 지역 수가 커지면서 Demand(`tarSvcDemIxVal`/`touResDemIxVal`)·Spend
+  (`tarExpDsIxVal`) 두 축에서 소수 극단값이 나머지 지역 점수를 크게 흔드는 문제가 실제로 확인돼,
+  코호트를 더 쪼개는 대신 이 두 축에 `log1p(raw)→min-max` 정규화를 추가했다(코호트는 그대로 SIGUNGU
+  255개 전체 유지, Stay/Diversity는 기존 선형 min-max 그대로 — `docs/scoring-model.md` 참고).
 
 - **TourAPI-통계청 코드 체계 불일치 및 다양성 API 일일 호출 한도(2026-08-07 발견)**: 지역 확장
   Batch 3 후보 검증 중 TourAPI `ldongCode2`가 반환한 전남·광주 통합 시/도 코드(`12`)가 통계청 API
