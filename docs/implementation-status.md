@@ -1,10 +1,11 @@
-# 구현 상태 (2026-08-11 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·홍보 LLM 반영)
+# 구현 상태 (2026-08-11 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B·홍보 LLM 반영)
 
 > **2026-08-11 최신 요약**: 이 문서는 2026-08-07 이후 갱신이 멈춰 있었다. 그 사이(2026-08-08~11)
 > 진행된 핵심 변경 — 전국 SIGUNGU 255/255 동기화 완료, Demand/Spend DNA normalization을 log1p로
-> 개선, 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 도입, OpenRouter 무료 LLM(Gemma) 기반 홍보
-> 콘텐츠 생성 도입 — 은 맨 아래 "## 2026-08-11 종합 갱신" 절에 정리했다. 그 사이 시점의 기존 섹션
-> (Batch 1/2/3 지역 확대 등)은 그대로 보존한다.
+> 개선, 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 도입, 최신 데이터 발견 + 증분/재개형 전국
+> 동기화(Phase 2-B) 도입, OpenRouter 무료 LLM(Gemma) 기반 홍보 콘텐츠 생성 도입 — 은 맨 아래
+> "## 2026-08-11 종합 갱신" 절에 정리했다. 그 사이 시점의 기존 섹션(Batch 1/2/3 지역 확대 등)은
+> 그대로 보존한다.
 
 > 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C+보완·문서 갱신·Phase 4, 2026-07-27
 > P0-2(대표 시나리오 3개), 2026-07-29 사용자 화면 데이터 신뢰도 1차 개선, 2026-07-29~30 역할 적합도·
@@ -1256,7 +1257,7 @@ Phase 1에서 만든 view model(`promoPreview.ts`)과 미리보기 컴포넌트�
 환각 방지 확인) — 기존 29개(19+새로 추가된 7개, 결정론·구조·근거·환각 방지 등)까지 전부 회귀 없이
 통과. 전체 유닛 테스트 985→**993개** 통과, typecheck/lint/build 통과.
 
-## 2026-08-11 종합 갱신 — 전국 255/255 동기화, DNA normalization(log1p), ACTIVE Dataset(Phase 2-A), 홍보 LLM(OpenRouter Gemma)
+## 2026-08-11 종합 갱신 — 전국 255/255 동기화, DNA normalization(log1p), ACTIVE Dataset(Phase 2-A), 최신 데이터 발견+증분 sync(Phase 2-B), 홍보 LLM(OpenRouter Gemma)
 
 > 이 절은 2026-08-08~11 사이 여러 세션에 걸쳐 진행된 작업을 시간순으로 정리한다. 모두 로컬
 > PostgreSQL(`tour_dna_local`) 기준으로 검증했고, GitHub `main`에는 push했지만 **Production Neon
@@ -1360,9 +1361,61 @@ leave-3-out 기준 최대 58.86점까지 흔들리는 것을 실측으로 확인
   rule 경로만 타도록 강제) rule 생성기로 재생성해, 현재 세 프로젝트 전부 `generatedBy: "rule"`로
   저장돼 있다 — "AI가 생성한 홍보자료"라고 서술하면 안 된다.
 
-### 5. Production 배포 상태
+### 5. Phase 2-B — 최신 데이터 발견 + 증분/재개형 전국 동기화
+
+Phase 2-A(ACTIVE Dataset)에 이어, "공공 API에 더 최신 기준월이 등장했는지 저비용으로 탐지하고, 새
+기준월을 STAGING Dataset으로만 등록한 뒤, API quota를 넘기지 않도록 여러 실행에 나눠 전국 데이터를
+resumable하게 수집하는" 운영 기반을 추가했다. **STAGING → ACTIVE 자동 승격은 이번에도 구현하지
+않았다** — 그건 Phase 2-C다.
+
+- **저비용 최신월 탐지**: `src/lib/services/datasetDiscovery.ts`의 `discoverLatestDataset()`가
+  기존 `findLatestCommonBaseYm`(대표 지역 1곳·TAR_SVC_DEM/TOU_RES_DEM 2개 소스만 확인, 확인한 개월
+  수 x 2회 HTTP 요청)을 그대로 재사용한다 — 새 탐지 로직을 따로 만들지 않았다. TOU_DIV_IX는 기존
+  코드가 이미 의도적으로 제외한 이유(일일 호출 한도 소진 이력)를 그대로 따르고, TOUR_INFO는 baseYm에
+  종속되지 않는 정적 API라 탐색 대상이 아니며, VISITOR_CNT는 전용 탐색기(`visitorBaseYmFinder.ts`)가
+  이미 있어 중복 호출하지 않는다 — 이 탐지가 확인하는 것은 "새 월이 있는가"뿐이고, "필수 4개 소스
+  전부가 그 달에 존재하는가"는 STAGING을 실제로 sync한 뒤 기존 `checkDatasetCompleteness`가
+  판정한다. 실제 API로 확인한 결과(2026-08-11), ACTIVE(202606)보다 최신인 공통월은 아직 없다(정상
+  — 새 baseYm이 실제로 있다고 가정하지 않았다).
+- **STAGING dataset 생성**: `activeDataset.ts`에 추가한 `ensureStagingDataset(baseYm)`이 새로
+  발견된 baseYm을 STAGING으로만 등록한다. 같은 baseYm이 이미 있으면(어떤 상태든) 중복 생성하지
+  않고, **이미 다른 baseYm이 STAGING이면 새 STAGING을 만들지 않는다**(정책 — 여러 STAGING을 동시에
+  허용하면 제한된 일일 API 호출 한도가 여러 baseYm에 분산돼 어느 쪽도 완료되지 못한다). 다른 배치
+  진입점(syncService.ts)과 동일하게 `checkDataSyncTarget`(로컬 DB 전용 가드)을 통과해야만 실제로
+  쓴다. `getStagingDatasetBaseYm()`으로 현재 STAGING baseYm을 조회할 수 있다.
+- **증분 sync CLI 통합**: 기존 CLI에 `--dataset=staging` 옵션을 추가했다(`--base-ym`과는 함께 쓸 수
+  없음). `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=20`처럼 쓰면
+  현재 STAGING baseYm을 DB에서 자동으로 조회해 대상으로 삼는다 — **새 sync 로직을 만들지 않고**,
+  기존 `runResumableLocalBatchSync`를 그대로 재사용한다(regionCode ascending 결정적 순서,
+  SUCCESS/EMPTY skip, missing/ERROR만 처리, `--max-regions`만큼만 처리, HTTP 429 즉시 안전 중단,
+  VISITOR_CNT 전국 1회 재사용 최적화 — 전부 기존 동작 그대로 STAGING baseYm에도 적용된다). ACTIVE
+  dataset의 DataSnapshot/NormalizedMetric은 baseYm이 다르므로 이 sync로 전혀 건드리지 않는다(실 DB
+  기준으로 STAGING sync 스모크 테스트 후 `getActiveDatasetBaseYm()`이 여전히 기존 ACTIVE를 반환함을
+  확인).
+- **운영자 상태 조회 확장**: `npm run dataset:status`가 STAGING dataset에 대해서는 진행률(완료
+  지역/전국 SIGUNGU 수, ERROR 수, source별 SUCCESS/EMPTY/ERROR/미수집 현황, 판정)까지 함께
+  보여준다 — 이 진행률은 Dataset 테이블에 별도 컬럼(`syncedRegions` 등)으로 저장하지 않고, 기존
+  `checkDatasetCompleteness`/`auditTourismDataQuality`의 DataSnapshot 집계를 그대로 다시 계산한다
+  (derived 상태 중복 저장 금지). 신규 CLI `npm run dataset:discover`는 발견 결과와 STAGING 생성
+  여부만 보고하며, 그 스크립트 안에서 전국 batch sync를 실행하지 않는다.
+- **TOUR_INFO 조사 결과(구현하지 않음)**: `fetchTourInfo`는 baseYm에 종속되지 않는 정적 API이고
+  `Poi` 모델에도 baseYm 필드가 없는데, `DataSnapshot`은 baseYm별로 기록되므로 새 STAGING baseYm마다
+  TOUR_INFO를 전국 재수집하게 된다(POI 내용이 바뀌지 않아도 quota를 쓴다). 별도 TTL 정책이 더
+  적합해 보이지만, 이번 라운드에서는 구현하지 않고 Phase 2-D 후보로 남겼다 — `checkDatasetCompleteness`
+  도 TOUR_INFO를 여전히 필수 source로 취급한다(임의로 제외하지 않았다).
+- **DB schema 변경**: 없음. `Dataset` 모델(baseYm+status)은 Phase 2-A에서 이미 추가돼 있었고, 진행률
+  같은 파생 상태를 저장할 컬럼을 새로 추가하지 않았다.
+- **검증**: 신규 단위 테스트(`tests/unit/datasetDiscovery.test.ts` 6개 — 새 월 없음/발견/RATE_LIMITED/
+  ACTIVE 없음 케이스, HTTP 요청 수 검증 포함) + `activeDataset.test.ts`에 `ensureStagingDataset`/
+  `getStagingDatasetBaseYm` 8개 추가 + `syncCliArgs.test.ts`에 `--dataset=staging` 6개 추가 — 전체
+  1290개 테스트 통과, typecheck/lint/build 통과. 실제 API로 `npm run dataset:discover`를 1회
+  실행해 ACTIVE(202606)와 동일한 공통월이 재확인됨(새 baseYm 없음, HTTP 요청 4회, STAGING 생성 없음,
+  전국 batch 미실행)을 확인했고, `--dataset=staging` 스모크 테스트(STAGING 없는 상태)가 API/DB 쓰기
+  없이 안전하게 실패함과 ACTIVE가 그대로 `202606`으로 유지됨을 실제 로컬 DB로 확인했다.
+
+### 6. Production 배포 상태
 
 이 절이 다루는 모든 항목(전국 255/255 동기화, log1p normalization, Dataset/ACTIVE 레지스트리,
-LLM 통합, timeout 버그 수정)은 GitHub `main`에는 push됐지만, **Production Neon DB에 migration을
-적용하지도, Vercel에 재배포하지도 않았다.** Production에 반영하려면 `docs/deployment.md`의
-"검증된 데이터셋(ACTIVE Dataset)" 절 절차를 따라야 한다.
+LLM 통합, timeout 버그 수정, **Phase 2-B 증분 sync 기반**)은 GitHub `main`에는 push됐지만,
+**Production Neon DB에 migration을 적용하지도, Vercel에 재배포하지도 않았다.** Production에
+반영하려면 `docs/deployment.md`의 "검증된 데이터셋(ACTIVE Dataset)" 절 절차를 따라야 한다.

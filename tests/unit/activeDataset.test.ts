@@ -15,8 +15,10 @@ const dataSnapshotFindMany = vi.fn();
 const normalizedMetricFindMany = vi.fn();
 const poiFindMany = vi.fn();
 const datasetFindFirst = vi.fn();
+const datasetFindUnique = vi.fn();
 const datasetUpdateMany = vi.fn();
 const datasetUpsert = vi.fn();
+const datasetCreate = vi.fn();
 const transaction = vi.fn();
 
 vi.mock("@/lib/db", () => ({
@@ -28,14 +30,22 @@ vi.mock("@/lib/db", () => ({
     poi: { findMany: (...args: unknown[]) => poiFindMany(...args) },
     dataset: {
       findFirst: (...args: unknown[]) => datasetFindFirst(...args),
+      findUnique: (...args: unknown[]) => datasetFindUnique(...args),
       updateMany: (...args: unknown[]) => datasetUpdateMany(...args),
       upsert: (...args: unknown[]) => datasetUpsert(...args),
+      create: (...args: unknown[]) => datasetCreate(...args),
     },
     $transaction: (...args: unknown[]) => transaction(...args),
   },
 }));
 
-import { activateDataset, checkDatasetCompleteness, getActiveDatasetBaseYm } from "@/lib/services/activeDataset";
+import {
+  activateDataset,
+  checkDatasetCompleteness,
+  getActiveDatasetBaseYm,
+  ensureStagingDataset,
+  getStagingDatasetBaseYm,
+} from "@/lib/services/activeDataset";
 
 const DATA_SOURCES = [
   { id: "src-tar-svc", code: "TAR_SVC_DEM" },
@@ -82,12 +92,19 @@ beforeEach(() => {
   normalizedMetricFindMany.mockReset();
   poiFindMany.mockReset();
   datasetFindFirst.mockReset();
+  datasetFindUnique.mockReset();
   datasetUpdateMany.mockReset();
   datasetUpsert.mockReset();
+  datasetCreate.mockReset();
   transaction.mockReset();
   transaction.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
   datasetUpdateMany.mockResolvedValue({ count: 0 });
   datasetUpsert.mockResolvedValue({ id: "ds-1", baseYm: "202606", status: "ACTIVE", activatedAt: new Date() });
+  datasetCreate.mockResolvedValue({ id: "ds-2", baseYm: "202607", status: "STAGING", activatedAt: null });
+  // ensureStagingDataset/getStagingDatasetBaseYm은 dataSyncTargetGuard를 거친다 — 다른 스위트
+  // (syncService.test.ts)와 동일한 관례로 기본은 로컬 호스트로 설정하고, 원격 차단 테스트에서만 덮어쓴다.
+  process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/tour_dna_local";
+  delete process.env.ALLOW_REMOTE_DATA_SYNC;
 });
 
 describe("getActiveDatasetBaseYm", () => {
@@ -201,5 +218,74 @@ describe("activateDataset", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.previousActiveBaseYm).toBeNull();
+  });
+});
+
+/**
+ * Phase 2-B(2026-08-11) — discovery가 찾은 새 baseYm을 STAGING dataset으로 등록하는 부분.
+ * 핵심 불변조건: (1) 이 함수만으로는 ACTIVE가 절대 바뀌지 않는다(updateMany/upsert/$transaction을
+ * 전혀 호출하지 않는다). (2) 같은 baseYm이 이미 있으면(어떤 상태든) 중복 생성하지 않는다.
+ * (3) 이미 다른 baseYm이 STAGING이면 새 STAGING을 만들지 않는다(quota 분산 방지 정책).
+ * (4) 원격 DB 대상이면 즉시 차단하고 DB 쓰기를 시도하지 않는다.
+ */
+describe("ensureStagingDataset", () => {
+  it("동일 baseYm이 전혀 없으면 STAGING으로 새로 생성한다", async () => {
+    datasetFindUnique.mockResolvedValue(null);
+    datasetFindFirst.mockResolvedValue(null);
+
+    const result = await ensureStagingDataset("202607");
+
+    expect(result.outcome).toBe("CREATED");
+    if (result.outcome === "CREATED") expect(result.baseYm).toBe("202607");
+    expect(datasetCreate).toHaveBeenCalledWith({ data: { baseYm: "202607", status: "STAGING" } });
+    expect(datasetUpdateMany).not.toHaveBeenCalled();
+    expect(datasetUpsert).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("같은 baseYm이 이미 존재하면(어떤 상태든) 중복 생성하지 않고 기존 상태를 그대로 알려준다", async () => {
+    datasetFindUnique.mockResolvedValue({ baseYm: "202607", status: "ACTIVE" });
+
+    const result = await ensureStagingDataset("202607");
+
+    expect(result.outcome).toBe("ALREADY_EXISTS");
+    if (result.outcome === "ALREADY_EXISTS") expect(result.existingStatus).toBe("ACTIVE");
+    expect(datasetCreate).not.toHaveBeenCalled();
+    expect(datasetFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("이미 다른 baseYm이 STAGING이면 새 STAGING을 만들지 않는다(quota 분산 방지)", async () => {
+    datasetFindUnique.mockResolvedValue(null);
+    datasetFindFirst.mockResolvedValue({ baseYm: "202607", status: "STAGING" });
+
+    const result = await ensureStagingDataset("202608");
+
+    expect(result.outcome).toBe("BLOCKED_BY_OTHER_STAGING");
+    if (result.outcome === "BLOCKED_BY_OTHER_STAGING") expect(result.blockingBaseYm).toBe("202607");
+    expect(datasetCreate).not.toHaveBeenCalled();
+  });
+
+  it("원격 DATABASE_URL이면 DB 조회 없이 즉시 차단한다", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@ep-dawn-sea.aws.neon.tech/neondb";
+
+    const result = await ensureStagingDataset("202607");
+
+    expect(result.outcome).toBe("BLOCKED_BY_SYNC_TARGET_GUARD");
+    expect(datasetFindUnique).not.toHaveBeenCalled();
+    expect(datasetFindFirst).not.toHaveBeenCalled();
+    expect(datasetCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("getStagingDatasetBaseYm", () => {
+  it("STAGING dataset이 있으면 그 baseYm을 반환한다", async () => {
+    datasetFindFirst.mockResolvedValue({ baseYm: "202607", status: "STAGING" });
+    expect(await getStagingDatasetBaseYm()).toBe("202607");
+    expect(datasetFindFirst).toHaveBeenCalledWith({ where: { status: "STAGING" } });
+  });
+
+  it("STAGING dataset이 없으면 null을 반환한다", async () => {
+    datasetFindFirst.mockResolvedValue(null);
+    expect(await getStagingDatasetBaseYm()).toBeNull();
   });
 });

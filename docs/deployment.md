@@ -130,5 +130,20 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
    baseYm으로 조용히 대체하지 않음) — Production에 처음 도입할 때는 배포 직후 반드시 1단계를 먼저
    수행해야 한다.
 
-Phase 2-B(source별 최신월 자동 탐지 + 증분 sync)와 Phase 2-C(감사 PASS + DNA drift gate 통과 후
-자동 ACTIVE 승격)는 아직 구현하지 않았다 — 지금은 사람이 위 절차를 수동으로 실행해야 한다.
+**Phase 2-B(source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync)는 로컬에서 구현·검증 완료했지만
+(2026-08-11), 이 절차도 아직 Production에는 적용하지 않았다.** Production에 반영하려면 위 1번
+migration 적용 후:
+
+5. `npm run dataset:discover`로 ACTIVE보다 최신인 공통월이 있는지 저비용으로 확인한다(전국 지역을
+   조회하지 않는다 — 대표 지역 1곳·2개 소스만 확인). 새 월을 발견하면 STAGING dataset만 생성한다
+   (ACTIVE는 바뀌지 않는다).
+6. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 API 일일 호출
+   한도를 고려한 `N`으로 여러 회차에 나눠 실행해 STAGING baseYm의 전국 데이터를 채운다(이미 성공한
+   지역×소스는 자동으로 건너뛰고, 429가 감지되면 그 시점까지 결과를 보존한 채 안전하게 종료한다).
+7. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR, source별 현황)을 확인하고, 완료되면
+   2번(`npm run audit:tourism-data -- --base-ym=YYYYMM` PASS)과 위 3번(`npm run dataset:activate`)을
+   그대로 실행해 승격한다.
+
+Phase 2-C(감사 PASS + DNA drift gate 통과 후 자동 ACTIVE 승격)는 아직 구현하지 않았다 — 지금은
+사람이 `dataset:discover`/`sync:tourism-data -- --dataset=staging`/`dataset:activate`를 순서대로
+수동 실행해야 한다.

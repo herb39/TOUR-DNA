@@ -174,7 +174,7 @@ docs/
 | P0-3 | Phase 4 (role/nationality/theme/travel month 실질 반영) | "여행사·지자체 실무자 대상", "타깃·지역·기간·콘셉트 조건 입력" 두 지정과제 문구에 직결. `analysisKey`에 role/nationality를 포함시키는 부분은 이번에 같이 해결했으나, `dataVersion`의 나머지 두 결함(휘발성 `collectedAt`, 코호트 미반영)은 별도로 남아 있음 | **로컬 구현+테스트 완료, 원격 반영(push) 완료(새 P0-1로 승격, 완료)** |
 | P0-4 | 대표 시나리오 3개(강릉/경주/제천) 결과 차별화 + E2E | 마스터 문서 2-3절이 요구하는 "입력 차이 → 결과 차이" 심사 시연의 직접 증거. P0-1~3이 실제로 동작하는지 검증하는 마지막 단계이자 발표력(15점) 대비 자료 | **로컬 구현+테스트 완료(새 P0-2로 승격, 완료), 원격 반영(push) 완료(2026-07-30 확인) — E2E 확장·실제 브라우저 검증은 대기** |
 | P1-5 | Phase 8 (사이트 잠금 제거 + 프로젝트별 비밀번호, 축소 구현) | 보안상 여전히 중요하나 채점표에 직접 항목 없음. 현재 사이트 전체 비밀번호로도 시연 자체는 가능 |
-| P1-6 | Phase 2 (최소 갱신 구조) | 7개 지역 규모에서는 리스크가 낮음(현재도 수동 baseYm 갱신으로 시연 가능) — 2026-08-07 기준 지원 지역이 27개로 늘어 수동 갱신 부담이 다소 커졌고, 2026-08-11 기준으로는 전국 SIGUNGU 255개까지 늘어(위 "Part 3. 2026-08-11 현재 상태" 참고) 수동 갱신 방식의 한계가 뚜렷해졌다 — Phase 2-A(ACTIVE Dataset)까지는 이미 로컬 구현됐고, Phase 2-B(증분 sync)가 이 우선순위 재조정 표의 다음 실질적 후속 작업이다 |
+| P1-6 | Phase 2 (최소 갱신 구조) | 7개 지역 규모에서는 리스크가 낮음(현재도 수동 baseYm 갱신으로 시연 가능) — 2026-08-07 기준 지원 지역이 27개로 늘어 수동 갱신 부담이 다소 커졌고, 2026-08-11 기준으로는 전국 SIGUNGU 255개까지 늘어(위 "Part 3. 2026-08-11 현재 상태" 참고) 수동 갱신 방식의 한계가 뚜렷해졌다 — Phase 2-A(ACTIVE Dataset)·Phase 2-B(최신월 발견 + STAGING 증분 sync)까지 로컬 구현 완료, Phase 2-C(자동 승격)가 다음 후속 작업이다 |
 | P1-7 | Phase 11 (CI) | 심사 노출 없음, 팀 운영 편의 |
 | P2-8 | Phase 10 (`/admin/ops`) | 채점표에 없음, 공개 화면만으로 시연 완결 |
 | P2-9 | Phase 12 (실제 경로 API) | 2026-08-06: PRIVATE_VEHICLE 한정으로 로컬 구현·테스트 완료(커밋 전). 카카오 응답의 자체 DB 캐시 재사용(RouteCache) 허용 여부는 공식 확인 전이라 비활성화 상태로 BLOCKED — `docs/route-api-status.md` 참고. 지정과제 문구에 "실제 도로 경로"를 명시하지 않아 여전히 P2 |
@@ -354,17 +354,30 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 - 홍보 콘텐츠 LLM을 OpenRouter 무료 모델(Gemma)로 연동 + `promoLlmClient.ts`의 timeout 구조적 버그
   수정 + rule fallback 검증.
 - 대표 프로젝트(강릉/경주/제천) 재분석 완료.
+- **(2026-08-11 추가) Phase 2-B — Latest Data Discovery + Incremental Sync 기반**: `datasetDiscovery.ts`의
+  `discoverLatestDataset()`가 기존 `findLatestCommonBaseYm`(대표 지역 1곳·TAR_SVC_DEM/TOU_RES_DEM
+  2개 소스·확인한 개월 수 x 2회 HTTP 요청)을 재사용해 ACTIVE보다 최신인 공통월이 있는지 저비용으로
+  확인한다. 새 월을 발견하면 `activeDataset.ts`의 `ensureStagingDataset()`이 STAGING dataset만
+  생성한다(ACTIVE는 절대 자동으로 바뀌지 않음, 동시에 여러 STAGING 허용 안 함). 실제 데이터 수집은
+  `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=<N>`로 기존
+  resumable sync를 그대로 재사용해 여러 회차에 나눠 진행하고, `npm run dataset:status`가 STAGING
+  진행률(완료 지역/전국 255, ERROR 수, source별 현황)을 보여준다. STAGING → ACTIVE 자동 승격(Phase
+  2-C)은 이번에도 구현하지 않았다 — 승격은 여전히 사람이 `npm run dataset:activate`를 직접 실행해야
+  한다. 상세는 [docs/implementation-status.md](implementation-status.md) 참고.
 
 ## 2. 다음 우선순위
 
-1. **Phase 2-B — Latest Data Discovery + Incremental Sync**: source별 최신 baseYm 자동 탐지, 새 월
-   발견 시 STAGING dataset 생성, 하루/회차별 `maxRegions` 제한, 기존 resumable sync 재사용,
-   SUCCESS/EMPTY skip·missing/error만 retry, 429 시 안전 중단, 기존 ACTIVE는 계속 서비스.
-2. **Phase 2-C — Validation + Promotion**: 255/255 completeness + tourism audit PASS + **DNA drift
+1. **Phase 2-C — Validation + Promotion**: 255/255 completeness + tourism audit PASS + **DNA drift
    gate**(축별 median/p90/p95 변화, region별 median absolute drift, Spearman rank correlation,
    top/bottom decile churn, similarity Top-N 변화, strength/weakness 변화율, 대표/샘플 시나리오
    전략 1위 변화율, 신규 extreme raw value 탐지)를 모두 통과해야 자동 ACTIVE 승격, 실패 시 기존
    ACTIVE 유지. threshold는 아직 확정하지 않았다.
+2. **TOUR_INFO(POI) 재수집 정책 재검토**: Phase 2-B 구현 중 확인한 사실 — `fetchTourInfo`는
+   baseYm에 종속되지 않는 정적 API이고 `Poi` 모델에도 baseYm 필드가 없는데, `DataSnapshot`은
+   baseYm별로 기록되기 때문에 새 STAGING baseYm마다 TOUR_INFO를 처음부터 다시 전국 재수집하게
+   된다(내용이 안 바뀌어도 quota를 쓴다). 이번 라운드에서는 TTL 정책을 구현하지 않았고
+   `checkDatasetCompleteness`도 TOUR_INFO를 여전히 필수 source로 취급한다 — 별도 TTL 도입이 적절해
+   보이지만 Phase 2-D 후보로만 남긴다.
 3. **Demand 축 기술부채 검토**: `touResDemIxVal`이 전국 255개 지역 중 7개(2.8%)에서만 존재해,
    244개 지역(97%)의 Demand 점수가 사실상 `tarSvcDemIxVal` 단일 metric으로 결정된다. 이 metric
    coverage를 늘릴 수 있는지, 아니면 이 사실을 사용자에게 더 명확히 알릴지 검토가 필요하다.
@@ -372,12 +385,12 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
    3개 지역에서만 존재해, Network 축의 relation 가중치(20%)가 나머지 252개 지역에서 사실상 항상
    0으로 처리된다. 실제 API 확보 가능 여부 재조사 또는 가중치 재검토가 필요하다(단, 가중치 변경
    자체는 별도 명시적 승인이 있을 때만 진행).
-5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: Phase 2-B/C 완료 후 전국 규모에서 실제로
+5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: Phase 2-C 완료 후 전국 규모에서 실제로
    의미 있는 다음 제품 기능(관리자 모니터링, 프로젝트별 접근 제어 세분화, 카카오모빌리티 실제 경로
    확대 등)의 우선순위를 다시 정한다.
 
 ## 3. 진행하지 않는 것
 
-이번 라운드는 Phase 2-B/C(자동 incremental sync, drift gate, 자동 승격)를 구현하지 않았다 — 사람이
-CLI로 수동 승격하는 최소 기반(Phase 2-A)까지만 완료했다. DNA weight·전략 scoring·POI 추천 로직도
-이번 라운드에서 변경하지 않았다.
+이번 라운드는 Phase 2-C(감사 PASS + DNA drift gate 통과 후 자동 승격)를 구현하지 않았다 — Phase 2-B
+(발견 + STAGING 생성 + 증분 sync)까지만 완료했고, 승격은 여전히 사람이 CLI로 수동 실행해야 한다.
+TOUR_INFO TTL, DNA weight·전략 scoring·POI 추천 로직도 이번 라운드에서 변경하지 않았다.

@@ -3,15 +3,15 @@ import { parseSyncCliArgs } from "@/lib/services/syncCliArgs";
 
 describe("parseSyncCliArgs — CLI 기준월 입력 검증(2026-08-08)", () => {
   it("--base-ym=202606 형식을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null });
+    expect(parseSyncCliArgs(["--base-ym=202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null });
   });
 
   it("--base-ym 202606 형식(공백 구분)을 정확히 파싱한다", () => {
-    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null });
+    expect(parseSyncCliArgs(["--base-ym", "202606"])).toEqual({ ok: true, baseYm: "202606", regionCode: null, allRegions: false, maxRegions: null, dataset: null });
   });
 
   it("인자가 없으면 명시적 CLI 지정 없음으로 처리한다(환경변수/자동탐색으로 넘어감)", () => {
-    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null, allRegions: false, maxRegions: null });
+    expect(parseSyncCliArgs([])).toEqual({ ok: true, baseYm: null, regionCode: null, allRegions: false, maxRegions: null, dataset: null });
   });
 
   it("구 위치 인자 형식(202606)은 더 이상 지원하지 않고 거부한다", () => {
@@ -86,6 +86,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       regionCode: "SGG_JECHEON",
       allRegions: false,
       maxRegions: null,
+      dataset: null,
     });
   });
 
@@ -96,6 +97,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       regionCode: "SGG_JECHEON",
       allRegions: false,
       maxRegions: null,
+      dataset: null,
     });
     expect(parseSyncCliArgs(["--region-code=SGG_JECHEON", "--base-ym=202606"])).toEqual({
       ok: true,
@@ -103,6 +105,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       regionCode: "SGG_JECHEON",
       allRegions: false,
       maxRegions: null,
+      dataset: null,
     });
   });
 
@@ -113,6 +116,7 @@ describe("parseSyncCliArgs — --region-code 지역 필터 옵션(2026-08-08 도
       regionCode: "SGG_JECHEON",
       allRegions: false,
       maxRegions: null,
+      dataset: null,
     });
   });
 
@@ -140,6 +144,7 @@ describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배�
       regionCode: null,
       allRegions: true,
       maxRegions: 20,
+      dataset: null,
     });
   });
 
@@ -150,6 +155,7 @@ describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배�
       regionCode: null,
       allRegions: true,
       maxRegions: 5,
+      dataset: null,
     });
   });
 
@@ -193,6 +199,50 @@ describe("parseSyncCliArgs — --all-regions/--max-regions 전국 재개형 배�
 
   it("--max-regions를 두 번 지정하면 거부한다", () => {
     const result = parseSyncCliArgs(["--all-regions", "--max-regions=10", "--max-regions=20"]);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("parseSyncCliArgs — --dataset=staging 옵션(Phase 2-B, 2026-08-11 도입)", () => {
+  it("--dataset=staging --all-regions --max-regions=20을 정상 파싱한다(baseYm은 null — 실행 시점에 DB에서 조회)", () => {
+    expect(parseSyncCliArgs(["--dataset=staging", "--all-regions", "--max-regions=20"])).toEqual({
+      ok: true,
+      baseYm: null,
+      regionCode: null,
+      allRegions: true,
+      maxRegions: 20,
+      dataset: "staging",
+    });
+  });
+
+  it("--dataset=staging 단독으로도(비-전국 모드) 파싱된다", () => {
+    expect(parseSyncCliArgs(["--dataset=staging"])).toEqual({
+      ok: true,
+      baseYm: null,
+      regionCode: null,
+      allRegions: false,
+      maxRegions: null,
+      dataset: "staging",
+    });
+  });
+
+  it("--dataset과 --base-ym을 함께 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--dataset=staging", "--base-ym=202606"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it('"staging" 이외의 --dataset 값은 거부한다', () => {
+    const result = parseSyncCliArgs(["--dataset=active"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--dataset을 두 번 지정하면 거부한다", () => {
+    const result = parseSyncCliArgs(["--dataset=staging", "--dataset=staging"]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("--dataset= 빈 값은 거부한다", () => {
+    const result = parseSyncCliArgs(["--dataset="]);
     expect(result.ok).toBe(false);
   });
 });

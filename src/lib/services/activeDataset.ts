@@ -9,6 +9,7 @@ import {
   type PoiForAudit,
   type TourismDataQualityReport,
 } from "./tourismDataQualityAudit";
+import { checkDataSyncTarget, ALLOW_REMOTE_DATA_SYNC_ENV } from "./dataSyncTargetGuard";
 
 /**
  * Phase 2-A(2026-08-11): "DB에 있는 가장 최신 baseYm"과 "서비스 분석이 실제로 쓰는 baseYm"을
@@ -115,4 +116,55 @@ export async function activateDataset(baseYm: string): Promise<ActivateDatasetRe
   ]);
 
   return { ok: true, baseYm, previousActiveBaseYm: previousActive?.baseYm ?? null };
+}
+
+export type DatasetStatusValue = "STAGING" | "ACTIVE" | "ARCHIVED";
+
+export type EnsureStagingDatasetResult =
+  | { outcome: "CREATED"; baseYm: string }
+  | { outcome: "ALREADY_EXISTS"; baseYm: string; existingStatus: DatasetStatusValue }
+  | { outcome: "BLOCKED_BY_OTHER_STAGING"; baseYm: string; blockingBaseYm: string }
+  | { outcome: "BLOCKED_BY_SYNC_TARGET_GUARD"; baseYm: string; blockedReason: string };
+
+/**
+ * Phase 2-B(2026-08-11): discovery(`datasetDiscovery.ts`)가 찾은 새 baseYm을 STAGING dataset으로
+ * 등록한다. 이 함수만으로는 ACTIVE가 절대 바뀌지 않는다 — `activateDataset()`을 별도로(그리고 사람이
+ * 직접) 호출해야만 승격된다.
+ *
+ * 정책(운영 단순성 우선 — 여러 STAGING을 동시에 허용하면 제한된 일일 API 호출 한도가 여러 baseYm에
+ * 분산돼 어느 쪽도 완료되지 않는 문제가 생긴다): 이미 다른 baseYm이 STAGING이면 새 STAGING을 만들지
+ * 않는다 — 기존 STAGING을 ACTIVE로 승격하거나 명시적으로 정리한 뒤에만 다음 baseYm으로 넘어간다.
+ * 같은 baseYm이 이미 어떤 상태(STAGING/ACTIVE/ARCHIVED)로든 존재하면 중복 생성하지 않고 기존 상태를
+ * 그대로 보고한다. Dataset 테이블에 실제로 쓰기가 발생하므로, 다른 배치 진입점(syncService.ts)과
+ * 동일하게 로컬 DB 전용 가드(`checkDataSyncTarget`)를 통과해야만 진행한다.
+ */
+export async function ensureStagingDataset(baseYm: string): Promise<EnsureStagingDatasetResult> {
+  const targetCheck = checkDataSyncTarget(process.env.DATABASE_URL, process.env[ALLOW_REMOTE_DATA_SYNC_ENV]);
+  if (!targetCheck.allowed) {
+    return {
+      outcome: "BLOCKED_BY_SYNC_TARGET_GUARD",
+      baseYm,
+      blockedReason: targetCheck.blockedReason ?? "알 수 없는 사유로 차단됨",
+    };
+  }
+
+  const existing = await prisma.dataset.findUnique({ where: { baseYm } });
+  if (existing) {
+    return { outcome: "ALREADY_EXISTS", baseYm, existingStatus: existing.status as DatasetStatusValue };
+  }
+
+  const otherStaging = await prisma.dataset.findFirst({ where: { status: "STAGING" } });
+  if (otherStaging) {
+    return { outcome: "BLOCKED_BY_OTHER_STAGING", baseYm, blockingBaseYm: otherStaging.baseYm };
+  }
+
+  await prisma.dataset.create({ data: { baseYm, status: "STAGING" } });
+  return { outcome: "CREATED", baseYm };
+}
+
+/** 현재 STAGING dataset의 baseYm(정책상 최대 1개 — `ensureStagingDataset` 참고). 여러 실행에 걸친
+ * incremental sync가 어느 baseYm을 대상으로 해야 하는지 CLI(`--dataset=staging`)가 조회할 때 쓴다. */
+export async function getStagingDatasetBaseYm(): Promise<string | null> {
+  const staging = await prisma.dataset.findFirst({ where: { status: "STAGING" } });
+  return staging?.baseYm ?? null;
 }

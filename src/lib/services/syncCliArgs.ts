@@ -7,14 +7,18 @@ export const SYNC_CLI_USAGE =
   "(--region-code는 SIGUNGU 코드만 지정할 수 있습니다 — src/lib/fixtures/regions.ts의 REGION_SEED 참고)\n" +
   '       전국을 재개 가능한 배치로 나눠 돌리려면: npm run sync:tourism-data -- --base-ym=202606 --all-regions --max-regions=20\n' +
   "(--all-regions는 --region-code와 함께 쓸 수 없고, --max-regions(이번 실행에서 실제 API를 호출할 최대 지역 수, 양의 정수)를 반드시 함께 지정해야 합니다 — 기본값을 임의로 추정하지 않습니다. 이미 성공/빈 응답으로 완료된 지역×데이터소스는 자동으로 건너뛰고, quota/429가 감지되면 그 시점까지의 결과를 보존한 채 안전하게 종료합니다. 다음 실행에서 같은 옵션으로 다시 실행하면 이어서 진행됩니다.)\n" +
+  '       현재 STAGING dataset을 대상으로 증분 동기화하려면(Phase 2-B, npm run dataset:discover로 먼저 발견): npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=20\n' +
+  "(--dataset=staging은 --base-ym 대신 현재 STAGING 상태인 baseYm을 DB에서 조회해 자동으로 씁니다 — 이 값을 정확히 알아도 --base-ym과 함께 지정할 수 없습니다. STAGING dataset이 없으면 즉시 실패합니다. ACTIVE dataset은 이 옵션으로 절대 바뀌지 않습니다 — 승격은 별도로 npm run dataset:activate를 실행해야 합니다.)\n" +
   "인자를 생략하면 TOUR_DATA_BASE_YM 환경변수 → 최신 공통월 자동 탐색 순으로 사용합니다.";
 
 export type ParsedSyncCliArgs =
   // baseYm이 null이면 CLI에서 명시적으로 지정하지 않음(env/자동 탐색으로 넘어감).
   // regionCode가 null이면 지역 필터 없음(기존과 동일하게 전체 SIGUNGU 동기화).
   // allRegions가 true면 재개 가능한 전국 순차 배치 모드(2026-08-09 도입) — 이때만 maxRegions가 채워진다.
-  | { ok: true; baseYm: string | null; regionCode: string | null; allRegions: false; maxRegions: null }
-  | { ok: true; baseYm: string | null; regionCode: null; allRegions: true; maxRegions: number }
+  // dataset이 "staging"이면(2026-08-11 도입, Phase 2-B) baseYm은 항상 null이고, 실행 시점에 현재
+  // STAGING dataset의 baseYm을 DB에서 조회해 대신 쓴다 — --base-ym과 동시에 지정할 수 없다.
+  | { ok: true; baseYm: string | null; regionCode: string | null; allRegions: false; maxRegions: null; dataset: "staging" | null }
+  | { ok: true; baseYm: string | null; regionCode: null; allRegions: true; maxRegions: number; dataset: "staging" | null }
   | { ok: false; error: string };
 
 /**
@@ -40,6 +44,7 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
   let regionCode: string | null = null;
   let allRegions = false;
   let maxRegionsRaw: string | null = null;
+  let dataset: "staging" | null = null;
   let i = 0;
 
   while (i < argv.length) {
@@ -101,6 +106,19 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
       continue;
     }
 
+    if (token.startsWith("--dataset=")) {
+      if (dataset !== null) {
+        return { ok: false, error: `--dataset을 두 번 이상 지정할 수 없습니다.\n${SYNC_CLI_USAGE}` };
+      }
+      const value = token.slice("--dataset=".length);
+      if (value !== "staging") {
+        return { ok: false, error: `--dataset은 현재 "staging"만 지원합니다: "${value}"\n${SYNC_CLI_USAGE}` };
+      }
+      dataset = "staging";
+      i += 1;
+      continue;
+    }
+
     if (token.startsWith("--")) {
       return { ok: false, error: `알 수 없는 옵션입니다: "${token}"\n${SYNC_CLI_USAGE}` };
     }
@@ -120,6 +138,10 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
       return { ok: false, error: `${validated.error}\n${SYNC_CLI_USAGE}` };
     }
     baseYm = validated.baseYm;
+  }
+
+  if (dataset !== null && baseYm !== null) {
+    return { ok: false, error: `--dataset과 --base-ym은 함께 지정할 수 없습니다(대상 baseYm을 정하는 방법이 서로 다릅니다).\n${SYNC_CLI_USAGE}` };
   }
 
   if (allRegions && regionCode !== null) {
@@ -146,7 +168,7 @@ export function parseSyncCliArgs(argv: string[]): ParsedSyncCliArgs {
   }
 
   if (allRegions) {
-    return { ok: true, baseYm, regionCode: null, allRegions: true, maxRegions: maxRegions as number };
+    return { ok: true, baseYm, regionCode: null, allRegions: true, maxRegions: maxRegions as number, dataset };
   }
-  return { ok: true, baseYm, regionCode, allRegions: false, maxRegions: null };
+  return { ok: true, baseYm, regionCode, allRegions: false, maxRegions: null, dataset };
 }

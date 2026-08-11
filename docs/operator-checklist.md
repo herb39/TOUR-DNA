@@ -96,6 +96,26 @@
       갱신 — 매달 자동으로 최신화되지 않으니 수동 유지보수 필요(단, `sync:tourism-data` CLI 자체는
       인자를 생략하면 이제 자동으로 최신 공통월을 찾으므로 이 수동 절차가 필수는 아니다)
 
+## 새 기준월 반영 절차 — ACTIVE Dataset 발견·증분 sync·승격 (Phase 2-A/2-B, 2026-08-11)
+
+분석이 쓰는 baseYm은 `TOUR_DATA_BASE_YM`이 아니라 `Dataset` 테이블의 ACTIVE 행이다(위 항목의
+`TOUR_DATA_BASE_YM`은 sync 대상월 결정에만 쓰인다). 새 월을 실제 서비스 분석에 반영하려면:
+
+1. `npm run dataset:discover` — 공공 API에 현재 ACTIVE보다 최신인 공통월이 있는지 저비용으로
+   확인한다(대표 지역 1곳·2개 소스만 확인, 전국 지역을 조회하지 않는다). 새 월을 찾으면 STAGING
+   dataset만 생성한다 — **이 단계만으로는 ACTIVE가 바뀌지 않고, 사용자 분석은 계속 기존 ACTIVE를
+   쓴다.** 이미 다른 baseYm이 STAGING이면 새 STAGING을 만들지 않는다(그 STAGING을 먼저 정리하거나
+   승격해야 한다).
+2. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 하루 API 호출
+   한도에 맞는 `N`으로 여러 번 나눠 실행한다 — 이미 완료된 지역×소스는 자동으로 건너뛰고, 429가
+   감지되면 그 시점까지 결과를 보존한 채 안전하게 멈춘다. 다음 실행에서 같은 명령을 그대로 다시
+   실행하면 이어서 진행된다.
+3. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR 수, source별 SUCCESS/EMPTY/ERROR/
+   미수집 현황)을 확인한다.
+4. 완료됐으면(진행률 255/255, ERROR 0) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE로
+   승격한다 — completeness 검증을 통과하지 못하면 자동으로 거부되고 기존 ACTIVE가 그대로 유지된다.
+   자동 승격(Phase 2-C)은 아직 없다 — 반드시 사람이 이 명령을 직접 실행해야 한다.
+
 ## 알려진 사고 사례
 
 - **카카오맵 JS 키 불일치(2026-07-21 발견·수정)**: Vercel `NEXT_PUBLIC_KAKAO_MAP_KEY`에 실수로 다른

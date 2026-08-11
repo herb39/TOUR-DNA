@@ -3,16 +3,29 @@ import { parseSyncCliArgs, SYNC_CLI_USAGE, type ParsedSyncCliArgs } from "../src
 import { validateBaseYmFormat } from "../src/lib/services/baseYm";
 import { findLatestCommonBaseYm } from "../src/lib/services/latestCommonBaseYm";
 import { probeTarSvcDemLive, probeTouResDemLive } from "../src/lib/services/baseYmProbeAdapters";
+import { getStagingDatasetBaseYm } from "../src/lib/services/activeDataset";
 import { prisma } from "../src/lib/db";
 
 /**
- * 기준월(baseYm) 결정 순서(2026-08-08 재설계): CLI 인자 → TOUR_DATA_BASE_YM 환경변수 → 최신 공통월
- * 자동 탐색. 이전에는 `process.argv[2]`를 그대로 baseYm으로 쓰고, 셋 다 없으면 DEFAULT_BASE_YM(고정
- * 상수)으로 조용히 넘어갔다 — 그 결과 `--base-ym=202606` 같은 플래그 형식을 그대로 문자열 값으로
- * 저장해버린 사고(정크 스냅샷 108건)가 있었고, 기준월이 굳어져 있어 지원지역이 늘어날수록 수동
- * 유지보수 부담도 커졌다. 이제는 셋 다 실패하면 API 호출·DB 쓰기 없이 즉시 종료한다.
+ * 기준월(baseYm) 결정 순서(2026-08-08 재설계, 2026-08-11 --dataset=staging 추가): --dataset=staging
+ * → CLI --base-ym 인자 → TOUR_DATA_BASE_YM 환경변수 → 최신 공통월 자동 탐색. 이전에는
+ * `process.argv[2]`를 그대로 baseYm으로 쓰고, 셋 다 없으면 DEFAULT_BASE_YM(고정 상수)으로 조용히
+ * 넘어갔다 — 그 결과 `--base-ym=202606` 같은 플래그 형식을 그대로 문자열 값으로 저장해버린 사고(정크
+ * 스냅샷 108건)가 있었고, 기준월이 굳어져 있어 지원지역이 늘어날수록 수동 유지보수 부담도 커졌다.
+ * 이제는 전부 실패하면 API 호출·DB 쓰기 없이 즉시 종료한다.
  */
 async function resolveBaseYm(cliResult: Extract<ParsedSyncCliArgs, { ok: true }>): Promise<string | null> {
+  if (cliResult.dataset === "staging") {
+    const stagingBaseYm = await getStagingDatasetBaseYm();
+    if (!stagingBaseYm) {
+      console.error("[sync-cli] --dataset=staging 지정됨 — 그러나 STAGING dataset이 없습니다.");
+      console.error("먼저 npm run dataset:discover로 새 기준월을 발견·등록하세요.");
+      return null;
+    }
+    console.log(`[sync-cli] --dataset=staging 지정 — 현재 STAGING baseYm 사용: ${stagingBaseYm}`);
+    return stagingBaseYm;
+  }
+
   if (cliResult.baseYm) {
     console.log(`[sync-cli] CLI 인자로 지정된 기준월 사용: ${cliResult.baseYm}`);
     return cliResult.baseYm;

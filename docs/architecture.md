@@ -82,6 +82,28 @@ CRON route / ADMIN route / CLI (scripts/sync-tourism-data.ts)
   → SyncLog에 API별 성공/실패/건수 기록
 ```
 
+### 4) 최신 데이터 발견 + STAGING 증분 sync (Phase 2-B, 2026-08-11, 운영자 CLI 전용)
+
+```
+npm run dataset:discover
+  → discoverLatestDataset()  [ACTIVE보다 최신인 공통월을 저비용으로 확인, 전국 지역 미조회]
+  → 새 월 없음 → 종료(Dataset 쓰기 없음)
+  → 새 월 있음 → ensureStagingDataset(baseYm)  [checkDataSyncTarget 통과 시에만 STAGING 생성,
+                                                  이미 다른 baseYm이 STAGING이면 생성 보류]
+
+npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N   (여러 회차 반복)
+  → getStagingDatasetBaseYm()으로 대상 baseYm 조회
+  → runResumableLocalBatchSync({baseYm, maxRegions})  [3)과 동일한 함수 — SUCCESS/EMPTY skip,
+                                                          429 안전 중단, regionCode ascending 순서]
+  → ACTIVE dataset의 DataSnapshot/NormalizedMetric은 baseYm이 달라 전혀 영향받지 않는다
+
+npm run dataset:status
+  → STAGING dataset은 checkDatasetCompleteness()로 진행률(완료 지역/255, ERROR, source별 현황)을
+    다시 계산해 보여준다(별도 컬럼 저장 없음)
+
+npm run dataset:activate -- --base-ym=<staging baseYm>   (사람이 직접 실행해야만 승격 — 자동 승격 없음)
+```
+
 ## 디렉터리 구조
 
 ```
@@ -111,7 +133,10 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
   fetchPoisByCategory.ts
   poiDetails.ts           fetchPoiDetailsInOrder, searchPoisInRegion(실행안 "장소 추가" 검색)
   analyzeProject.ts       runAnalysisForProject — 분석 실행+저장(baseYm은 activeDataset.ts에서만 받음)
-  activeDataset.ts        getActiveDatasetBaseYm/checkDatasetCompleteness/activateDataset(Phase 2-A, 2026-08-11)
+  activeDataset.ts        getActiveDatasetBaseYm/checkDatasetCompleteness/activateDataset(Phase 2-A) +
+                          ensureStagingDataset/getStagingDatasetBaseYm(Phase 2-B, 2026-08-11)
+  datasetDiscovery.ts     discoverLatestDataset — ACTIVE보다 최신인 공통월 저비용 탐지(Phase 2-B,
+                          2026-08-11, findLatestCommonBaseYm 재사용·전국 지역 미조회)
   tourismDataQualityAudit.ts  전국 dataset 완전성 판정 순수 함수(audit CLI·activeDataset.ts 공용)
   planService.ts          ensureSelectedPlan
   promoContentAdapter.ts  Prisma ↔ PromoContent 변환 경계(Evidence 매핑, JSON 직렬화, Phase 5-B)
@@ -120,7 +145,7 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
   llm/promoLlmGenerator.ts  홍보 채널 7종 생성 컨텍스트 구성 + 결과 Zod 재검증, 실패 시 rule 유지
   projectQueries.ts       목록/상세 조회 (읽기 전용 페이지용)
   regionQueries.ts        시도/시군구 드롭다운 옵션
-  syncService.ts          runTourismDataSync
+  syncService.ts          runTourismDataSync / runResumableLocalBatchSync(재개형 전국 배치, --dataset=staging도 이 함수를 그대로 재사용)
   cronAuth.ts             CRON_SECRET 검증
   baseYm.ts               기준월 계산 유틸(동기화 대상월 계산 — 분석 baseYm과는 별개, activeDataset.ts 참고)
   siteAuth.ts             SITE_ACCESS_PASSWORD 서명 쿠키 생성/검증(계정 없는 사이트 전체 게이트)
