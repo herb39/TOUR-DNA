@@ -19,10 +19,16 @@
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-/** 기본 모델(2026-08 기준, OpenRouter 무료 오픈모델) — 공모전 시연 목적상 유료 API 없이 자연스러운
+/** 기본 모델(2026-08-11, OpenRouter 무료 오픈모델) — 공모전 시연 목적상 유료 API 없이 자연스러운
  * 홍보 문구를 만드는 것이 목표다. 필요하면 OPENROUTER_PROMO_MODEL 환경변수로 재정의할 수 있지만,
- * 기본값은 항상 이 무료 모델이어야 한다. */
-const DEFAULT_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free";
+ * 기본값은 항상 이 무료 모델이어야 한다.
+ *
+ * 원래 기본값이었던 `qwen/qwen3-next-80b-a3b-instruct:free`는 실제 호출에서 404("This model is
+ * unavailable for free")를 반환해 사용할 수 없었다(OpenRouter 모델 카탈로그 조회 결과 Qwen 계열
+ * `:free` 모델 자체가 카탈로그에 존재하지 않았음). 실제 카탈로그에서 무료(가격 0/0)·
+ * structured_outputs 지원이 명시된 `google/gemma-4-26b-a4b-it:free`로 교체해 실제 호출(HTTP 200,
+ * json_schema strict 성공, 7채널 Zod 검증 통과, 자연스러운 한국어 출력)로 확인했다. */
+const DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free";
 const DEFAULT_MAX_TOKENS = 4000;
 /** Vercel 서버리스 함수의 기본 실행 시간 내에서 fallback까지 여유 있게 끝나도록 공공데이터 API
  * timeout(8초)보다 넉넉하게 잡되, 요청이 무한정 걸리지 않도록 상한을 둔다. 무료 오픈모델은 유료

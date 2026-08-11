@@ -21,7 +21,7 @@ const baseOptions = {
 
 function chatCompletion(contentObj: unknown, overrides: Record<string, unknown> = {}) {
   return {
-    model: "qwen/qwen3-next-80b-a3b-instruct:free",
+    model: "google/gemma-4-26b-a4b-it:free",
     choices: [{ message: { role: "assistant", content: JSON.stringify(contentObj) } }],
     usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
     ...overrides,
@@ -49,9 +49,9 @@ describe("isPromoLlmConfigured / resolvePromoLlmModel", () => {
     expect(isPromoLlmConfigured()).toBe(true);
   });
 
-  it("OPENROUTER_PROMO_MODEL이 없으면 기본 무료 Qwen 모델을 쓴다", () => {
+  it("OPENROUTER_PROMO_MODEL이 없으면 기본 무료 Gemma 모델을 쓴다", () => {
     delete process.env.OPENROUTER_PROMO_MODEL;
-    expect(resolvePromoLlmModel()).toBe("qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(resolvePromoLlmModel()).toBe("google/gemma-4-26b-a4b-it:free");
   });
 
   it("OPENROUTER_PROMO_MODEL이 있으면 그 값을 쓴다", () => {
@@ -85,7 +85,7 @@ describe("callPromoLlmTool", () => {
       ok: true,
       input: { hello: "world" },
       usage: {
-        model: "qwen/qwen3-next-80b-a3b-instruct:free",
+        model: "google/gemma-4-26b-a4b-it:free",
         promptTokens: 100,
         completionTokens: 50,
         totalTokens: 150,
@@ -168,7 +168,7 @@ describe("callPromoLlmTool", () => {
     const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer sk-or-test");
     const body = JSON.parse((call[1] as RequestInit).body as string);
-    expect(body.model).toBe("qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(body.model).toBe("google/gemma-4-26b-a4b-it:free");
     expect(body.messages).toEqual([
       { role: "system", content: "system prompt" },
       { role: "user", content: "user prompt" },
