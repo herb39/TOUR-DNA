@@ -337,13 +337,14 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 
 ---
 
-# Part 3. 2026-08-11 현재 상태 및 다음 작업
+# Part 3. 2026-08-12 현재 상태 및 다음 작업
 
-> Part 1/2는 2026-07-20~23 시점 원본 계획으로 그대로 보존한다. 그 사이(특히 2026-08-08~11) 실제로
+> Part 1/2는 2026-07-20~23 시점 원본 계획으로 그대로 보존한다. 그 사이(특히 2026-08-08~12) 실제로
 > 진행된 작업은 Part 1/2가 세운 계획과 상당 부분 다른 방식으로 구현됐다 — 예를 들어 P1-6(Phase 2)은
 > "기존 `DataSource`에 필드 3개만 추가"로 계획했지만, 실제로는 신규 `Dataset` 모델(baseYm+status)을
 > 만드는 방식으로 구현됐다. 아래는 그 실제 결과와, 이어서 진행할 다음 우선순위다. 상세 근거는
-> [docs/implementation-status.md](implementation-status.md)의 "2026-08-11 종합 갱신" 절 참고.
+> [docs/implementation-status.md](implementation-status.md)의 "2026-08-11 종합 갱신"/"2026-08-12
+> 갱신 — Phase 2-C" 절 참고.
 
 ## 1. 이미 완료된 것 (로컬 DB 기준, Production 미반영)
 
@@ -362,22 +363,34 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
   `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=<N>`로 기존
   resumable sync를 그대로 재사용해 여러 회차에 나눠 진행하고, `npm run dataset:status`가 STAGING
   진행률(완료 지역/전국 255, ERROR 수, source별 현황)을 보여준다. STAGING → ACTIVE 자동 승격(Phase
-  2-C)은 이번에도 구현하지 않았다 — 승격은 여전히 사람이 `npm run dataset:activate`를 직접 실행해야
-  한다. 상세는 [docs/implementation-status.md](implementation-status.md) 참고.
+  2-C)은 이번 시점 기준 구현하지 않았었다 — 아래 참고, 2026-08-12에 구현 완료했다.
+- **(2026-08-12 추가) Phase 2-C — Dataset Validation + DNA Drift Gate + Safe Promotion**:
+  `src/lib/services/datasetPromotion.ts`의 `promoteDataset()`이 completeness/audit(Phase 2-A
+  `checkDatasetCompleteness` 그대로 재사용) 통과 후 DNA drift gate(`src/lib/domain/
+  datasetDriftGate.ts` + `src/lib/services/datasetDriftReport.ts`)까지 통과해야만 실제로 ACTIVE를
+  바꾸는 단일 promotion 경로다. `npm run dataset:activate`는 더 이상 `activateDataset()`을 직접
+  호출하지 않고 이 경로를 거친다 — completeness만 통과하면 즉시 승격되던 Phase 2-A 시점의 우회
+  가능성을 없앴다. 판정은 새 DB enum 없이 함수 반환값(PASS/REVIEW_REQUIRED/BLOCKED)으로만
+  관리한다. DNA 5축 median/p90/p95/rank correlation/decile churn, strength/weakness 변화, 대표
+  seed 10곳 유사지역 Top3 변화, 역할 3종(TRAVEL_AGENCY/LOCAL_GOV/FESTIVAL_PLANNER) QA 시나리오
+  3개의 전략 1위 변화를 전부 확인하며, DNA/정규화/유사도/전략 산식은 전혀 새로 만들지 않고 기존
+  production 함수만 재사용했다. threshold는 실제 두 번째 전국 dataset의 월간 drift를 관측하기
+  전까지는 잠정 보수치다(`DRIFT_GATE_THRESHOLDS`). 읽기 전용 `npm run dataset:drift -- --base-ym=`
+  로 승격 없이 결과만 미리 볼 수 있다. `npm run dataset:status`는 STAGING에 대해
+  `INCOMPLETE`/`READY_FOR_DRIFT_CHECK`까지만 보여주고, 무거운 drift 계산은 자동 수행하지 않는다.
+  상세는 [docs/implementation-status.md](implementation-status.md)의 "2026-08-12 갱신" 절 참고.
 
 ## 2. 다음 우선순위
 
-1. **Phase 2-C — Validation + Promotion**: 255/255 completeness + tourism audit PASS + **DNA drift
-   gate**(축별 median/p90/p95 변화, region별 median absolute drift, Spearman rank correlation,
-   top/bottom decile churn, similarity Top-N 변화, strength/weakness 변화율, 대표/샘플 시나리오
-   전략 1위 변화율, 신규 extreme raw value 탐지)를 모두 통과해야 자동 ACTIVE 승격, 실패 시 기존
-   ACTIVE 유지. threshold는 아직 확정하지 않았다.
-2. **TOUR_INFO(POI) 재수집 정책 재검토**: Phase 2-B 구현 중 확인한 사실 — `fetchTourInfo`는
+1. **TOUR_INFO(POI) 재수집 정책 재검토**: Phase 2-B 구현 중 확인한 사실 — `fetchTourInfo`는
    baseYm에 종속되지 않는 정적 API이고 `Poi` 모델에도 baseYm 필드가 없는데, `DataSnapshot`은
    baseYm별로 기록되기 때문에 새 STAGING baseYm마다 TOUR_INFO를 처음부터 다시 전국 재수집하게
-   된다(내용이 안 바뀌어도 quota를 쓴다). 이번 라운드에서는 TTL 정책을 구현하지 않았고
+   된다(내용이 안 바뀌어도 quota를 쓴다). 이번 라운드에서도 TTL 정책을 구현하지 않았고
    `checkDatasetCompleteness`도 TOUR_INFO를 여전히 필수 source로 취급한다 — 별도 TTL 도입이 적절해
    보이지만 Phase 2-D 후보로만 남긴다.
+2. **Drift gate threshold 재조정**: 실제 두 번째 전국 dataset(예: 202607)이 완성되어 진짜 월간
+   drift 분포를 관측하면, `DRIFT_GATE_THRESHOLDS`(2026-08-12 잠정치)를 그 실측 데이터 기준으로
+   다시 검토해야 한다.
 3. **Demand 축 기술부채 검토**: `touResDemIxVal`이 전국 255개 지역 중 7개(2.8%)에서만 존재해,
    244개 지역(97%)의 Demand 점수가 사실상 `tarSvcDemIxVal` 단일 metric으로 결정된다. 이 metric
    coverage를 늘릴 수 있는지, 아니면 이 사실을 사용자에게 더 명확히 알릴지 검토가 필요하다.
@@ -385,12 +398,14 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
    3개 지역에서만 존재해, Network 축의 relation 가중치(20%)가 나머지 252개 지역에서 사실상 항상
    0으로 처리된다. 실제 API 확보 가능 여부 재조사 또는 가중치 재검토가 필요하다(단, 가중치 변경
    자체는 별도 명시적 승인이 있을 때만 진행).
-5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: Phase 2-C 완료 후 전국 규모에서 실제로
-   의미 있는 다음 제품 기능(관리자 모니터링, 프로젝트별 접근 제어 세분화, 카카오모빌리티 실제 경로
-   확대 등)의 우선순위를 다시 정한다.
+5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: 전국 규모에서 실제로 의미 있는 다음 제품 기능
+   (관리자 모니터링, 프로젝트별 접근 제어 세분화, 카카오모빌리티 실제 경로 확대 등)의 우선순위를
+   다시 정한다.
 
 ## 3. 진행하지 않는 것
 
-이번 라운드는 Phase 2-C(감사 PASS + DNA drift gate 통과 후 자동 승격)를 구현하지 않았다 — Phase 2-B
-(발견 + STAGING 생성 + 증분 sync)까지만 완료했고, 승격은 여전히 사람이 CLI로 수동 실행해야 한다.
-TOUR_INFO TTL, DNA weight·전략 scoring·POI 추천 로직도 이번 라운드에서 변경하지 않았다.
+Phase 2-C까지 완료했지만, 다음은 여전히 하지 않았다: 완전 자동(사람 개입 없는) 승격 스케줄링(사람이
+`npm run dataset:activate`를 직접 실행해야만 승격됨), ACTIVE가 한 번도 없는 완전 신규 환경의
+부트스트랩(항상 기존 ACTIVE와 비교하는 구조라 이 경우는 다루지 않음 — 필요해지면 별도 운영자
+비상절차 검토), drift gate threshold의 실측 기반 확정(다음 전국 dataset이 나와야 가능), TOUR_INFO
+TTL, DNA weight·전략 scoring·POI 추천 로직 변경.

@@ -88,8 +88,15 @@ TOUR-DNA는 기관과 기업이 관광사업을 기획하고 예산·협력·성
   최신월 저비용 탐지 + STAGING 생성 + 기존 resumable sync 재사용 증분 수집)는 구현 완료**했다 —
   `npm run dataset:discover`로 새 baseYm을 발견하면 STAGING만 생성하고(ACTIVE는 안 바뀜),
   `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`으로 여러 회차에
-  나눠 채운 뒤 `npm run dataset:status`로 진행률을 확인한다. Phase 2-C(감사 PASS + DNA drift gate
-  통과 후 자동 승격)는 아직 미구현이다.
+  나눠 채운 뒤 `npm run dataset:status`로 진행률을 확인한다. **Phase 2-C(completeness/audit +
+  DNA drift gate 통과 후에만 승격 허용)도 구현 완료**했다(2026-08-12) — `npm run dataset:activate`가
+  이제 completeness만 보고 바로 승격하지 않고, 내부적으로 DNA 5축 drift(전국 median/p90/p95/rank
+  correlation/decile churn)·strength·weakness 변화·유사지역 Top3 변화·대표 시나리오 전략 1위 변화를
+  전부 확인해 PASS일 때만 승격한다. REVIEW_REQUIRED/BLOCKED면 기존 ACTIVE를 그대로 두고 사람이
+  검토해야 한다 — `--force`/`--skip-drift` 같은 우회 옵션은 없다. 승격 전에 미리 결과만 보려면
+  읽기 전용 `npm run dataset:drift -- --base-ym=YYYYMM`을 쓴다. threshold는 아직 실제 두 번째
+  전국 dataset의 월간 drift를 관측하기 전이라 잠정값이다(`src/lib/domain/datasetDriftGate.ts`의
+  `DRIFT_GATE_THRESHOLDS` 참고).
 - **홍보 콘텐츠 LLM(OpenRouter)**: provider는 OpenRouter, 기본 모델은 무료 티어
   `google/gemma-4-26b-a4b-it:free`(`OPENROUTER_API_KEY`/`OPENROUTER_PROMO_MODEL` 환경변수, Anthropic
   연동은 완전히 제거됨). 7개 채널(제안서 요약/랜딩/Instagram/블로그/카드뉴스/숏폼/역할별 콘텐츠)을
@@ -523,9 +530,10 @@ npm run build
 
 ### 전국 실사용 베타 확장
 
-2026-08-11 기준 로컬 DB에서는 전국 SIGUNGU 255/255 동기화·품질 감사(PASS)·DNA 분석 가능 확인, 그리고
-최신 기준월 저비용 발견 + STAGING 증분 sync(Phase 2-B) 기반까지 끝났습니다(아래 표의 1~6단계에
-해당). 남은 항목은 **자동 승격·운영 안정성**이며, 단순 지역 수 확대 작업은 아닙니다.
+2026-08-12 기준 로컬 DB에서는 전국 SIGUNGU 255/255 동기화·품질 감사(PASS)·DNA 분석 가능 확인, 최신
+기준월 저비용 발견 + STAGING 증분 sync(Phase 2-B), 그리고 completeness/audit + DNA drift gate를
+통과해야만 승격되는 안전 승격 경로(Phase 2-C)까지 끝났습니다(아래 표의 1~7단계에 해당). 남은 항목은
+**자동 승격(사람 개입 없는 스케줄링)·운영 안정성**이며, 단순 지역 수 확대 작업은 아닙니다.
 
 | 단계 | 작업 | 상태 |
 |---:|---|---|
@@ -533,9 +541,9 @@ npm run build
 | 2 | 지역별 배치·재시도·중단 재개가 가능한 동기화 파이프라인 | **완료(로컬)** — `runResumableLocalBatchSync`, `--max-regions` 청크, 429 안전 중단 |
 | 3 | 전국 최초 적재·누락·기준월·이상치 검증 | **완료(로컬)** — `npm run audit:tourism-data` PASS, ERROR 0 |
 | 4 | 전국 POI 증분 동기화·중복·폐업·분류·추천 품질 관리 | 부분 완료 — 최초 적재는 끝났고, 증분/폐업 감지는 TODO |
-| 5 | 검증된 기준월만 분석에 쓰는 기반(ACTIVE Dataset) | **완료(로컬, Phase 2-A)** — 자동 승격(Phase 2-C)은 TODO |
+| 5 | 검증된 기준월만 분석에 쓰는 기반(ACTIVE Dataset) | **완료(로컬, Phase 2-A)** |
 | 6 | source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync(Phase 2-B) | **완료(로컬)** — `npm run dataset:discover`, `sync:tourism-data -- --dataset=staging`, `dataset:status` 진행률 표시 |
-| 7 | 감사 PASS + DNA drift gate 통과 후 자동 ACTIVE 승격(Phase 2-C) | TODO |
+| 7 | completeness/audit + DNA drift gate 통과 시에만 승격하는 안전 경로(Phase 2-C) | **완료(로컬)** — `npm run dataset:drift`(읽기 전용 사전 확인), `dataset:activate`가 내부적으로 drift gate를 거침. **완전 자동(사람 개입 없는) 승격은 아직 없음** — PASS여도 사람이 `dataset:activate`를 직접 실행해야 한다 |
 | 8 | 동기화 성공률·실패 지역·API 사용량 운영 화면 | TODO |
 
 **로컬 DB 기준으로 완료된 것이며, Production Neon DB/Vercel 배포에는 아직 반영·검증하지 않았다** —

@@ -98,11 +98,34 @@ npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N   (
   → ACTIVE dataset의 DataSnapshot/NormalizedMetric은 baseYm이 달라 전혀 영향받지 않는다
 
 npm run dataset:status
-  → STAGING dataset은 checkDatasetCompleteness()로 진행률(완료 지역/255, ERROR, source별 현황)을
-    다시 계산해 보여준다(별도 컬럼 저장 없음)
-
-npm run dataset:activate -- --base-ym=<staging baseYm>   (사람이 직접 실행해야만 승격 — 자동 승격 없음)
+  → STAGING dataset은 checkDatasetCompleteness()로 진행률(완료 지역/255, ERROR, source별 현황)과
+    promotion readiness(INCOMPLETE/READY_FOR_DRIFT_CHECK)를 보여준다(별도 컬럼 저장 없음, 무거운
+    drift 계산은 자동 수행하지 않음)
 ```
+
+### 5) STAGING → ACTIVE 안전 승격 (Phase 2-C, 2026-08-12, 운영자 CLI 전용)
+
+```
+npm run dataset:drift -- --base-ym=<staging baseYm>   (READ-ONLY, DB 쓰기 없음 — 승격 전 미리보기)
+npm run dataset:activate -- --base-ym=<staging baseYm>
+  → promoteDataset(baseYm)
+      → evaluateDatasetPromotion(baseYm)
+          → dataset 존재? status===STAGING? ACTIVE 존재? target>ACTIVE? (BLOCKED면 여기서 종료,
+            무거운 DNA 재계산 시작 안 함)
+          → checkDatasetCompleteness(baseYm)  [Phase 2-A 재사용, completeness+audit 동시 판정]
+          → computeDatasetDriftReport(activeBaseYm, baseYm)
+              → fetchRegionComparisonProfiles(baseYm) x2  [ACTIVE·candidate 전국 255개 DNA 재계산 —
+                                                              기존 유사지역 비교와 동일 함수 재사용]
+              → computeAxisDriftReport() x5축  [median/p90/p95/Spearman/decile churn/cohort 변화]
+              → deriveStrongestWeakestAxis() 기반 strength/weakness drift
+              → computeRegionSimilarityComparisons() — 대표 seed 10곳만
+              → computeStrategies() — QA 대표 시나리오 3개(TRAVEL_AGENCY/LOCAL_GOV/FESTIVAL_PLANNER)
+          → decideDriftGateVerdict() → PASS | REVIEW_REQUIRED | BLOCKED
+      → PASS일 때만 activateDataset(baseYm) 호출(기존 ACTIVE→ARCHIVED, candidate→ACTIVE)
+      → REVIEW_REQUIRED/BLOCKED면 어떤 DB 쓰기도 없이 기존 ACTIVE 유지
+```
+`--force`/`--skip-drift` 같은 우회 옵션은 없다 — `dataset:activate`가 drift gate를 우회할 방법이
+CLI 수준에서 없다.
 
 ## 디렉터리 구조
 
@@ -126,6 +149,10 @@ src/lib/domain/          순수 함수, DB/Next 의존 없음, 유닛테스트 �
   constants.ts           MODEL_VERSION
   promoContent.ts        buildPromoContent — 홍보자료 7채널 결정론적 생성(Phase 5-A, rule fallback 원천)
   promoContentFormat.ts  홍보자료 복사용 텍스트 포맷 순수 함수(Phase 5-C)
+  regionSimilarity.ts    computeRegionSimilarityComparisons — 유사지역 Top3 비교(2026-08-02)
+  datasetDriftGate.ts    axis drift 통계(percentile/Spearman/decile churn)·strength-weakness drift·
+                          similarity/전략 drift 집계·PASS/REVIEW_REQUIRED/BLOCKED 판정(Phase 2-C,
+                          2026-08-12, DB 접근 없는 순수 함수)
 
 src/lib/services/        DB 조회·조립 (Prisma 사용)
   db.ts                  PrismaClient 싱글턴(driver adapter 사용, Prisma 7)
@@ -137,6 +164,11 @@ src/lib/services/        DB 조회·조립 (Prisma 사용)
                           ensureStagingDataset/getStagingDatasetBaseYm(Phase 2-B, 2026-08-11)
   datasetDiscovery.ts     discoverLatestDataset — ACTIVE보다 최신인 공통월 저비용 탐지(Phase 2-B,
                           2026-08-11, findLatestCommonBaseYm 재사용·전국 지역 미조회)
+  datasetDriftReport.ts   computeDatasetDriftReport — ACTIVE/candidate 두 baseYm의 DNA/유사지역/
+                          전략을 실제로 재계산해 비교(Phase 2-C, 2026-08-12, 기존 production 함수만
+                          재사용, 산식 재구현 없음)
+  datasetPromotion.ts     evaluateDatasetPromotion/promoteDataset — completeness→drift gate 순으로
+                          확인해 PASS일 때만 승격하는 단일 경로(Phase 2-C, 2026-08-12)
   tourismDataQualityAudit.ts  전국 dataset 완전성 판정 순수 함수(audit CLI·activeDataset.ts 공용)
   planService.ts          ensureSelectedPlan
   promoContentAdapter.ts  Prisma ↔ PromoContent 변환 경계(Evidence 매핑, JSON 직렬화, Phase 5-B)

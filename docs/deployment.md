@@ -123,12 +123,21 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 1. `npm run db:migrate`로 `20260811060333_add_dataset_registry`를 포함한 누적 migration을 적용한다
    (additive — 신규 테이블 하나만 생성, 기존 데이터 변경 없음).
 2. 해당 baseYm의 전국 데이터가 이미 완전하다면(`npm run audit:tourism-data -- --base-ym=YYYYMM`
-   PASS) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE 설정한다 — completeness 검증을
-   통과하지 못하면 자동으로 거부되고 DB에 아무것도 쓰지 않는다.
+   PASS) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE 설정한다.
 3. `npm run dataset:status`로 정확히 1개의 ACTIVE만 있는지 확인한다.
 4. ACTIVE가 설정되지 않은 상태에서는 신규 프로젝트 분석이 명확한 오류로 안전하게 실패한다(다른
    baseYm으로 조용히 대체하지 않음) — Production에 처음 도입할 때는 배포 직후 반드시 1단계를 먼저
    수행해야 한다.
+
+> **2026-08-12 갱신 — Production 최초 ACTIVE 설정 시 알아야 할 것**: 아래 "Phase 2-C" 절 도입 이후
+> `npm run dataset:activate`는 항상 **기존 ACTIVE와의 DNA drift 비교**를 거친다(`evaluateDatasetPromotion`이
+> "ACTIVE 존재" 자체를 사전조건으로 요구). 즉 Production처럼 **ACTIVE가 한 번도 설정된 적 없는
+> 상태에서는 이 명령이 비교 기준이 없다는 이유로 항상 BLOCKED된다** — 위 2번 절차는 로컬에서
+> 202606을 최초로 ACTIVE로 설정했을 때(그 시점엔 아직 drift gate가 없었다)는 그대로 통했지만,
+> Production 최초 도입 시점에는 그대로 통하지 않는다. Production 최초 ACTIVE 설정은 아직 정식
+> 절차가 없다 — 별도 운영자 비상절차(예: `activateDataset()`을 drift gate 없이 직접 1회 호출하는
+> 스크립트를 그때 가서 작성)로 처리해야 하며, 이 문서가 그 절차를 먼저 확정하기 전까지는 시도하지
+> 않는다.
 
 **Phase 2-B(source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync)는 로컬에서 구현·검증 완료했지만
 (2026-08-11), 이 절차도 아직 Production에는 적용하지 않았다.** Production에 반영하려면 위 1번
@@ -140,10 +149,16 @@ migration 적용 후:
 6. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 API 일일 호출
    한도를 고려한 `N`으로 여러 회차에 나눠 실행해 STAGING baseYm의 전국 데이터를 채운다(이미 성공한
    지역×소스는 자동으로 건너뛰고, 429가 감지되면 그 시점까지 결과를 보존한 채 안전하게 종료한다).
-7. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR, source별 현황)을 확인하고, 완료되면
-   2번(`npm run audit:tourism-data -- --base-ym=YYYYMM` PASS)과 위 3번(`npm run dataset:activate`)을
-   그대로 실행해 승격한다.
+7. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR, source별 현황)과 promotion
+   readiness(`READY_FOR_DRIFT_CHECK`)를 확인한다. `READY_FOR_DRIFT_CHECK`면 읽기 전용
+   `npm run dataset:drift -- --base-ym=YYYYMM`으로 DNA drift 결과를 먼저 확인한 뒤, 위 2번
+   (`npm run dataset:activate`)을 실행해 승격을 시도한다.
 
-Phase 2-C(감사 PASS + DNA drift gate 통과 후 자동 ACTIVE 승격)는 아직 구현하지 않았다 — 지금은
-사람이 `dataset:discover`/`sync:tourism-data -- --dataset=staging`/`dataset:activate`를 순서대로
-수동 실행해야 한다.
+**Phase 2-C(completeness/audit + DNA drift gate 통과 시에만 승격 — `evaluateDatasetPromotion`/
+`promoteDataset`, `src/lib/services/datasetPromotion.ts`)도 로컬에서 구현·검증 완료했다**
+(2026-08-12) — 위 2번(`npm run dataset:activate`)이 이제 자동으로 이 gate를 거친다. `--force`/
+`--skip-drift` 같은 우회 옵션은 없다. threshold는 실제 두 번째 전국 dataset의 월간 drift를 관측하기
+전이라 잠정치다(`src/lib/domain/datasetDriftGate.ts`의 `DRIFT_GATE_THRESHOLDS`). 이 절차도 아직
+Production에는 적용하지 않았고, 위 "Production 최초 ACTIVE 설정 시 알아야 할 것" 캡션에서 설명한
+대로 **Production의 최초(첫) ACTIVE 설정에는 이 새 gate가 그대로 적용되지 않는다**(비교할 기존
+ACTIVE가 없기 때문) — 완전 자동(사람 개입 없는) 승격 스케줄링도 아직 없다.

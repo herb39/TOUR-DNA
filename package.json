@@ -30,7 +30,8 @@
     "audit:tourism-data": "tsx --env-file=.env.local scripts/audit-tourism-data.ts",
     "dataset:activate": "tsx --env-file=.env.local scripts/activate-dataset.ts",
     "dataset:status": "tsx --env-file=.env.local scripts/dataset-status.ts",
-    "dataset:discover": "tsx --env-file=.env.local scripts/dataset-discover.ts"
+    "dataset:discover": "tsx --env-file=.env.local scripts/dataset-discover.ts",
+    "dataset:drift": "tsx --env-file=.env.local scripts/dataset-drift.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

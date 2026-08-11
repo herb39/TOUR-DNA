@@ -1,11 +1,15 @@
-# 구현 상태 (2026-08-11 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B·홍보 LLM 반영)
+# 구현 상태 (2026-08-12 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B/2-C·홍보 LLM 반영)
 
+> **2026-08-12 최신 요약**: completeness/audit(Phase 2-A)만 통과하면 바로 승격되던 것과 달리,
+> **STAGING dataset이 ACTIVE로 승격되려면 이제 DNA drift gate까지 통과해야 한다(Phase 2-C)** —
+> `npm run dataset:activate`가 내부적으로 completeness → audit → DNA drift → 판정 순으로 확인하고
+> PASS일 때만 실제로 승격한다. 상세는 맨 아래 "## 2026-08-12 갱신 — Phase 2-C" 절 참고.
+>
 > **2026-08-11 최신 요약**: 이 문서는 2026-08-07 이후 갱신이 멈춰 있었다. 그 사이(2026-08-08~11)
 > 진행된 핵심 변경 — 전국 SIGUNGU 255/255 동기화 완료, Demand/Spend DNA normalization을 log1p로
 > 개선, 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 도입, 최신 데이터 발견 + 증분/재개형 전국
-> 동기화(Phase 2-B) 도입, OpenRouter 무료 LLM(Gemma) 기반 홍보 콘텐츠 생성 도입 — 은 맨 아래
-> "## 2026-08-11 종합 갱신" 절에 정리했다. 그 사이 시점의 기존 섹션(Batch 1/2/3 지역 확대 등)은
-> 그대로 보존한다.
+> 동기화(Phase 2-B) 도입, OpenRouter 무료 LLM(Gemma) 기반 홍보 콘텐츠 생성 도입 — 은 "## 2026-08-11
+> 종합 갱신" 절에 정리했다. 그 사이 시점의 기존 섹션(Batch 1/2/3 지역 확대 등)은 그대로 보존한다.
 
 > 최초 작성 2026-07-23(REVIEW_ONLY 재검증), 2026-07-26 Phase 5-A~5-C+보완·문서 갱신·Phase 4, 2026-07-27
 > P0-2(대표 시나리오 3개), 2026-07-29 사용자 화면 데이터 신뢰도 1차 개선, 2026-07-29~30 역할 적합도·
@@ -1419,3 +1423,87 @@ resumable하게 수집하는" 운영 기반을 추가했다. **STAGING → ACTIV
 LLM 통합, timeout 버그 수정, **Phase 2-B 증분 sync 기반**)은 GitHub `main`에는 push됐지만,
 **Production Neon DB에 migration을 적용하지도, Vercel에 재배포하지도 않았다.** Production에
 반영하려면 `docs/deployment.md`의 "검증된 데이터셋(ACTIVE Dataset)" 절 절차를 따라야 한다.
+
+## 2026-08-12 갱신 — Phase 2-C(Dataset Validation + DNA Drift Gate + Safe Promotion)
+
+> 이 절도 로컬 PostgreSQL(`tour_dna_local`) 기준으로만 검증했다. GitHub `main`에는 push했지만
+> **Production Neon DB/Vercel 배포에는 반영·검증하지 않았다.**
+
+Phase 2-B(발견 + STAGING 증분 sync)에 이어, "STAGING dataset이 수집 완료됐다는 이유만으로 바로
+ACTIVE가 되지 않고, completeness·품질 감사·DNA 변화 안정성까지 검증한 뒤 안전한 dataset만 ACTIVE로
+승격할 수 있는 단일 promotion 경로"를 추가했다. **실제 월간 historical drift를 관측할 수 있는
+전국 규모 dataset이 아직 202606 하나뿐이라, 이번 라운드에서는 정교한 threshold를 확정하지 않고
+"명백한 위험을 막는 fail-safe gate + 상세 report + 단일 promotion 경로"에 집중했다.**
+
+1. **기존 activation 우회 위험 제거**: Phase 2-A의 `npm run dataset:activate`는 completeness만
+   통과하면 즉시 ACTIVE로 승격했다 — drift 크기와 무관하게 항상 우회 가능한 경로였다. 이제
+   `scripts/activate-dataset.ts`는 `activateDataset()`을 직접 호출하지 않고, 새 단일 경로
+   `src/lib/services/datasetPromotion.ts`의 `promoteDataset()`을 거친다. `--force`/`--skip-drift`
+   같은 우회 옵션은 의도적으로 추가하지 않았다.
+2. **Promotion 판정 구조(PASS/REVIEW_REQUIRED/BLOCKED)**: 새 DB 상태(enum)를 추가하지 않고
+   함수 반환값으로만 관리한다(`src/lib/domain/datasetDriftGate.ts`의 `PromotionVerdict`).
+   - `BLOCKED`: dataset 미존재, STAGING 아님, ACTIVE 없음, target baseYm이 ACTIVE보다 최신이
+     아님, completeness/audit 미통과, 비교 가능 지역 수 심각히 부족(<50), DNA 계산 결과에
+     NaN/Infinity 포함 — 명백한 문제만 여기 해당한다.
+   - `REVIEW_REQUIRED`: 위 문제는 없지만 drift가 임계값을 넘어 사람의 확인이 필요한 경우.
+   - `PASS`: 위 둘 다 아님 — 이때만 실제로 ACTIVE 승격이 진행된다.
+3. **Promotion 사전조건 순서(`evaluateDatasetPromotion`, `src/lib/services/datasetPromotion.ts`)**:
+   (1) dataset 존재 → (2) status===STAGING → (3) ACTIVE 존재 → (4) target baseYm > ACTIVE baseYm →
+   (5) `checkDatasetCompleteness`(Phase 2-A 그대로 재사용, completeness+audit 동시 판정) → (6) DNA
+   drift report 계산(`computeDatasetDriftReport`, `src/lib/services/datasetDriftReport.ts`) → (7)
+   `decideDriftGateVerdict`로 최종 판정. 앞 단계에서 BLOCKED가 나오면 그 뒤(특히 무거운 DNA 재계산)는
+   시작하지 않는다 — 실제 DB 기반 테스트로 "dataset 미존재/STAGING 아님/ACTIVE 없음" 케이스에서
+   `computeDatasetDriftReport`가 전혀 호출되지 않음을 확인했다.
+4. **DNA drift 계산은 기존 production 함수만 재사용**: `buildDnaEngineInput`/`computeDna`/
+   `fetchRegionComparisonProfiles`/`computeRegionSimilarityComparisons`/`computeStrategies`를 ACTIVE
+   baseYm과 candidate baseYm 양쪽에 대해 각각 호출해서 비교만 한다 — DNA/정규화/유사도/전략 산식은
+   전혀 새로 만들지 않았다. `fetchRegionComparisonProfiles`가 이미 매 프로젝트 분석마다 전국 255개
+   지역 규모로 실행되고 있어, drift report가 이를 baseYm 2개에 대해 두 번 호출하는 것은 신규 성능
+   문제가 아니다.
+5. **축별 drift 지표(`computeAxisDriftReport`)**: 5축(Demand/Stay/Spend/Diversity/Network) 각각에
+   대해 comparable region count, median/p90/p95(선형보간 percentile, 양쪽 baseYm) 및 delta, 지역별
+   절대차의 mean/median/p90/max, tie를 평균 순위로 보정한 Spearman rank correlation, top/bottom
+   decile 유지율·신규 진입·이탈, cohort 변화(신규 편입/이탈 지역, active/candidate max, candidate
+   p95, candidate p95를 뚜렷하게 초과하는 신규 편입 지역=신규 극단값 경보)를 계산한다.
+6. **strength/weakness drift**: 문자열 파싱 대신 5축 원점수를 직접 비교해 "가장 강한/가장 약한 축"을
+   결정적으로 판정하고(`deriveStrongestWeakestAxis`, 동점은 축 정의 순서로 고정 tie-break), 두
+   baseYm 사이에 이 두 축이 바뀐 지역의 비율을 집계한다.
+7. **similarity/전략 drift는 대표 seed·시나리오로 검증**: 전국 255×255 규모 유사도 재계산은 비용이
+   커서, 유형별로 명시 선정한 seed 10곳(강릉·경주·제천·서울 중구·강남구·제주시·해운대구·평창군·
+   남해군·충주시 — `SIMILARITY_DRIFT_SEED_REGION_CODES`)에서만 `computeRegionSimilarityComparisons`의
+   Top3 변화(overlap, Top1 유지 여부)를 확인한다. 전략은 역할 3종(TRAVEL_AGENCY/LOCAL_GOV/
+   FESTIVAL_PLANNER)을 모두 겪어보도록 QA 전용 대표 시나리오 3개(`DRIFT_QA_SCENARIOS`,
+   `datasetDriftReport.ts`)를 새로 정의해 `computeStrategies`를 그대로 호출하고 1위 전략 변경 여부를
+   비교한다 — 기존 `contestScenarios.ts`(강릉/경주/제천 대표 시나리오)는 역할이 TRAVEL_AGENCY/
+   LOCAL_GOV뿐이라 FESTIVAL_PLANNER 커버리지를 위해 별도로 만들었다(둘 다 seed/시나리오 목록은
+   랜덤이 아니라 코드에 고정 배열로 명시).
+8. **적용한 threshold와 근거(잠정치, `DRIFT_GATE_THRESHOLDS`, `datasetDriftGate.ts`에 중앙화)**:
+   실제 두 번째 전국 dataset(예: 202607)이 완성돼 진짜 월간 drift 분포를 관측하기 전까지는
+   "확정된 통계적 기준"이 아니라 "이 정도면 사람이 한 번 더 보는 게 안전하다"는 보수적 안전장치임을
+   문서와 코드 양쪽에 명시했다 — 축별 median absolute delta 15점 초과, Spearman 0.85 미만,
+   strength/weakness 변화율 25% 초과, 유사지역 평균 Top3 overlap 2.0 미만, 0/3 overlap 1건 초과,
+   대표 시나리오 전략 1위 변경 비율 50% 초과 중 하나라도 해당하면 REVIEW_REQUIRED. 비교 가능 지역
+   수 50 미만이거나 계산 결과에 NaN/Infinity가 섞이면 BLOCKED. **다음 전국 dataset이 실제로
+   완성되면 이 문서의 이 항목부터 재검토해야 한다.**
+9. **CLI**: 신규 읽기 전용 `npm run dataset:drift -- --base-ym=YYYYMM`(어떤 DB 쓰기도 하지 않음,
+   completeness/축별 drift/strength·weakness/similarity/전략 전체를 출력). `npm run dataset:activate`
+   는 이제 내부적으로 `promoteDataset()`을 호출해 REVIEW_REQUIRED/BLOCKED면 거부 사유를 출력하고
+   기존 ACTIVE를 그대로 유지한다. `npm run dataset:status`는 STAGING dataset에 대해
+   `INCOMPLETE`/`READY_FOR_DRIFT_CHECK` promotion readiness를 보여주되, 무거운 drift 계산 자체는
+   자동으로 수행하지 않는다(별도로 `dataset:drift`를 실행해야 함).
+10. **알려진 한계**: 이 promotion 경로는 항상 기존 ACTIVE와 비교하므로, ACTIVE가 한 번도 설정된 적
+    없는 완전히 새로운 환경을 처음 부트스트랩하는 경우는 다루지 않는다(지금 로컬 DB는 이미
+    ACTIVE=202606이라 해당 사항 없음) — 필요해지면 별도 운영자 비상절차로 검토해야 한다.
+11. **검증**: 신규 단위 테스트 3개 파일 — `tests/unit/datasetDriftGate.test.ts`(27개, percentile·
+    tie 보정 Spearman·decile churn·cohort 변화·strength/weakness·similarity/전략 요약·gate 판정
+    전부), `tests/unit/datasetDriftReport.test.ts`(4개, 실제 computeDna/computeStrategies/
+    computeRegionSimilarityComparisons 조합 검증), `tests/unit/datasetPromotion.test.ts`(12개,
+    BLOCKED 사전조건·PASS/REVIEW_REQUIRED·promoteDataset이 PASS일 때만 activateDataset을 호출하는지)
+    — 전체 1333개 테스트 통과, typecheck/lint/build 통과. **실제 로컬 DB로 end-to-end 스모크 테스트도
+    수행했다**: 202606 DataSnapshot/NormalizedMetric을 임시 baseYm(209912)으로 복사해 (a) 완전히
+    동일한 데이터는 PASS(모든 축 delta=0, Spearman≈0.99)로 판정됨을 확인, (b) 60개 지역의 소비
+    지표를 크게 왜곡하자 REVIEW_REQUIRED로 정확히 전환됨(spend 축 Spearman 0.586, strength/weakness
+    변화율 48.6%, 유사지역 평균 overlap 1.60/3)을 확인, (c) 이 상태에서 `promoteDataset`을 실행해도
+    ACTIVE가 바뀌지 않음을 확인, (d) 검증 후 임시 baseYm 관련 데이터를 전부 삭제하고 ACTIVE가
+    `202606`으로 그대로 유지됨을 최종 확인했다. 이 스모크 테스트 스크립트는 검증 후 삭제했다(임시
+    파일이라 커밋 대상 아님).

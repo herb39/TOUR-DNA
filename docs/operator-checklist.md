@@ -96,7 +96,7 @@
       갱신 — 매달 자동으로 최신화되지 않으니 수동 유지보수 필요(단, `sync:tourism-data` CLI 자체는
       인자를 생략하면 이제 자동으로 최신 공통월을 찾으므로 이 수동 절차가 필수는 아니다)
 
-## 새 기준월 반영 절차 — ACTIVE Dataset 발견·증분 sync·승격 (Phase 2-A/2-B, 2026-08-11)
+## 새 기준월 반영 절차 — ACTIVE Dataset 발견·증분 sync·안전 승격 (Phase 2-A/2-B/2-C, 2026-08-12)
 
 분석이 쓰는 baseYm은 `TOUR_DATA_BASE_YM`이 아니라 `Dataset` 테이블의 ACTIVE 행이다(위 항목의
 `TOUR_DATA_BASE_YM`은 sync 대상월 결정에만 쓰인다). 새 월을 실제 서비스 분석에 반영하려면:
@@ -111,10 +111,21 @@
    감지되면 그 시점까지 결과를 보존한 채 안전하게 멈춘다. 다음 실행에서 같은 명령을 그대로 다시
    실행하면 이어서 진행된다.
 3. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR 수, source별 SUCCESS/EMPTY/ERROR/
-   미수집 현황)을 확인한다.
-4. 완료됐으면(진행률 255/255, ERROR 0) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE로
-   승격한다 — completeness 검증을 통과하지 못하면 자동으로 거부되고 기존 ACTIVE가 그대로 유지된다.
-   자동 승격(Phase 2-C)은 아직 없다 — 반드시 사람이 이 명령을 직접 실행해야 한다.
+   미수집 현황)과 promotion readiness(`INCOMPLETE`/`READY_FOR_DRIFT_CHECK`)를 확인한다.
+4. `READY_FOR_DRIFT_CHECK`가 뜨면, 승격 전에 **읽기 전용** `npm run dataset:drift -- --base-ym=YYYYMM`
+   으로 DNA 5축 drift(median/p90/p95/rank correlation/decile churn)·strength/weakness 변화·
+   유사지역 Top3 변화·대표 시나리오 전략 1위 변화와 최종 판정(PASS/REVIEW_REQUIRED/BLOCKED)을
+   미리 확인한다 — 이 명령은 DB에 어떤 쓰기도 하지 않으므로 몇 번이든 안전하게 반복 실행할 수 있다.
+5. `npm run dataset:activate -- --base-ym=YYYYMM`으로 승격을 시도한다 — 내부적으로 4번과 동일한
+   completeness/audit/drift gate를 다시 확인해 **PASS일 때만** 실제로 ACTIVE를 바꾼다.
+   - `BLOCKED`(completeness/audit 미통과, ERROR 존재, 비교 불가 등 명백한 문제)면 즉시 거부되고
+     기존 ACTIVE가 그대로 유지된다.
+   - `REVIEW_REQUIRED`(데이터는 정상이나 drift가 잠정 임계값을 넘음)면 마찬가지로 승격을 거부하고
+     기존 ACTIVE를 유지한다 — 이 경우 `dataset:drift` 출력의 reasons를 보고 사람이 직접 원인(정상적인
+     계절 변동인지, 실제 데이터 이상인지)을 판단해야 한다. `--force`/`--skip-drift` 같은 우회
+     옵션은 없다.
+   - 완전 자동(사람 개입 없는) 승격은 아직 없다 — PASS여도 반드시 사람이 이 명령을 직접 실행해야
+     한다.
 
 ## 알려진 사고 사례
 
