@@ -47,8 +47,8 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
 
   // ensureSelectedPlan은 selectedPlan.strategyResultId가 현재 선택된 전략과 다르면 새로 생성하고,
   // 같으면 기존 값(사용자 편집분 포함)을 그대로 반환한다 — 항상 호출해야 전략 재선택이 반영된다.
+  // course의 poiId 목록(poiFitSummary용)이 이 결과에서 나오므로 아래 병렬 조회보다 먼저 완료돼야 한다.
   const planRow = await ensureSelectedPlan(id);
-  const promoContentResult = await getPromoContentForProject(id);
 
   const planData: PlanEditorData = {
     id: planRow.id,
@@ -76,41 +76,44 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 선택 로직(selectPois)이나 전략 점수·순위는 전혀 건드리지 않는다.
   const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
   const templateId = selectedStrategy?.templateId;
-  let poiFitSummary: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>> | null = null;
-  if (templateId && project.input) {
-    const poiIds = planData.course.days.flatMap((d) => [
-      ...d.items.map((i) => i.poiId),
-      ...(d.lodging ? [d.lodging.poiId] : []),
-    ]);
-    try {
-      poiFitSummary = await buildStrategyPoiFitSummary({
-        templateId,
-        regionCode: project.region.code,
-        poiIds,
-        travelMonth: project.travelMonth,
-        preferredThemes: project.input.preferredThemes as string[],
-        duration: project.input.duration as DurationCode,
-      });
-    } catch {
-      // 적합도 표시는 부가 정보라 계산에 실패해도 실행안 화면 자체는 그대로 보여준다.
-      poiFitSummary = null;
-    }
-  }
+  const poiIds =
+    templateId && project.input
+      ? planData.course.days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])
+      : null;
+  const analysisResult = project.analysisResult;
+  const analysisOwnBaseYm = analysisResult ? summarizeEvidenceBaseYms(analysisResult.evidences).primary : null;
+
+  // 2026-08-13(로딩 성능 개선): promoContent 조회·POI 적합도 계산·유사지역 비교 재계산은 서로 완전히
+  // 독립적인데 이전에는 순차 await로 걸려 있었다 — 세 작업 중 가장 느린 것 하나만큼만 기다리도록
+  // Promise.all로 병렬화한다(각 함수의 계산 로직·산식 자체는 전혀 바꾸지 않음).
+  const [promoContentResult, poiFitSummary, regionComparisonResolved] = await Promise.all([
+    getPromoContentForProject(id),
+    poiIds && templateId && project.input
+      ? buildStrategyPoiFitSummary({
+          templateId,
+          regionCode: project.region.code,
+          poiIds,
+          travelMonth: project.travelMonth,
+          preferredThemes: project.input.preferredThemes as string[],
+          duration: project.input.duration as DurationCode,
+        }).catch(() => null) // 적합도 표시는 부가 정보라 계산 실패해도 실행안 화면 자체는 그대로 보여준다.
+      : Promise.resolve(null),
+    analysisResult && project.input
+      ? resolveRegionComparisonAnalysis({
+          regionCode: project.region.code,
+          regionName: project.region.name,
+          snapshot: analysisResult.regionComparisonSnapshot,
+          analysisOwnBaseYm,
+        })
+      : Promise.resolve(null),
+  ]);
 
   // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미
   // 계산된 값만 조합한다(새 지표 없음, DNA·전략 점수 공식 변경 없음). 유사지역 비교는 분석·인쇄 화면과
   // 같은 baseYm(이 분석의 evidence에 실제로 저장된 기준월)으로 계산해 화면 간 결과가 일치하게 한다.
   let preLaunchValidation: ReturnType<typeof computePreLaunchValidation> | null = null;
-  if (project.analysisResult && project.input) {
-    const analysisResult = project.analysisResult;
-    const analysisOwnBaseYm = summarizeEvidenceBaseYms(analysisResult.evidences).primary;
-    const { analysis: regionComparisonAnalysis } = await resolveRegionComparisonAnalysis({
-      regionCode: project.region.code,
-      regionName: project.region.name,
-      snapshot: analysisResult.regionComparisonSnapshot,
-      analysisOwnBaseYm,
-    });
-
+  if (analysisResult && project.input) {
+    const regionComparisonAnalysis = regionComparisonResolved?.analysis ?? null;
     const travelNoticeCount = planData.course.days.reduce((sum, d) => sum + (d.notices?.length ?? 0), 0);
 
     preLaunchValidation = computePreLaunchValidation({

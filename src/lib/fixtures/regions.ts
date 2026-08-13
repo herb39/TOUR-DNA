@@ -42,15 +42,19 @@ export const REGION_SEED: RegionSeed[] = [
     tourApiLdongSignguCd: null,
   },
   {
+    // 2026-08-13: code는 하위 호환을 위해 SGG_DAEJEON을 유지하지만(기존 Project FK/URL 영향 없음),
+    // 실제 데이터는 처음부터 유성구였다 — name도 이제 실제 의미대로 "유성구"로 맞춘다(과거에는 대전이
+    // 이 레코드 하나뿐이라 도시명을 그대로 썼으나, 동구/중구/서구/대덕구가 추가된 뒤로는 시/군/구
+    // 드롭다운에 "대전광역시"가 중복 노출되는 문제가 있었다 — regionQueries.ts 참고).
     code: "SGG_DAEJEON",
-    name: "대전광역시",
+    name: "유성구",
     level: "SIGUNGU",
     parentCode: "SIDO_DAEJEON",
     apiAreaCode: "30",
-    apiSigunguCode: "30200", // 유성구(대표)
+    apiSigunguCode: "30200",
     tourApiAreaCode: "3",
     tourApiLdongRegnCd: "30",
-    tourApiLdongSignguCd: "200", // 유성구
+    tourApiLdongSignguCd: "200",
   },
   {
     code: "SIDO_CHUNGBUK",

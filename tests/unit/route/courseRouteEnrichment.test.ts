@@ -122,4 +122,48 @@ describe("courseRouteEnrichment — PRIVATE_VEHICLE 인접 구간만 실제 경�
     const result = await enrichCourseDaysWithRealRoutes(days, "PRIVATE_VEHICLE", null);
     expect(result[0].items[1].travelSource).toBe("ESTIMATED");
   });
+
+  /** 2026-08-13(로딩 성능 개선) — 하루 코스 안의 재사용 불가 구간들은 이제 순차 await가 아니라
+   * Promise.all로 동시에 요청된다. 결과값이 같아도 "실행 방식"이 실제로 병렬인지는 결과만으로는
+   * 검증되지 않으므로, getRoute가 아직 끝나지 않은 동시 호출 수(최대 동시성)를 직접 관찰해 1보다
+   * 큰 시점이 있었는지 확인한다 — 순차 실행이었다면 동시성은 항상 1이다. */
+  it("한 날짜 안의 여러 신규 구간을 동시에(순차가 아니라 병렬로) 요청한다", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    getRoute.mockImplementation(async () => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      concurrent -= 1;
+      return liveResult(1.0, 5);
+    });
+    const days: CourseDay[] = [
+      {
+        dayIndex: 1,
+        items: [item({ poiId: "a" }), item({ poiId: "b" }), item({ poiId: "c" }), item({ poiId: "d" })],
+      },
+    ];
+    await enrichCourseDaysWithRealRoutes(days, "PRIVATE_VEHICLE", null);
+    expect(getRoute).toHaveBeenCalledTimes(3); // a→b, b→c, c→d
+    expect(maxConcurrent).toBeGreaterThan(1);
+  });
+
+  it("서로 다른 날짜(day)도 동시에 처리한다(날짜 간 병렬화)", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    getRoute.mockImplementation(async () => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      concurrent -= 1;
+      return liveResult(1.0, 5);
+    });
+    const days: CourseDay[] = [
+      { dayIndex: 1, items: [item({ poiId: "a" }), item({ poiId: "b" })] },
+      { dayIndex: 2, items: [item({ poiId: "c" }), item({ poiId: "d" })] },
+    ];
+    await enrichCourseDaysWithRealRoutes(days, "PRIVATE_VEHICLE", null);
+    expect(getRoute).toHaveBeenCalledTimes(2); // a→b, c→d
+    expect(maxConcurrent).toBeGreaterThan(1);
+  });
 });

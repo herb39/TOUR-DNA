@@ -74,37 +74,57 @@ export async function enrichCourseDaysWithRealRoutes(
 
   const previousByDayIndex = new Map((previousDays ?? []).map((d) => [d.dayIndex, d]));
 
-  const result: CourseDay[] = [];
-  for (const day of days) {
-    const previousResolved = collectPreviousResolvedEdges(previousByDayIndex.get(day.dayIndex));
-    const items = [...day.items];
+  // 2026-08-13(로딩 성능 개선): 구간(변)마다 카카오 경로 API를 순차 await로 기다리면 하루 코스의
+  // 구간 수만큼 왕복 지연이 그대로 합산돼 실행안 최초 생성/전략 재선택 직후 페이지가 오래 멈춰
+  // 있었다. 각 구간은 서로 다른 POI 쌍을 조회할 뿐 서로 의존하지 않으므로(이전 구간의 결과가 다음
+  // 구간의 입력이 되지 않음), 재사용 가능한 구간(이미 실제/캐시 결과가 있는 것)을 먼저 걸러내고
+  // 나머지 요청만 Promise.all로 한 번에 보낸다 — 산식/순서/재사용 판정 로직 자체는 그대로다.
+  const result = await Promise.all(
+    days.map(async (day) => {
+      const previousResolved = collectPreviousResolvedEdges(previousByDayIndex.get(day.dayIndex));
+      const items = [...day.items];
+      let lodging = day.lodging;
 
-    for (let i = 1; i < items.length; i++) {
-      const prev = items[i - 1];
-      const cur = items[i];
-      const reused = previousResolved.get(edgeKey(prev.poiId, cur.poiId));
-      if (reused) {
-        items[i] = { ...cur, ...pickRouteFields(reused) };
-        continue;
+      type PendingEdge = { kind: "item"; index: number } | { kind: "lodging" };
+      const pending: PendingEdge[] = [];
+      const requests: Promise<RouteResult>[] = [];
+
+      for (let i = 1; i < items.length; i++) {
+        const prev = items[i - 1];
+        const cur = items[i];
+        const reused = previousResolved.get(edgeKey(prev.poiId, cur.poiId));
+        if (reused) {
+          items[i] = { ...cur, ...pickRouteFields(reused) };
+        } else {
+          pending.push({ kind: "item", index: i });
+          requests.push(getRoute(prev, cur, transport));
+        }
       }
-      const routeResult = await getRoute(prev, cur, transport);
-      items[i] = applyRouteResult(cur, routeResult);
-    }
 
-    let lodging = day.lodging;
-    if (lodging && items.length > 0) {
-      const last = items[items.length - 1];
-      const reused = previousResolved.get(edgeKey(last.poiId, lodging.poiId));
-      if (reused) {
-        lodging = { ...lodging, ...pickRouteFields(reused) };
-      } else {
-        const routeResult = await getRoute(last, lodging, transport);
-        lodging = applyRouteResult(lodging, routeResult);
+      if (lodging && items.length > 0) {
+        const last = items[items.length - 1];
+        const reused = previousResolved.get(edgeKey(last.poiId, lodging.poiId));
+        if (reused) {
+          lodging = { ...lodging, ...pickRouteFields(reused) };
+        } else {
+          pending.push({ kind: "lodging" });
+          requests.push(getRoute(last, lodging, transport));
+        }
       }
-    }
 
-    result.push({ ...day, items, lodging });
-  }
+      const resolved = await Promise.all(requests);
+      resolved.forEach((routeResult, k) => {
+        const target = pending[k];
+        if (target.kind === "item") {
+          items[target.index] = applyRouteResult(items[target.index], routeResult);
+        } else {
+          lodging = applyRouteResult(lodging!, routeResult);
+        }
+      });
+
+      return { ...day, items, lodging };
+    }),
+  );
   return result;
 }
 

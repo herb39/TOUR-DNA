@@ -78,12 +78,48 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   // 기준월)로 다시 계산해, 분석·인쇄 화면이 같은 입력으로 계산되게 한다. 인쇄 화면은 지면 제약상
   // 지역명·상대 위치·강점·취약점 요약만 표시한다(최소 범위).
   const analysisOwnBaseYm = baseYmSummary.primary;
-  const { analysis: regionComparisonAnalysis } = await resolveRegionComparisonAnalysis({
-    regionCode: project.region.code,
-    regionName: project.region.name,
-    snapshot: analysisResult.regionComparisonSnapshot,
-    analysisOwnBaseYm,
-  });
+
+  // 공급 격차 판정용 POI 카테고리별 개수는 분석 화면과 마찬가지로 분석 시점 스냅샷을 우선 사용해,
+  // 같은 분석 결과라면 분석 화면과 인쇄 화면이 항상 같은 입력으로 계산되게 한다(재현성 보완,
+  // 2026-08-02). 스냅샷이 없는 레거시 분석 결과만 예외적으로 현재 DB를 조회한다.
+  const storedPoiCategorySummary = analysisResult.poiCategorySummary as Partial<
+    Record<PoiCategoryCode, number>
+  > | null;
+
+  const poiIdsForFit =
+    selectedStrategy && project.input
+      ? course.days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])
+      : null;
+
+  // 2026-08-13(로딩 성능 개선): 유사지역 비교 재계산, (레거시 분석만 발생하는) 카테고리별 POI
+  // 재조회, 실행안과 동일한 POI 적합도 계산은 서로 완전히 독립적인데 이전에는 순차 await로 걸려
+  // 있었다 — Promise.all로 병렬화한다(각 계산 로직·산식 자체는 바꾸지 않음).
+  const [
+    { analysis: regionComparisonAnalysis },
+    poiCategoryFallback,
+    poiFitSummaryResult,
+  ] = await Promise.all([
+    resolveRegionComparisonAnalysis({
+      regionCode: project.region.code,
+      regionName: project.region.name,
+      snapshot: analysisResult.regionComparisonSnapshot,
+      analysisOwnBaseYm,
+    }),
+    storedPoiCategorySummary === null && project.input
+      ? fetchPoisByCategory(project.region.code)
+      : Promise.resolve(null),
+    poiIdsForFit && selectedStrategy && project.input
+      ? buildStrategyPoiFitSummary({
+          templateId: selectedStrategy.templateId,
+          regionCode: project.region.code,
+          poiIds: poiIdsForFit,
+          travelMonth: project.travelMonth,
+          preferredThemes: project.input.preferredThemes as string[],
+          duration: project.input.duration as DurationCode,
+        }).catch(() => null) // 적합도 표시는 부가 정보라 계산 실패해도 인쇄 화면 자체는 그대로 보여준다.
+      : Promise.resolve(null),
+  ]);
+
   // 분석 화면과 동일한 함수로 기준월 불일치 안내를 만든다(분석·인쇄 화면 안내 일치, 2026-08-02).
   const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
     analysisOwnBaseYm,
@@ -92,17 +128,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
   // 관광사업 기회 3안 요약(2026-08-02) — 분석 화면과 같은 순수 함수를 그대로 재사용한다(저장하지
   // 않고 인쇄 시점에 다시 계산). 인쇄 화면은 지면 제약상 제목·문제·방향만 요약해서 보여준다(최소 범위).
-  // 공급 격차 판정용 POI 카테고리별 개수는 분석 화면과 마찬가지로 분석 시점 스냅샷을 우선 사용해,
-  // 같은 분석 결과라면 분석 화면과 인쇄 화면이 항상 같은 입력으로 계산되게 한다(재현성 보완,
-  // 2026-08-02). 스냅샷이 없는 레거시 분석 결과만 예외적으로 현재 DB를 조회한다.
-  const storedPoiCategorySummary = analysisResult.poiCategorySummary as Partial<
-    Record<PoiCategoryCode, number>
-  > | null;
   const poiCountByCategory =
     storedPoiCategorySummary ??
     (project.input
       ? (Object.fromEntries(
-          Object.entries(await fetchPoisByCategory(project.region.code)).map(([category, pois]) => [
+          Object.entries(poiCategoryFallback ?? {}).map(([category, pois]) => [
             category,
             pois?.length ?? 0,
           ]),
@@ -130,34 +160,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
   // 2026-07-30(P0-1): 실행안 화면과 동일한 근거로 POI 적합도·후보 부족 안내를 계산한다(저장하지 않고
   // 렌더링 시점에 매번 계산 — 전략 점수·선택 로직은 건드리지 않는다).
-  let poiFits: Record<string, PoiFitResult> | undefined;
-  let poiShortageMessage: string | null = null;
-  let poiShortage: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>>["shortage"] = null;
-  if (selectedStrategy && project.input) {
-    const poiIds = course.days.flatMap((d) => [
-      ...d.items.map((i) => i.poiId),
-      ...(d.lodging ? [d.lodging.poiId] : []),
-    ]);
-    try {
-      const summary = await buildStrategyPoiFitSummary({
-        templateId: selectedStrategy.templateId,
-        regionCode: project.region.code,
-        poiIds,
-        travelMonth: project.travelMonth,
-        preferredThemes: project.input.preferredThemes as string[],
-        duration: project.input.duration as DurationCode,
-      });
-      poiFits = summary.fitsByPoiId;
-      poiShortage = summary.shortage;
-      poiShortageMessage = summary.shortage
-        ? `${summary.shortage.message} ${summary.shortage.suggestion}`
-        : null;
-    } catch {
-      poiFits = undefined;
-      poiShortage = null;
-      poiShortageMessage = null;
-    }
-  }
+  const poiFits: Record<string, PoiFitResult> | undefined = poiFitSummaryResult?.fitsByPoiId;
+  const poiShortage: Awaited<ReturnType<typeof buildStrategyPoiFitSummary>>["shortage"] =
+    poiFitSummaryResult?.shortage ?? null;
+  const poiShortageMessage: string | null = poiFitSummaryResult?.shortage
+    ? `${poiFitSummaryResult.shortage.message} ${poiFitSummaryResult.shortage.suggestion}`
+    : null;
 
   // 사업 사전검증 리포트(2026-08-03) — 분석 화면에서 이미 계산한 DNA·유사지역 비교와 위에서 계산한
   // POI 공급·이동 경고를 조합한다(새 지표 없음). 실행안 화면과 완전히 동일한 규칙 함수를 재사용해

@@ -1698,3 +1698,29 @@ POI에 대해 raw `computePoiFit`만 다시 계산해 CORE_MINIMUM_RESERVE로 �
 `applyCoreMinimumReserve`를 여기서도 적용하도록 고쳤다(코스 생성과 화면 표시가 항상 같은 결론을
 공유). `PlanEditor.tsx`의 fit 배지도 CORE_MINIMUM_RESERVE 전용 라벨("후보 부족으로 보완 추천")을
 추가했다.
+
+## 2026-08-13 갱신 — 대전 지역 선택 정합성 수정 + 주요 페이지 로딩 성능 개선
+
+**대전 지역 선택 정합성**: `SGG_DAEJEON`은 대전 전국 확장(2026-08-09, 동구/중구/서구/대덕구 4개
+SIGUNGU 추가) 이전에 만들어진 대전의 유일한 SIGUNGU 레코드였다. 실제 DB를 직접 조사한 결과
+(NormalizedMetric·Poi·API 파라미터 전부 확인), code/apiSigunguCode(30200)/tourApiLdongSignguCd(200)
+등은 처음부터 유성구 데이터였는데 `Region.name`만 "대전광역시"로 잘못 남아 있었다 — 4개 자치구가
+나중에 추가되며 시/군/구 드롭다운에 legacy "대전광역시" 항목이 실제 유성구와 뒤섞여 노출되는 문제가
+생겼다. 화면 표시만 덮어씌우는 override 대신 `Region.name` 자체를 "유성구"로 바로잡았다(code/FK는
+불변 — 기존 Project 호환, 단발성 스크립트로 실행 후 삭제, `regions.ts` seed도 동기화). POI 388/396건
+(98%)은 API 수집이라 유성구로 정확히 좁혀졌고, FIXTURE 8건 중 4건(대전 전체 대표 명소로 큐레이션된
+한밭수목원 등)만 실제로는 다른 구 주소 — 삭제하지 않고 알려진 한계로 기록만 남겼다(자세한 내용은
+`regionQueries.ts` 주석 참고). 전국 255개 SIGUNGU 개수·다른 SIDO 옵션에는 영향 없음.
+
+**페이지 로딩 성능**: 강릉/경주/제천 대표 프로젝트로 분석/실행안/인쇄 페이지의 실제 병목을 측정한
+결과, `resolveRegionComparisonAnalysis`가 저장된 스냅샷을 재사용해 정상 분석에서는 전국 재계산이
+이미 일어나지 않고 있었다(우려했던 것과 달리). 실제 병목은 (1) `analysis`/`plan`/`print` 세 페이지가
+서로 독립적인 비동기 작업(유사지역 비교, POI 조회, 홍보자료/적합도 계산 등)을 순차 await로 처리하던
+것, (2) PRIVATE_VEHICLE 실행안에서 구간(변)마다 카카오 경로 API를 순차 호출하던 것(`courseRouteEnrichment.ts`)
+두 가지였다. 둘 다 서로 의존하지 않는 작업이라 `Promise.all`로 병렬화했다(계산 로직·산식은 전혀
+변경하지 않음, 새 캐시 도입 없음). 실측: 강릉/경주/제천처럼 이미 분석·실행안이 완료돼 값을 재사용하는
+경우 체감 차이는 크지 않았다(순차 체인 자체가 이미 짧았기 때문, analysis 약 140~150ms·plan 약
+75~90ms로 전후 동일) — 반면 실제 병목이 드러나는 시나리오(제천의 PRIVATE_VEHICLE 코스 14개 구간을
+`previousDays=null`로 강제 전체 재계산)에서는 1212ms → 234ms로 약 5.2배 단축(결과값은 완전히 동일하게
+확인). 즉 이번 개선은 최초 실행안 생성·전략 재선택처럼 캐시된 값을 재사용할 수 없는 시점에 실질적으로
+체감된다.

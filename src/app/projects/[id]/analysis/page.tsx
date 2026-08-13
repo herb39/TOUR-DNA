@@ -186,13 +186,27 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   // 동일한 baseYm으로 지원 지역 전체의 DNA·POI 구성을 다시 계산한다(같은 baseYm이어야 min-max 코호트가
   // 일치해 점수가 서로 비교 가능함). DNA 5축 산식(dna.ts)은 그대로 재사용하며 전혀 바꾸지 않는다.
   const analysisOwnBaseYm = baseYmSummary.primary;
-  const { analysis: regionComparisonAnalysis, usingLiveFallback: usingLiveRegionComparisonFallback } =
-    await resolveRegionComparisonAnalysis({
+  const allPoiIds = Array.from(
+    new Set(analysisResult.strategyResults.flatMap((s) => s.poiIds as string[])),
+  );
+
+  // 2026-08-13(로딩 성능 개선): 유사지역 비교 재계산, 전략 관련 지도용 POI 조회, (레거시 분석만
+  // 발생하는) 카테고리별 POI 재조회는 서로 완전히 독립적인데 이전에는 순차 await로 걸려 있었다 —
+  // Promise.all로 병렬화한다(각 계산 로직·산식 자체는 바꾸지 않음).
+  const [
+    { analysis: regionComparisonAnalysis, usingLiveFallback: usingLiveRegionComparisonFallback },
+    poiRows,
+    poiCategoryFallback,
+  ] = await Promise.all([
+    resolveRegionComparisonAnalysis({
       regionCode: project.region.code,
       regionName: project.region.name,
       snapshot: analysisResult.regionComparisonSnapshot,
       analysisOwnBaseYm,
-    });
+    }),
+    allPoiIds.length > 0 ? prisma.poi.findMany({ where: { id: { in: allPoiIds } } }) : Promise.resolve([]),
+    analysisResult.poiCategorySummary === null ? fetchPoisByCategory(project.region.code) : Promise.resolve(null),
+  ]);
   // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
   // 정보가 없어 대체값을 쓴 경우) 숨기지 않고 안내한다 — 분석·인쇄 화면이 이 함수를 동일하게 호출한다.
   const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
@@ -248,10 +262,6 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     ]),
   );
 
-  const allPoiIds = Array.from(
-    new Set(analysisResult.strategyResults.flatMap((s) => s.poiIds as string[])),
-  );
-  const poiRows = allPoiIds.length > 0 ? await prisma.poi.findMany({ where: { id: { in: allPoiIds } } }) : [];
   const mapPois: MapPoi[] = poiRows.map((p) => ({
     id: p.id,
     name: p.name,
@@ -268,7 +278,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   // 스냅샷이 없으므로(null) 그 경우에만 예외적으로 현재 DB를 조회하는 기존 방식으로 대체한다.
   const poiCountByCategory = (analysisResult.poiCategorySummary as Partial<Record<PoiCategoryCode, number>> | null) ??
     Object.fromEntries(
-      Object.entries(await fetchPoisByCategory(project.region.code)).map(([category, pois]) => [
+      Object.entries(poiCategoryFallback ?? {}).map(([category, pois]) => [
         category,
         pois?.length ?? 0,
       ]),

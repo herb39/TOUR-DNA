@@ -186,3 +186,40 @@ describe("REGION_SEED — 무결성", () => {
     expect(jeonnamCount).toBe(22);
   });
 });
+
+/** 2026-08-13 대전 지역 선택 정합성 수정 — `SGG_DAEJEON`은 대전 전국 확장(2026-08-09, 동구/중구/서구/
+ * 대덕구 4개 SIGUNGU 추가) 이전에 만들어진 대전의 유일한 SIGUNGU 레코드로, code/apiSigunguCode 등은
+ * 처음부터 유성구(apiSigunguCode=30200, tourApiLdongSignguCd=200) 데이터였지만 name만 "대전광역시"로
+ * 남아 있었다. 시/도 드롭다운에서 대전을 고르면 실제 5개 자치구 대신 legacy "대전광역시" 항목과 나머지
+ * 4개가 섞여 나오는 문제였다 — 데이터 자체를 다시 수집하지 않고 name만 실제 의미대로 바로잡았다
+ * (regionQueries.ts 주석 참고). */
+describe("REGION_SEED — 대전 지역 선택 정합성 수정(2026-08-13)", () => {
+  it("대전 SIGUNGU는 legacy 대체 표시(대전광역시 (DNA 지표는 유성구 기준)) 없이 실제 5개 자치구만 노출된다", () => {
+    const daejeon = REGION_SEED.filter((r) => r.level === "SIGUNGU" && r.parentCode === "SIDO_DAEJEON");
+    const names = daejeon.map((r) => r.name).sort();
+    expect(names).toEqual(["대덕구", "동구", "서구", "유성구", "중구"]);
+    expect(names.some((n) => n.includes("DNA 지표는"))).toBe(false);
+    expect(names).not.toContain("대전광역시"); // SIDO명이 SIGUNGU 레벨에 중복 노출되던 legacy 문제가 없다
+  });
+
+  it("SGG_DAEJEON은 code/FK를 그대로 유지한 채(기존 Project 호환) name만 유성구로 바로잡혔다", () => {
+    const yuseong = REGION_SEED.find((r) => r.code === "SGG_DAEJEON");
+    expect(yuseong).toBeDefined();
+    expect(yuseong?.name).toBe("유성구"); // legacy "대전광역시" 표기가 아니라 실제 의미로 정정됨
+    expect(yuseong?.parentCode).toBe("SIDO_DAEJEON");
+    // 유성구 데이터임을 보장하는 행정 코드(apiSigunguCode=30200, tourApiLdongSignguCd=200)는 그대로다
+    // — code 자체를 바꾸지 않았으므로 이 code를 참조하는 기존 Project.regionId(FK)/URL은 영향받지 않는다.
+    expect(yuseong?.apiSigunguCode).toBe("30200");
+    expect(yuseong?.tourApiLdongSignguCd).toBe("200");
+  });
+
+  it("다른 SIDO의 시군구 옵션은 이 수정으로 전혀 영향받지 않는다(전국 255개 시군구 개수 불변)", () => {
+    const sigunguCount = REGION_SEED.filter((r) => r.level === "SIGUNGU").length;
+    expect(sigunguCount).toBe(255);
+    const nonDaejeonSampleNames = REGION_SEED.filter(
+      (r) => r.level === "SIGUNGU" && r.parentCode === "SIDO_GANGWON",
+    ).map((r) => r.name);
+    expect(nonDaejeonSampleNames).toContain("강릉시");
+    expect(nonDaejeonSampleNames.some((n) => n.includes("DNA 지표는"))).toBe(false);
+  });
+});
