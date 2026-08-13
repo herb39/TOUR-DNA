@@ -1,6 +1,7 @@
 import { AXIS_LABEL_KO, DNA_AXES, type AxisStatus, type DnaAxisKey } from "./types";
 import type { PoiCategoryCode } from "./strategyTemplates";
 import { toDisplayDnaScore } from "./dnaDisplayScore";
+import { poiCategoryLabel } from "@/lib/format";
 
 /**
  * 유사지역 비교(README 로드맵 "유사지역 비교", 2026-08-02). 분석 지역과 DNA 5축·관광 자원 구성이
@@ -75,6 +76,17 @@ export interface AxisDifference {
   displayDiff: number;
 }
 
+/** 카테고리별 관광지 등록 비중(%, 두 지역 각각) — 2026-08-13, 벤치마킹 인사이트(regionBenchmarkInsight.ts)가
+ * "식음·체험 공급 비중이 더 높다"처럼 실제 계산된 값으로만 말할 수 있도록, computePoiCompositionDistance가
+ * 이미 계산하는 비중값을 버리지 않고 그대로 내보낸다 — 거리 계산식·순위 로직은 전혀 바꾸지 않는다. */
+export interface PoiCategoryShareDiff {
+  category: PoiCategoryCode;
+  categoryLabel: string;
+  /** 대상 지역의 이 카테고리 비중(0~100, 소수 1자리). */
+  targetSharePercent: number;
+  candidateSharePercent: number;
+}
+
 export interface ComparedRegion {
   regionCode: string;
   regionName: string;
@@ -87,6 +99,8 @@ export interface ComparedRegion {
   /** 비교 지역이 뚜렷하게 앞서는 축에서만 생성한다 — 없으면 빈 배열(억지로 채우지 않음). */
   benchmarkPoints: string[];
   poiCompositionNote: string | null;
+  /** 두 지역 중 하나라도 POI 데이터가 없으면 null(지어내지 않음) — poiCompositionNote와 조건이 같다. */
+  poiCategoryShareDiffs: PoiCategoryShareDiff[] | null;
   limitations: string;
 }
 
@@ -152,6 +166,9 @@ function computeAxisDistance(target: RegionAxisProfile, candidate: RegionAxisPro
 interface PoiDistanceResult {
   distance: number;
   note: string;
+  /** 거리 계산에 이미 쓴 카테고리별 비중을 그대로 노출한다(2026-08-13) — 새 계산 없음, 버리지 않고
+   * 내보내기만 한다. */
+  shareDiffs: PoiCategoryShareDiff[];
 }
 
 function computePoiCompositionDistance(
@@ -162,15 +179,23 @@ function computePoiCompositionDistance(
   const candidateTotal = ALL_POI_CATEGORIES.reduce((sum, c) => sum + (candidate.poiCountByCategory[c] ?? 0), 0);
   if (targetTotal === 0 || candidateTotal === 0) return null; // 근거 없이 지어내지 않는다.
 
+  const shareDiffs: PoiCategoryShareDiff[] = [];
   const sumSquares = ALL_POI_CATEGORIES.reduce((sum, c) => {
     const targetShare = (target.poiCountByCategory[c] ?? 0) / targetTotal;
     const candidateShare = (candidate.poiCountByCategory[c] ?? 0) / candidateTotal;
+    shareDiffs.push({
+      category: c,
+      categoryLabel: poiCategoryLabel(c),
+      targetSharePercent: Math.round(targetShare * 1000) / 10,
+      candidateSharePercent: Math.round(candidateShare * 1000) / 10,
+    });
     return sum + (targetShare - candidateShare) ** 2;
   }, 0);
 
   return {
     distance: Math.sqrt(sumSquares) * 100,
     note: `관광지 구성(등록 POI 카테고리 비중)도 비교 근거로 반영했습니다(${target.name} ${targetTotal}건, ${candidate.name} ${candidateTotal}건).`,
+    shareDiffs,
   };
 }
 
@@ -280,6 +305,7 @@ export function computeRegionSimilarityComparisons(
     benchmarkPoints: buildBenchmarkPoints(t.name, t.axisResult.sharedAxes),
     poiCompositionNote:
       t.poiResult?.note ?? "관광지 구성 비교는 두 지역 중 한 곳 이상의 등록 POI 데이터가 없어 반영하지 못했습니다.",
+    poiCategoryShareDiffs: t.poiResult?.shareDiffs ?? null,
     limitations: LIMITATION_SUFFIX,
   }));
 

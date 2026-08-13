@@ -24,6 +24,7 @@ import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 import { resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
 import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
+import { buildRegionBenchmarkInsight } from "@/lib/domain/regionBenchmarkInsight";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
@@ -151,6 +152,18 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         travelMonth: project.travelMonth,
         preferredThemes: (project.input.preferredThemes as string[] | undefined) ?? [],
         poiCountByCategory,
+      })
+    : null;
+  // 유사지역 벤치마킹 인사이트(2026-08-13, 핵심 1~2개만) — analysis 화면과 같은 함수를 재사용해, 이미
+  // 계산된 유사지역 비교(regionComparisonAnalysis)만으로 만든다(새 계산 없음).
+  const regionBenchmarkAnalysis = regionComparisonAnalysis
+    ? buildRegionBenchmarkInsight({
+        targetAxisScores: DNA_AXES.map((axis) => ({
+          axis,
+          score: analysisResult[`${axis}Score` as const] as number | null,
+        })),
+        comparisons: regionComparisonAnalysis.comparisons,
+        role: project.role,
       })
     : null;
 
@@ -297,6 +310,21 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               </li>
             ))}
           </ul>
+          {regionBenchmarkAnalysis && regionBenchmarkAnalysis.insights.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-slate-900">벤치마킹 포인트</p>
+              <ul className="mt-1 space-y-1">
+                {regionBenchmarkAnalysis.insights.map((insight) => (
+                  <li key={`${insight.benchmarkRegionName}-${insight.targetAxis}`} className="text-[11px] text-slate-600">
+                    <span className="font-medium text-slate-900">
+                      {insight.benchmarkRegionName} — {insight.targetAxisLabel} 구조 참고:{" "}
+                    </span>
+                    {insight.whatIsBetter} {insight.whatToReference}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

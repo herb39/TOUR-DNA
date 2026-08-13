@@ -34,6 +34,7 @@ import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
+import { buildRegionBenchmarkInsight } from "@/lib/domain/regionBenchmarkInsight";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { OpportunityCard } from "@/components/opportunity/OpportunityCard";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
@@ -300,6 +301,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     axisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
     topStrategyName,
   });
+  // 유사지역 벤치마킹 인사이트(2026-08-13) — 이미 계산된 유사지역 비교(regionComparisonAnalysis)만
+  // 재사용한다(새 유사도 계산 없음). 아래에서 계산.
+  const regionBenchmarkAnalysis = buildRegionBenchmarkInsight({
+    targetAxisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
+    comparisons: regionComparisonAnalysis.comparisons,
+    role: project.role,
+  });
 
   return (
     <>
@@ -563,6 +571,34 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           ) : null}
           {regionComparisonAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
+          ) : null}
+          {regionComparisonAnalysis.comparisons.length > 0 ? (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <h3 className="text-sm font-semibold text-slate-900">벤치마킹 포인트</h3>
+              {regionBenchmarkAnalysis.insights.length > 0 ? (
+                <div className="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {regionBenchmarkAnalysis.insights.map((insight) => (
+                    <div
+                      key={`${insight.benchmarkRegionName}-${insight.targetAxis}`}
+                      className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 text-xs text-slate-700"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
+                        {insight.benchmarkRegionName} — {insight.targetAxisLabel} 구조 참고
+                      </p>
+                      <p className="mt-1 text-slate-500">{insight.whyCompared}</p>
+                      <p className="mt-1">{insight.whatIsBetter}</p>
+                      <p className="mt-1">{insight.whatToReference}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">{regionBenchmarkAnalysis.emptyStateNote}</p>
+              )}
+              <p className="mt-2 text-[11px] text-slate-400">
+                ※ 벤치마킹 포인트는 인과관계를 증명하는 것이 아니라, 이미 계산된 DNA 축 차이·관광지 구성
+                차이를 근거로 참고 가치를 제시하는 상대 비교입니다.
+              </p>
+            </div>
           ) : null}
         </section>
 

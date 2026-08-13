@@ -18,6 +18,7 @@ function comparison(overrides: Partial<ComparedRegion> = {}): ComparedRegion {
     strengthWeaknessSummary: "수요 축이 앞섭니다.",
     benchmarkPoints: [],
     poiCompositionNote: null,
+    poiCategoryShareDiffs: null,
     limitations: "이 비교는 공공데이터 기반 상대 비교(CURATED 규칙)이며, 실제 방문객 체감이나 시장 데이터와 다를 수 있습니다.",
     ...overrides,
   };

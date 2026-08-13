@@ -150,6 +150,28 @@ describe("computeRegionSimilarityComparisons — 데이터 부족 처리", () =>
     );
     const result = computeRegionSimilarityComparisons(target, [target, candidate]);
     expect(result.comparisons[0].poiCompositionNote).toContain("반영하지 못했습니다");
+    expect(result.comparisons[0].poiCategoryShareDiffs).toBeNull();
+  });
+
+  it("POI 데이터가 둘 다 있으면 거리 계산에 이미 쓴 카테고리별 비중을 그대로 노출한다(2026-08-13)", () => {
+    const target = profile(
+      "A",
+      "A시",
+      { demand: 60, stay: 60, spend: 60, diversity: 60, network: 60 },
+      { ATTRACTION: 10, FOOD: 40, LODGING: 10, EXPERIENCE: 10, FESTIVAL: 10, SHOPPING: 20 },
+    );
+    const candidate = profile(
+      "B",
+      "B시",
+      { demand: 61, stay: 59, spend: 60, diversity: 60, network: 60 },
+      BALANCED_POI,
+    );
+    const result = computeRegionSimilarityComparisons(target, [target, candidate]);
+    const diffs = result.comparisons[0].poiCategoryShareDiffs;
+    expect(diffs).not.toBeNull();
+    const food = diffs!.find((d) => d.category === "FOOD")!;
+    expect(food.targetSharePercent).toBe(40);
+    expect(food.candidateSharePercent).toBeCloseTo(16.7, 1);
   });
 
   it("MISSING인 축은 axisDifferences에 아예 포함되지 않는다(지어내지 않음)", () => {
