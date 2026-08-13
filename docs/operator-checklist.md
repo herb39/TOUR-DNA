@@ -213,6 +213,24 @@
   `CRON_SECRET` 인증을 그대로 쓰므로 게이트에서 제외했다. 로컬 개발/E2E는 `SITE_ACCESS_PASSWORD`를
   비워둬서 게이트가 꺼진 상태로 동작한다.
 
+## 로컬 전용 개발 정책 & Vercel 자동 배포 중단(2026-08-13)
+
+새 Neon 프로젝트로 DB 이관은 정상 완료됐지만(migration 13/13, ACTIVE=202606, 전국 audit PASS), 최종
+제출판 전까지는 Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가기로 했다. 상세 배경과
+cutover 절차 전체는 `docs/deployment.md`의 "로컬 전용 개발 정책 & Vercel 자동 배포 중단" 절 참고.
+
+- [x] `vercel git disconnect`로 Vercel Git 연동 해제 — GitHub push는 정상 유지, Production/Preview
+      자동 deployment만 중단. 기존 project/custom domain(`tour-dna.lib.lc`)/기존 Production
+      deployment는 전부 그대로 유지됨(변경 후 `link`/`productionBranch` 필드가 project API 응답에서
+      사라진 것으로 해제 확인, alias/도메인 목록 변화 없음 확인).
+- [x] `.env.local`의 미사용 `DIRECT_URL`(옛 Neon 값) 제거 — `DATABASE_URL`은 localhost 그대로 유지.
+- [ ] **(cutover 시점에 수행)** 위 "최종 제출 전 cutover 절차" 1~7번 순서대로 진행 — 로컬 최종 검증 →
+      `pg_dump` → 새 Neon restore/import 재검증 → Vercel Production `DATABASE_URL` 교체 → Vercel Git
+      재연결(`vercel git connect`) 또는 `vercel --prod` 수동 배포 → 브라우저 smoke test.
+- [ ] cutover 전까지는 어떤 작업에서도 Production Neon에 write(seed/migration/dataset activate/sync)를
+      수행하지 않는다 — `DATABASE_URL`이 localhost가 아니면 개발 중 DB write를 하지 않는 것이 공통
+      원칙이다.
+
 ## 사고 대응
 
 - [ ] 공공데이터 API가 전면 장애이거나 다양성 지표가 의도치 않게 바뀌었을 때: `DATA_MODE=snapshot`으로

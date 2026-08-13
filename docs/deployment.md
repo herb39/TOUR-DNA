@@ -171,3 +171,56 @@ ACTIVE가 없기 때문) — 완전 자동(사람 개입 없는) 승격 스케�
 동기화된 적이 없으므로, Production에 처음 적용할 때는 모든 지역이 NEVER_FETCHED로 시작해 이
 재사용 효과가 즉시 나타나지 않는다(첫 회차는 그대로 전량 호출됨 — 두 번째 STAGING baseYm부터
 절감 효과가 생긴다). 이 절차도 아직 Production에는 적용하지 않았다.
+
+## 10. 로컬 전용 개발 정책 & Vercel 자동 배포 중단(2026-08-13)
+
+새 Neon 프로젝트로 DB 이관을 마쳤지만(스키마 13/13 migration, 전국 데이터, ACTIVE=202606, audit
+PASS 전부 확인됨 — `docs/implementation-status.md` 참고), **최종 제출판을 준비하는 기간에는
+Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가기로 했다.** 이를 뒷받침하기 위해
+Vercel Git 자동 배포를 의도적으로 중단했다.
+
+### 현재 상태
+
+- `.env.local`의 `DATABASE_URL`은 `localhost:5432/tour_dna_local` 그대로 유지(로컬 PostgreSQL).
+- `.env.local`의 `DIRECT_URL`(옛 Neon 값)은 제거했다 — `prisma.config.ts`가 `DATABASE_URL` 하나만
+  `datasource.url`에 연결하고 `DIRECT_URL`은 스키마·설정 어디에서도 참조되지 않는 완전 미사용
+  변수였음을 코드로 확인한 뒤 정리한 것이다(혼동 방지 목적, 기능 영향 없음).
+- 새 Neon pooled 연결 문자열은 `.env.local` 최상단에 **주석으로만** 남겨뒀다 — 아직 활성 `DATABASE_URL`로
+  쓰지 않는다.
+- **Vercel Git 연동을 `vercel git disconnect`로 해제했다(2026-08-13)** — `herb39/TOUR-DNA` GitHub
+  저장소로의 `git push`는 그대로 가능하지만, 이제 Vercel이 push를 감지해 Production/Preview
+  deployment를 자동 생성하지 않는다. 기존 Vercel project(`tour-dna`)·custom domain(`tour-dna.lib.lc`)·
+  기존 Production deployment는 전부 그대로 유지된다. `vercel --prod`로 수동 배포는 언제든 가능하고,
+  대시보드 Settings → Git → Connect 또는 `vercel git connect`로 자동 배포를 즉시 재활성화할 수 있다.
+
+### 개발 기간 원칙
+
+- 개발/QA DB는 항상 local PostgreSQL(`tour_dna_local`)만 쓴다.
+- 공공데이터 API sync, Dataset STAGING/ACTIVE 작업, 대표 프로젝트 재분석은 전부 local에서만 수행한다.
+- Production Neon에는 접근/수정하지 않는다(seed·migration·dataset activate·sync 전부 금지).
+- GitHub push는 계속 정상 수행한다 — Vercel 자동 배포만 꺼져 있을 뿐이다.
+- 새 기능의 "완료" 조건에 Production deploy를 포함하지 않는다 — 로컬 검증(테스트/typecheck/lint/
+  build/audit)까지만으로 완료로 본다.
+
+### 최종 제출 전 cutover 절차(아직 실행 전, 이 시점에 한 번에 수행)
+
+1. 로컬 DB 최종 검증: `npm run audit:tourism-data -- --base-ym=202606` PASS, 전체 테스트/typecheck/
+   lint/build 통과.
+2. `pg_dump`로 로컬 `tour_dna_local` 최종 백업.
+3. 새 Neon 프로젝트로 restore/import(이미 1차 이관은 완료돼 있으므로 차분만 재이관하거나 전체
+   재이관 중 택1 — cutover 시점에 결정).
+4. 새 Neon 대상으로 Dataset/row count/`audit:tourism-data` 재검증.
+5. Vercel 대시보드 → Settings → Environment Variables → Production에서 `DATABASE_URL`을 새 Neon
+   pooled 연결 문자열로 교체(이미 스키마/데이터가 준비돼 있으므로 이 시점에는 migration/seed/
+   dataset activate를 다시 실행할 필요가 없다 — 이미 맞는 상태를 불필요하게 덮어쓰지 않는다).
+6. Vercel 대시보드 → Settings → Git → Connect(또는 `vercel git connect`)로 자동 배포 재활성화, 또는
+   `vercel --prod`로 수동 배포.
+7. 배포된 Production URL에서 브라우저 smoke test(대표 프로젝트 열람 등).
+
+### Claude Code 공통 안전 원칙
+
+- `DATABASE_URL`이 `localhost`가 아니면(즉 원격 Neon을 가리키면) 개발 중 DB write 작업(sync/seed/
+  dataset activate/analysis 등)을 수행하지 않는다.
+- 원격 Neon에서 전국 공공데이터 API 대량 sync를 실행하지 않는다.
+- Production Neon에서 seed/재분석/dataset promotion을 개발 과정 중 실행하지 않는다 — Production
+  관련 검증은 위 cutover 절차에서만, 사용자가 명시적으로 요청한 별도 작업으로만 수행한다.

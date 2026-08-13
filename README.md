@@ -400,7 +400,11 @@ npm run build
 
 ## 배포 현황
 
-- **Vercel 프로젝트**: `tour-dna`, GitHub `main` 브랜치 push 시 자동 배포
+- **Vercel 프로젝트**: `tour-dna` — ⚠️ **2026-08-13부터 GitHub Git 연동을 의도적으로 해제(`vercel git
+  disconnect`)했다.** `main` push는 정상 동작하지만 Vercel Production/Preview 자동 배포는 더 이상
+  생성되지 않는다(최종 제출판 cutover 전까지 로컬 전용 개발 정책 — [docs/deployment.md](docs/deployment.md)
+  "로컬 전용 개발 정책 & Vercel 자동 배포 중단" 절 참고). 기존 project/도메인/Production 배포는
+  그대로 유지되며, `vercel git connect` 또는 대시보드에서 즉시 재연결 가능하다.
 - **커스텀 도메인**: `tour-dna.lib.lc` (Cloudflare DNS, CNAME → Vercel, "DNS only" 모드)
 - **DB**: Neon PostgreSQL, 마이그레이션은 배포 파이프라인에서 자동 실행되지 않으며 `npm run db:migrate`로 수동 적용
 - **Cron**: `vercel.json`에 매월 1일 동기화 등록
