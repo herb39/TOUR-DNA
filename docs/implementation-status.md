@@ -565,6 +565,32 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
   `tests/unit/analyzeProject.test.ts`에 이 사실을 실측(호출 인자·결과 동일성)으로 고정하는 회귀
   테스트를 추가했다 — 문서나 기억이 아니라 실제 호출로 검증한다.
 
+## Phase 4-보완2. 역할별 화면 노출 강화 — `DONE(로컬, 2026-08-13)`
+
+역할별 점수·KPI·체크리스트·위험·예산·홍보자료(roleContent) 계산 로직은 Phase 4/4-보완에서 이미
+정교하게 구현돼 있었다(`audienceContext.ts`의 `computeRoleFit`/`computeRoleChecklistNotes`/
+`computeRoleKpiNotes`/`computeRoleRiskNotes`, `strategyResourcePlan.ts`의 역할별 예산·협력사,
+`promoContent.ts`의 역할별 `roleContent`·채널 우선순위). 전수 조사 결과 **계산은 역할별로 갈리지만
+화면 레이아웃·강조 순서는 세 역할 모두 거의 동일**했고, 특히 실행안(`/plan`) 화면은 `project.role`을
+전혀 표시하지 않아 "다른 업무 도구"로 느껴지기 어려웠다. 이번에는 계산 로직·전략 점수식·KPI/체크리스트/
+위험 산식은 전혀 바꾸지 않고, 다음만 최소로 추가했다.
+
+- **`buildRoleDecisionSummary()`** ([roleDecisionSummary.ts](../src/lib/domain/roleDecisionSummary.ts),
+  신규) — DNA 5축 중 가장 약한 축과 역할을 조합해 "지금 무엇을 먼저 검토해야 하는가"를 한 문장으로
+  요약하는 CURATED 순수 함수(LLM 미사용). 예: 강릉/여행사 → "소비(Spend) 축이 상대적 약점으로 나타나
+  ... 유료 체험·로컬 상품을 엮어 객단가를 높이는 구성이 우선입니다", 경주/지자체 → "... 소비 접점을
+  늘리는 지역 상권 연계 사업이 우선입니다", 제천/축제기획자 → "... 현장 소비를 늘리는 로컬 부스·상품
+  연계 구성이 적합합니다" — 같은 약점 축이라도 역할에 따라 문장이 실제로 달라진다. `/analysis`와
+  `/plan` 화면 상단에 노출한다(`/plan`에는 이전에 없던 역할 표시 자체도 함께 추가).
+- **`StrategyComparisonTable`에 `currentRole` 배지 추가** — 세 역할 전체 roleFit 순위는 기존처럼
+  접힌 상세("더보기")에 남기고, 지금 이 프로젝트의 역할에 대한 적합도 점수만 기본 표(접지 않은 영역)에
+  "내 역할 적합도 N점" 배지로 노출해 더보기를 펼치지 않아도 바로 확인할 수 있게 했다.
+- 강릉(`TRAVEL_AGENCY`)/경주(`LOCAL_GOV`)/제천(`FESTIVAL_PLANNER`) 대표 프로젝트에서 실제 브라우저로
+  확인 — 세 역할 모두 서로 다른 요약 문장이 나오고, DNA 5축 값은 그대로 유지됨을 확인했다.
+- **남은 제한**: 홍보자료 화면(`PromoPreviewPanel`)의 역할별 콘텐츠(roleContent) 노출 수준, 실행안
+  체크리스트/KPI/위험 항목의 시각적 역할 태그(현재는 평문 목록에 섞여 있음)는 이번 범위에서 다루지
+  않았다 — 계산 로직 자체는 이미 역할별로 정확히 다르므로 우선순위가 낮은 후속 UI 개선으로 남긴다.
+
 ## Phase 7. 비교 코호트와 행정 범위 설명 — `DONE(사용자 표시지수 도입, 2026-08-07)`
 
 - 대전 라벨("대전광역시 (DNA 지표는 유성구 기준)")은 이미 반영됨(직전 세션, `regionQueries.ts`).

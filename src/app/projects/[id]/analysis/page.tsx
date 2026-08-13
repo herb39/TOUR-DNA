@@ -33,6 +33,7 @@ import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { prisma } from "@/lib/db";
 import { computeBusinessOpportunities } from "@/lib/domain/businessOpportunity";
+import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { OpportunityCard } from "@/components/opportunity/OpportunityCard";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
@@ -292,6 +293,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     preferredThemes: (input.preferredThemes as string[] | undefined) ?? [],
     poiCountByCategory,
   });
+  const topStrategyName = analysisResult.strategyResults.find((s) => s.rank === 1)?.name ?? null;
+  const roleDecisionSummary = buildRoleDecisionSummary({
+    role: project.role,
+    axisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
+    topStrategyName,
+  });
 
   return (
     <>
@@ -367,6 +374,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             ※ 위 지수는 절대평가가 아니라, 현재 비교지역 안에서 극단적인 차이를 완화해 보여주는 상대
             수준입니다.
           </p>
+          {roleDecisionSummary ? (
+            <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
+              {roleDecisionSummary}
+            </p>
+          ) : null}
           <a
             href="#strategies"
             className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
@@ -616,7 +628,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             핵심 방향·기대 효과·난이도·위험을 비교해 1순위 전략을 확인하세요.
           </p>
           <div className="mt-3">
-            <StrategyComparisonTable rows={strategyComparisonRows} />
+            <StrategyComparisonTable rows={strategyComparisonRows} currentRole={project.role} />
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">

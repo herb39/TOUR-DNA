@@ -73,3 +73,22 @@ describe("StrategyComparisonTable — 기본 표 간소화", () => {
     expect(screen.queryByText(/roleFit/)).not.toBeInTheDocument();
   });
 });
+
+/** 2026-08-13: 세 역할 전체 순위(더보기)와 별개로, 지금 이 프로젝트의 역할(currentRole) 적합도만
+ * 기본 표(접지 않은 영역)에 배지로 노출한다 — "내 역할에는 어떤 전략이 맞는지"를 더보기를 펼치지
+ * 않고도 바로 확인할 수 있게 한다. */
+describe("StrategyComparisonTable — 현재 프로젝트 역할 적합도 배지", () => {
+  it("currentRole을 넘기면 기본 표(접지 않은 영역)에 해당 역할의 적합도 점수가 보인다", () => {
+    render(<StrategyComparisonTable rows={[row()]} currentRole="LOCAL_GOV" />);
+    const badge = screen.getByText(/내 역할 적합도/);
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("70점");
+    const details = screen.getByText("활용 자원·체류 방식·적합 역할 더보기").closest("details");
+    expect(details).not.toContainElement(badge);
+  });
+
+  it("currentRole을 넘기지 않으면 배지가 보이지 않는다(기존 동작 유지)", () => {
+    render(<StrategyComparisonTable rows={[row()]} />);
+    expect(screen.queryByText(/내 역할 적합도/)).not.toBeInTheDocument();
+  });
+});

@@ -12,7 +12,8 @@ import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionCom
 import { summarizeEvidenceBaseYms } from "@/lib/format";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
-import { labelForPrimaryGoal } from "@/lib/validation/codes";
+import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
+import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,20 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     });
   }
 
+  // 역할별 핵심 의사결정 요약(2026-08-13) — analysis 화면과 같은 DNA 축 데이터·추천 전략명을 재사용해
+  // "이 실행안을 지금 이 역할로 볼 때 무엇을 먼저 봐야 하는가"를 한 문장으로 보여준다. 이전에는 실행안
+  // 화면에 project.role이 아예 표시되지 않았다.
+  const roleDecisionSummary = analysisResult
+    ? buildRoleDecisionSummary({
+        role: project.role,
+        axisScores: DNA_AXES.map((axis) => ({
+          axis,
+          score: analysisResult[`${axis}Score` as const] as number | null,
+        })),
+        topStrategyName: selectedStrategy?.name ?? null,
+      })
+    : null;
+
   return (
     <>
       <SiteHeader />
@@ -140,8 +155,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <p className="text-xs font-medium text-slate-500">{project.name}</p>
         <h1 className="mt-1 text-xl font-bold text-slate-900">실행안</h1>
         <p className="mt-1 text-sm text-slate-600">
-          {project.region.name} · {project.travelYear}년 {project.travelMonth}월
+          {project.region.name} · {project.travelYear}년 {project.travelMonth}월 · {labelForRole(project.role)}
         </p>
+        {roleDecisionSummary ? (
+          <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
+            {roleDecisionSummary}
+          </p>
+        ) : null}
         {selectedStrategy ? (
           <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-700">
             <p className="text-sm font-semibold text-slate-900">

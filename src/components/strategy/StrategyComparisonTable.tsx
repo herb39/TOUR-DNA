@@ -4,14 +4,24 @@ import {
   formatRoleFitRanking,
   type StrategyComparisonRow,
 } from "@/lib/domain/strategyResourcePlan";
+import type { UserRoleCode } from "@/lib/domain/audienceContext";
 
 export type { StrategyComparisonRow };
 
 /** 전략 3안을 한 화면에서 나란히 비교하기 위한 표 — StrategyCard가 이미 보여주는 값을 다시 계산하지
  * 않고 그대로 재사용하되, "적합 역할"만 세 역할 각각의 roleFit을 비교해 새로 보여준다(2026-08-04).
  * 2026-08-07: "5초 안에 3안 차이를 이해한다"는 목표에 맞춰 기본 표는 핵심 방향·기대 효과·실행 난이도·
- * 주요 위험 4개 항목만 남기고, 활용 자원·체류 방식·적합 역할은 접어서 유지한다(데이터 삭제 없음). */
-export function StrategyComparisonTable({ rows }: { rows: StrategyComparisonRow[] }) {
+ * 주요 위험 4개 항목만 남기고, 활용 자원·체류 방식·적합 역할은 접어서 유지한다(데이터 삭제 없음).
+ * 2026-08-13: 접힌 상세 안의 "적합 역할" 3역할 순위는 그대로 두되, 지금 이 프로젝트의 역할(currentRole)
+ * 적합도만 기본 표(접지 않은 영역)에 배지로 노출한다 — 세 역할을 균등 비교하는 목적(더보기)과 "내
+ * 역할에는 어떤 전략이 맞는지 바로 확인"하는 목적(기본 표)을 분리한다. */
+export function StrategyComparisonTable({
+  rows,
+  currentRole,
+}: {
+  rows: StrategyComparisonRow[];
+  currentRole?: UserRoleCode;
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-xs">
@@ -29,6 +39,12 @@ export function StrategyComparisonTable({ rows }: { rows: StrategyComparisonRow[
                 )}
                 {row.name}
                 <span className="block font-normal text-slate-500">{row.totalScore}점</span>
+                {currentRole ? (
+                  <span className="mt-1 block rounded-full bg-indigo-50 px-2 py-0.5 text-center text-[10px] font-medium text-indigo-700">
+                    내 역할 적합도{" "}
+                    {row.roleFitRanking.find((r) => r.role === currentRole)?.score ?? "-"}점
+                  </span>
+                ) : null}
               </th>
             ))}
           </tr>
