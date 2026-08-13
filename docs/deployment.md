@@ -239,3 +239,25 @@ Git 자동 배포를 `vercel git disconnect`로 의도적으로 중단했었다.
   관련 검증은 위 cutover 절차에서만, 사용자가 명시적으로 요청한 별도 작업으로만 수행한다.
 - Git 자동 배포가 켜져 있으므로, `main`에 push하는 모든 커밋은 자동으로 Production에 배포된다는
   점을 항상 염두에 둔다 — 커밋 전 로컬 검증(테스트/typecheck/lint/build)을 반드시 마친다.
+
+## 11. Vercel Function ↔ Neon DB region 정렬(2026-08-13)
+
+운영 최초 Document 응답이 평균 약 4~6초로 매우 느린 문제가 있었다(위 성능 조사 절 참고 — 코드 레벨
+`Promise.all` 병렬화로는 해소되지 않았다). 이후 확인 결과 **Neon Production DB region은 Singapore**,
+그 시점 **Vercel Function region은 North America**였다 — 대륙을 가로지르는 요청마다 DB 왕복 지연이
+누적된 것이 실제 핵심 원인이었다. **Vercel Function region을 Singapore로 변경해 Neon과 동일 리전으로
+맞춘 뒤 체감 로딩 문제가 해결됐다**(정확한 재측정 ms는 확보하지 않아 숫자로 단정하지 않는다).
+
+**결론**: 이번 성능 문제는 애플리케이션 코드 자체보다 **Vercel Function ↔ Neon DB의 region
+불일치로 인한 네트워크 왕복 지연 누적**이 핵심 원인이었다.
+
+**한국 사용자 대상 현재 권장 운영 위치**: Vercel Function = Singapore, Neon = Singapore(둘 다 일치).
+
+**향후 체크 항목** — 다음 중 하나라도 할 때는 Function region과 DB region이 일치하는지 먼저 확인한다:
+- DB provider 변경
+- DB migration/이관
+- Vercel project 재생성
+- Vercel Function region 변경
+
+region 불일치는 코드 최적화로 해소되지 않는 종류의 지연이므로, 매번 새 인프라를 구성하기 전에 이
+확인이 최우선이다.

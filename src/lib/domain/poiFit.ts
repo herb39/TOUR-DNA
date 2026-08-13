@@ -271,6 +271,17 @@ function reclassifyAsCoreMinimumReserve(fit: PoiFitResult): PoiFitResult {
   return { ...fit, recommendationStatus: "CORE_MINIMUM_RESERVE", cautions };
 }
 
+/** 카테고리 하나당 최소 보존으로 복구할 최대 개수(2026-08-14, 경주 "강동 워터파크" 등 낮은 품질
+ * 보완 추천 과다 포함 문제 수정). "최소 보존"이라는 이름 그대로, 테마 근거가 불확실한 후보를 전부
+ * 되돌리지 않고 카테고리당 이 개수만큼만 되돌린다 — 아래 applyCoreMinimumReserve 참고.
+ *
+ * 값 3은 대표 프로젝트(강릉/경주/제천) 실제 재분석 결과로 결정했다(임의로 정하지 않음) — 1이나 2로는
+ * 코스가 지나치게 얇아졌다(예: 경주 3일차가 1곳뿐인 날이 생김, 목표 대비 부족 개수가 2곳→8~10곳으로
+ * 급증). 3에서는 (a) 제천처럼 원래 카테고리당 탈락 후보가 3곳 이하인 경우 기존 코스 구성이 그대로
+ * 유지되고, (b) 경주처럼 4곳 이상인 카테고리(ATTRACTION 6곳)만 상위 3곳으로 줄어 "강동 워터파크"
+ * 같은 순위가 낮은 후보는 여전히 제외되면서도, 코스가 과도하게 비지 않는 균형점이었다. */
+const RESERVE_PER_CATEGORY_LIMIT = 3;
+
 /**
  * 전략의 테마 핵심 카테고리(FOOD/LODGING 제외 CORE)가 fit 필터링으로 완전히 0개가 되는 것을 막는
  * 최소 보존 정책(2026-08-13, 경주/제천 FOOD-only 코스 버그 수정 — 강릉과 같은 근본 원인의 일반화).
@@ -289,6 +300,17 @@ function reclassifyAsCoreMinimumReserve(fit: PoiFitResult): PoiFitResult {
  * CORE POI가 하나라도 있으면 이 복귀 로직 자체가 발동하지 않으므로, 워터파크/캠핑장 시나리오처럼
  * "이미 좋은 후보가 있는 경우"는 그대로 보수적으로 유지된다(회귀 없음 — 테스트로 확인).
  *
+ * **2026-08-14 수정 — 카테고리당 최소 개수(RESERVE_PER_CATEGORY_LIMIT)만 복구한다.** 기존에는 발동
+ * 조건이 맞으면 해당 카테고리의 탈락 CORE 후보 *전부*를 되돌려, 실제로는 "최소 보존"이 아니라 "탈락한
+ * 후보 그룹 전체 복구"가 되는 문제가 있었다(경주 실제 데이터: ATTRACTION 6곳이 전부 복구됨 — 그 중
+ * 하나가 "강동 워터파크"였다). 이미 계산된 fit 점수(computePoiFit의 totalScore, 새 신호를 추가하지
+ * 않고 재사용)가 높은 순으로 카테고리당 최대 RESERVE_PER_CATEGORY_LIMIT곳만 복구하고 나머지는 그대로
+ * BELOW_MINIMUM_FIT으로 둔다 — "핵심 카테고리가 0개가 되지 않는다"는 원래 보장은 그대로 유지하면서
+ * (카테고리별 최소 1곳은 여전히 채워짐), 낮은 품질 후보가 지나치게 많이 한꺼번에 코스에 들어오는 것만
+ * 막는다. 점수가 동점이면(실제 데이터에서 흔함 — 테마 미매칭 후보는 카테고리+계절 점수만 같은 경우가
+ * 많다) 원래 후보 순서(안정 정렬, `Array.prototype.sort`가 보장)로 동점을 깬다 — 이름 키워드 블랙리스트
+ * 없이 결정론적이다.
+ *
  * 코스 생성(filterRecommendablePois)과 화면 표시(poiFitService.ts의 buildStrategyPoiFitSummary)
  * 양쪽이 이 함수 하나를 공유해, "실제로 코스에 포함된 POI인데 배지에는 제외됐다고 표시되는" 불일치를
  * 만들지 않는다.
@@ -303,13 +325,29 @@ export function applyCoreMinimumReserve<T extends PoiFitInput>(
   );
   if (hasConfirmedThemeCore) return evaluations;
 
-  return evaluations.map((e) => {
+  const recoverableByCategory = new Map<string, PoiFitEvaluation<T>[]>();
+  for (const e of evaluations) {
     const isRecoverable =
       isExcludedFromRecommendation(e.fit) &&
       e.fit.breakdown.categoryFit.tier === "CORE" &&
       themeCoreCategories.includes(e.poi.category);
-    return isRecoverable ? { poi: e.poi, fit: reclassifyAsCoreMinimumReserve(e.fit) } : e;
-  });
+    if (!isRecoverable) continue;
+    const list = recoverableByCategory.get(e.poi.category) ?? [];
+    list.push(e);
+    recoverableByCategory.set(e.poi.category, list);
+  }
+
+  const reservedIds = new Set<string>();
+  for (const candidates of recoverableByCategory.values()) {
+    const ranked = [...candidates].sort((a, b) => b.fit.totalScore - a.fit.totalScore);
+    for (const e of ranked.slice(0, RESERVE_PER_CATEGORY_LIMIT)) {
+      reservedIds.add(e.poi.id);
+    }
+  }
+
+  return evaluations.map((e) =>
+    reservedIds.has(e.poi.id) ? { poi: e.poi, fit: reclassifyAsCoreMinimumReserve(e.fit) } : e,
+  );
 }
 
 /**

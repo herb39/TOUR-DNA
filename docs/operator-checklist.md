@@ -234,6 +234,12 @@
       reanalysis)은 Production Neon에서 절대 수행하지 않는다 — `DATABASE_URL`이 localhost가 아니면
       개발 중 DB write를 하지 않는 것이 공통 원칙이다. cutover 절차(사용자가 명시적으로 요청하는
       별도 작업)에서만 예외적으로 Production DB를 다룬다.
+- [x] **Vercel Function ↔ Neon DB region 정렬(2026-08-13)** — Neon region이 Singapore인데 Vercel
+      Function region이 North America라 운영 최초 Document가 4~6초까지 느려졌던 문제를 Function
+      region을 Singapore로 맞춰 해결했다. **DB provider 변경/DB migration/Vercel project 재생성/
+      Function region 변경을 할 때는 항상 Function region과 DB region이 일치하는지 먼저 확인한다**
+      (`docs/deployment.md` "Vercel Function ↔ Neon DB region 정렬" 절 참고). 한국 사용자 대상 현재
+      권장 구성: Vercel Function = Singapore, Neon = Singapore.
 
 ## 사고 대응
 

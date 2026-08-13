@@ -409,7 +409,11 @@ npm run build
   재분석 등)은 계속 local PostgreSQL(`tour_dna_local`)에서만 수행하고, Production Neon에는 seed·
   migration·dataset activate·sync 같은 개발용 write 작업을 실행하지 않는다.
 - **커스텀 도메인**: `tour-dna.lib.lc` (Cloudflare DNS, CNAME → Vercel, "DNS only" 모드)
-- **DB**: Neon PostgreSQL, 마이그레이션은 배포 파이프라인에서 자동 실행되지 않으며 `npm run db:migrate`로 수동 적용
+- **DB**: Neon PostgreSQL(**region: Singapore**), 마이그레이션은 배포 파이프라인에서 자동 실행되지 않으며 `npm run db:migrate`로 수동 적용
+- **Vercel Function region**: **Singapore** — Neon DB와 동일 리전으로 맞춰뒀다(2026-08-13, 아래 참고).
+  ⚠️ Function region이 Neon region과 다르면(예: 이전에 North America였을 때) 요청마다 DB 왕복 지연이
+  누적돼 운영 최초 페이지 로딩이 크게 느려진다 — [docs/deployment.md](docs/deployment.md) "Vercel
+  Function ↔ Neon DB region 정렬" 절 참고.
 - **Cron**: `vercel.json`에 매월 1일 동기화 등록
 - 자세한 신규 배포 순서는 [docs/deployment.md](docs/deployment.md) 참고
 - ✅ **운영 배포는 로컬 저장소와 동기화되어 있다(2026-08-01 확인)**: `git log`/`git status` 기준 로컬

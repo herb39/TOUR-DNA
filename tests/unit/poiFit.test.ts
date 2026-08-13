@@ -234,3 +234,72 @@ describe("filterRecommendablePois — CORE_MINIMUM_RESERVE(2026-08-13, 경주/�
     expect(waterparkFit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
   });
 });
+
+describe("applyCoreMinimumReserve — 카테고리당 최소 개수만 복구(2026-08-14, 경주 '강동 워터파크' 과다 보완 추천 수정)", () => {
+  it("카테고리당 탈락 CORE 후보가 3곳 이하이면(경주 EXPERIENCE 실제 재현 규모) 전부 복구한다 — 코스가 불필요하게 얇아지지 않는다", () => {
+    const pois = [
+      { id: "bike", name: "경주시 자전거공원", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "resort", name: "한화리조트 경주", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "golf", name: "보문골프클럽", category: "EXPERIENCE" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "country", name: "경주컨트리클럽", category: "EXPERIENCE" as const, sourceType: "API", operatingHours: null, closedDays: null },
+    ];
+    const evaluations = applyCoreMinimumReserve(
+      pois.map((poi) => ({ poi, fit: computePoiFit(poi, context()) })),
+      cultureHistory,
+    );
+    const reserved = evaluations.filter((e) => e.fit.recommendationStatus === "CORE_MINIMUM_RESERVE");
+    // 카테고리당 후보가 3곳(cap) 이하이므로 전부 복구된다 — cap은 "지나치게 많을 때만" 개입한다.
+    expect(reserved).toHaveLength(4);
+    expect(reserved.map((e) => e.poi.id).sort()).toEqual(["bike", "country", "golf", "resort"].sort());
+  });
+
+  it("카테고리당 탈락 CORE 후보가 cap(3곳)을 넘으면(경주 ATTRACTION 실제 재현: 6곳) 점수 상위 3곳만 복구하고 나머지(강동 워터파크 등)는 BELOW_MINIMUM_FIT으로 남긴다", () => {
+    // 실제 경주 데이터 재현 — ATTRACTION 6곳이 전부 테마 미매칭으로 탈락한 상황(2026-08-13 수정
+    // 이전에는 6곳 전부 복구되어 "강동 워터파크"까지 코스에 포함됐다).
+    const names = ["경주시 자전거공원", "한화리조트 경주", "강동 워터파크", "강동리조트 프라이빗콘도", "감포항", "건천편백나무숲"];
+    const pois = names.map((name, i) => ({
+      id: `attr${i}`,
+      name,
+      category: "ATTRACTION" as const,
+      sourceType: "API",
+      operatingHours: null,
+      closedDays: null,
+    }));
+    const evaluations = applyCoreMinimumReserve(
+      pois.map((poi) => ({ poi, fit: computePoiFit(poi, context()) })),
+      cultureHistory,
+    );
+    const reserved = evaluations.filter((e) => e.fit.recommendationStatus === "CORE_MINIMUM_RESERVE");
+    const stillExcluded = evaluations.filter((e) => e.fit.recommendationStatus === "BELOW_MINIMUM_FIT");
+
+    expect(reserved).toHaveLength(3); // cap=3
+    expect(stillExcluded).toHaveLength(3);
+    // 점수가 전부 동점이므로(테마 미매칭+CORE+성수기) 원래 순서(안정 정렬) 상위 3곳이 복구된다 —
+    // "강동 워터파크"는 순서상 3번째 후보라 cap을 넘겨 제외된다.
+    expect(reserved.map((e) => e.poi.id)).toEqual(["attr0", "attr1", "attr2"]);
+    expect(stillExcluded.map((e) => e.poi.id).sort()).toEqual(["attr3", "attr4", "attr5"]);
+  });
+
+  it("점수가 다르면(계절 일치 여부 차이) 카테고리당 점수가 높은 순으로 cap만큼만 복구한다 — 새 키워드 목록 없이 기존 fit 점수를 재사용한다", () => {
+    const inSeasonCtx = context({ travelMonth: 10 }); // cultureHistory idealMonths에 10월 포함
+    const offSeasonCtx = context({ travelMonth: 1 }); // 비수기 → seasonScore 0점, totalScore 더 낮음
+
+    function make(id: string, name: string, ctx: PoiFitContext) {
+      const poi = { id, name, category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null };
+      return { poi, fit: computePoiFit(poi, ctx) };
+    }
+    // 성수기 후보 3곳(고득점) + 비수기 후보 1곳(저득점) — cap=3이므로 저득점 후보만 제외된다.
+    const evaluations = applyCoreMinimumReserve(
+      [
+        make("low", "낮은 점수 후보", offSeasonCtx),
+        make("high1", "높은 점수 후보1", inSeasonCtx),
+        make("high2", "높은 점수 후보2", inSeasonCtx),
+        make("high3", "높은 점수 후보3", inSeasonCtx),
+      ],
+      cultureHistory,
+    );
+    const reserved = evaluations.filter((e) => e.fit.recommendationStatus === "CORE_MINIMUM_RESERVE");
+    expect(reserved.map((e) => e.poi.id).sort()).toEqual(["high1", "high2", "high3"]);
+    expect(evaluations.find((e) => e.poi.id === "low")!.fit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
+  });
+});

@@ -1754,3 +1754,22 @@ Production 자동 배포·`tour-dna.lib.lc` alias 갱신까지 end-to-end 확인
 - 결론: 6초 병목의 대부분은 코드의 순차 await가 아니라 (1) 서버리스 cold-connection 재수립 비용과
   (2) warm 상태에서도 남는 Vercel↔Neon 네트워크 왕복 지연으로 보인다 — DB 리전 조사·이관은 이번
   작업 범위 밖이라 실행하지 않았다(다음 작업에서 Neon 리전 확인 후 결정 필요).
+
+### 후속 확인(2026-08-13) — 원인 확정: Vercel Function ↔ Neon region mismatch
+
+사용자가 직접 대시보드에서 확인한 결과 **Neon Production DB region은 Singapore**였고, 그 시점 **Vercel
+Function region은 North America**였다 — 위에서 추정만 했던 "네트워크 왕복 지연"의 실체가 대륙 간
+region mismatch였음이 확정됐다. **Vercel Function region을 Singapore로 변경해 Neon과 동일 리전으로
+맞춘 뒤 운영 최초 Document 체감 로딩 문제가 해결됐다**(재측정 ms 수치는 별도로 확보하지 않았으므로
+숫자로 단정하지 않는다 — "체감 문제 해결"로만 기록한다).
+
+이번 세션에서 시도했던 코드 레벨 개선(`getLatestDataFreshness()` 병렬화 등)은 정상적이고 유지할
+가치가 있지만, **6초대 지연의 실제 핵심 원인은 애플리케이션 코드가 아니라 인프라 region 불일치였다**
+— 같은 대륙 안에서의 정상적인 네트워크 지연(수십~수백 ms)이 아니라 대륙 간 왕복이 여러 차례 누적된
+결과였다. 한국 사용자를 대상으로 하는 이 서비스는 **Vercel Function과 Neon DB를 모두 Singapore로
+정렬**하는 것이 현재 권장 운영 구성이다.
+
+**향후 점검 항목** — 다음 작업 중 하나라도 발생하면 Function region과 DB region이 서로 일치하는지
+먼저 확인한다: DB provider 변경, DB migration/이관, Vercel project 재생성, Vercel Function region
+변경. region 불일치는 코드를 아무리 최적화해도 해소되지 않는 종류의 지연이므로, 새 인프라를 구성할
+때마다 이 확인을 가장 먼저 한다.
