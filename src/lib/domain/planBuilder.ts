@@ -740,6 +740,50 @@ function findBestDayForOutlier(
 const TRAVEL_REPAIR_MAX_PASSES = 2;
 
 /**
+ * 스케줄링 이후(3단계, 점심·저녁 시간대 배치) 재도입된 장거리 구간 정리(2026-08-14, 경주 실 운영
+ * 재현: 106분 구간이 그대로 남는 문제 수정). `repairExcessiveTravelSegments`(2단계)는 `scheduleDayPois`
+ * (3단계, FOOD를 점심/저녁 시간대로 옮겨 배치)가 실행되기 **전**의 순서(최근접 이웃 순서)만 검사한다 —
+ * scheduleDayPois가 FOOD를 시간대에 맞춰 재배치하면서 2단계가 확인하지 않은 새 인접 쌍이 생길 수 있고,
+ * 그 결과 90분 이상인 구간이 최종 화면에 그대로 노출되는 경우가 실제로 확인됐다(경주 문화·역사 실행안,
+ * 황남밀면→감포공설시장 106분 구간). scheduleDayPois는 FOOD 시간대 제약이 있어 임의로 순서를 다시
+ * 섞을 수 없으므로, 여기서는 "그 날짜의 최종 순서에서 정말 EXCESSIVE 구간이 남았는지"만 다시 확인해
+ * 있으면 findWorstExcessiveAdjacency와 동일한 기준으로 그 POI를 원본 dayPois에서 제외하고
+ * scheduleDayPois를 다시 실행한다(다른 접근 없음 — 옮기지 않고 제외만 한다, "안전한 생략" 원칙 유지).
+ * 최대 dayPois.length번만 반복해(무한 루프 방지) 남을 수 있는 이상치를 전부 제거한다.
+ *
+ * FOOD는 제외 대상에서 제외한다(2026-08-14) — scheduleDayWithMeals가 FOOD를 점심/저녁 "시간대"에
+ * 맞추려고 지리적 순서와 다르게 배치할 수 있는데, 그 결과로 생긴 인접 구간의 이상치가 하필 FOOD 쪽으로
+ * 지목되면 이 함수가 식사 자리를 지워버려 "날짜별 식사 보장"(4단계, repairMealCoverage)이 되돌릴 수
+ * 없는 손실이 생긴다(단일 날짜 코스에서는 다른 날짜에서 가져올 식사도 없다 — 자정 wrap 방어 테스트로
+ * 재현). FOOD가 지목되면 그 날짜는 더 손대지 않고 다음 날짜로 넘어간다 — 실제 관광지 쪽 이상치만
+ * 안전하게 제거한다.
+ */
+function repairExcessiveTravelAfterScheduling(
+  dayPoisList: PoiDetail[][],
+  scheduledList: (ScheduledItem[] | null)[],
+  daySlotsForDayList: string[][],
+  transport: TransportCode,
+  noticesByDay: string[][],
+): void {
+  for (let d = 0; d < dayPoisList.length; d++) {
+    if (!scheduledList[d]) continue; // FOOD가 없는 날짜는 scheduleDayPois가 순서를 바꾸지 않는다.
+    for (let guard = 0; guard < dayPoisList[d].length; guard++) {
+      const finalOrder = (scheduledList[d] ?? []).map((s) => s.poi);
+      const outlier = findWorstExcessiveAdjacency(finalOrder, transport);
+      if (!outlier) break;
+
+      const removedPoi = finalOrder[outlier.index];
+      if (isFoodPoi(removedPoi) || removedPoi.category === LODGING_CATEGORY) break;
+      dayPoisList[d] = dayPoisList[d].filter((p) => p.id !== removedPoi.id);
+      noticesByDay[d].push(
+        `${removedPoi.name}은(는) 시간대 배치 이후 인근 다른 장소와의 이동 거리가 지나치게 멀어(약 ${outlier.minutes}분, 기준 ${EXCESSIVE_TRAVEL_MINUTES}분) 코스에서 제외되었습니다.`,
+      );
+      scheduledList[d] = scheduleDayPois(dayPoisList[d], daySlotsForDayList[d], transport);
+    }
+  }
+}
+
+/**
  * 장거리 구간 처리(2단계, 2026-07-27 경주 87분·127분 이동 재현 보완). 지금까지는 이동시간이 아무리
  * 길어도 nearest-neighbor 순서를 그대로 받아들여 시각표만 뒤로 미뤘다(선택된 POI 자체는 그대로 유지) —
  * 그 결과 "동선상 실제로는 다른 지역에 있는 장소"가 하루 코스에 그대로 남아 실행 불가능한 이동을
@@ -920,6 +964,11 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
   // FOOD가 있는 날짜만 점심·저녁 시간대를 고려한 배치(3단계)를 적용한다. FOOD가 없으면 기존 방식
   // (날짜별 고정 슬롯 + 최근접 이웃 순서)을 그대로 쓴다 — 회귀 없이 이번 개선을 독립적으로 적용하기 위함.
   const scheduledList = dayPoisList.map((dayPois, d) => scheduleDayPois(dayPois, daySlotsForDayList[d], transport));
+
+  // 스케줄링 이후 재도입된 장거리 구간 정리(2026-08-14) — scheduleDayPois가 FOOD를 시간대에 맞춰
+  // 재배치하면서 2단계(repairExcessiveTravelSegments)가 미리 확인하지 않은 새 EXCESSIVE 인접 쌍이
+  // 생길 수 있다. 위 travelNoticesByDay를 그대로 이어써서 안내문을 한 곳에 모은다.
+  repairExcessiveTravelAfterScheduling(dayPoisList, scheduledList, daySlotsForDayList, transport, travelNoticesByDay);
 
   // 날짜별 식사 보장(4단계) — 위 1차 결과만으로 점심(그리고 그 날짜가 저녁까지 이어지면 저녁)이 빠진
   // 날짜가 있으면, 다른 날짜에서 쓰이지 않은 식사 가능 FOOD를 옮겨 다시 시도한다.

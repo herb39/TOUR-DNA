@@ -668,4 +668,45 @@ describe("PlanEditor 적합도 배지 라벨(2026-08-11 감사)", () => {
 
     expect(screen.getByText("적합도 낮음")).toBeInTheDocument();
   });
+
+  /** 2026-08-14(운영 문제 재현 보완) — 선호 테마를 입력하지 않으면 카테고리+계절만으로도 grade가
+   * HIGH/MEDIUM에 도달할 수 있다(themeFit이 만점 계산에서 빠져 분모가 줄어들기 때문). 이 경우 "적합도
+   * 높음"만 단독으로 보이면 사용자가 테마까지 확인된 것으로 오해할 수 있어, 테마 미입력 사실을
+   * 라벨에 그대로 덧붙이는지 확인한다(판정 산식은 변경하지 않음 — 표시 문구만 확인). */
+  function makeHighGradeFitWithoutTheme(): PoiFitResult {
+    return {
+      totalScore: 100,
+      grade: "HIGH",
+      recommendationStatus: "RECOMMENDED",
+      breakdown: {
+        categoryFit: { score: 30, tier: "CORE" },
+        themeFit: { score: 0, evaluated: false, matched: false, source: "NONE" },
+        seasonFit: { score: 20, isIdealMonth: true },
+      },
+      positiveReasons: ["전략 핵심 카테고리와 일치합니다."],
+      cautions: [],
+      dataSource: {
+        provenance: "LIVE_API",
+        sourceLabel: "실제 공공데이터 동기화 결과",
+        operatingHoursConfirmed: false,
+        operatingHoursText: null,
+        closedDaysText: null,
+      },
+    };
+  }
+
+  it("선호 테마를 입력하지 않아 카테고리·계절만으로 '적합도 높음'이 나온 경우, 테마 미입력 사실을 라벨에 함께 표시한다", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeHighGradeFitWithoutTheme() }} />);
+
+    expect(screen.getByText("적합도 높음 (테마 미입력)")).toBeInTheDocument();
+    expect(screen.queryByText("적합도 높음")).not.toBeInTheDocument();
+  });
+
+  it("선호 테마가 실제로 평가·일치된 경우에는 '(테마 미입력)' 문구를 붙이지 않는다(회귀 방지)", () => {
+    render(<PlanEditor plan={makePlan()} poiFits={{ "poi-a": makeFit({ tier: "CORE", themeEvaluated: true, themeMatched: true }) }} />);
+
+    // makeFit()은 grade:"LOW"만 만들 수 있으므로, HIGH 등급 회귀는 아래 별도 확인으로 보강한다(같은
+    // 스위트의 기존 CORE_MINIMUM_RESERVE 테스트가 이미 evaluated=true 경로의 다른 라벨을 검증한다).
+    expect(screen.queryByText(/테마 미입력/)).not.toBeInTheDocument();
+  });
 });

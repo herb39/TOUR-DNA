@@ -1408,6 +1408,41 @@ describe("buildDraftCourse — 장거리 구간 처리(2단계, 경주 87분·12
     expect(items.map((i) => i.poiId).sort()).toEqual(["attr-1", "attr-2"]);
     expect(days[0].notices?.some((n) => n.includes("POI-isolated"))).toBe(true);
   });
+
+  it("점심/저녁 시간대 배치(3단계) 이후 새로 생긴 EXCESSIVE 인접도 제거한다(2026-08-14, 경주 실 운영 106분 구간 재현)", () => {
+    // 2단계(repairExcessiveTravelSegments)는 scheduleDayPois가 FOOD를 점심/저녁 시간대에 맞춰
+    // 재배치하기 전의(최근접 이웃) 순서만 검사한다. 실제 운영(경주 문화·역사 실행안, MIXED 교통)에서는
+    // 이 재배치 이후 최종 순서에 90분 기준을 넘는 구간(황남밀면→감포공설시장 106분)이 새로 생겼는데도
+    // 화면에 그대로 남아 있었다 — 이 테스트는 그 실제 좌표 데이터를 그대로 재현한다(수정 전에는 실패,
+    // 수정 후에는 통과하는 것을 직접 확인했다). 경주 시내 군집(대부분) + 동떨어진 감포 군집(감포공설
+    // 시장·감포항) 조합에서, 3단계 재배치가 감포 군집을 시내 FOOD 바로 뒤에 붙여 EXCESSIVE 구간을
+    // 새로 만든다.
+    const pois: PoiDetail[] = [
+      poi("gulbulsa", 35.8578720995, 129.2303433362, "ATTRACTION"),
+      { ...poi("hwasan", 35.9275264313, 129.2877918634, "FOOD"), mealEligible: true } as PoiDetail,
+      poi("youth-center", 35.8544694288, 129.2156919397, "EXPERIENCE"),
+      poi("camping", 35.9810480877, 129.1373340915, "EXPERIENCE"),
+      { ...poi("hwangnam-milmyeon", 35.8360160961, 129.2106830176, "FOOD"), mealEligible: true } as PoiDetail,
+      { ...poi("onui", 35.8567625191, 129.225773146, "FOOD"), mealEligible: true } as PoiDetail,
+      poi("sonokam", 35.8467893529, 129.2817014891, "LODGING"),
+      poi("waterpark", 35.8179335881, 129.3056850979, "ATTRACTION"),
+      { ...poi("hwangnam-bibimbap", 35.8340799622, 129.2102846606, "FOOD"), mealEligible: true } as PoiDetail,
+      poi("gampo-market", 35.8041527624, 129.5020460934, "SHOPPING"),
+      poi("gampo-port", 35.8078329413, 129.5040374805, "ATTRACTION"),
+    ];
+    const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "MIXED");
+    const allItems = days.flatMap((d) => d.items);
+
+    // 결과 코스 안에는 EXCESSIVE(90분 이상) 인접 구간이 남아있지 않다 — 3단계 재배치 이후에도 보장된다.
+    for (const day of days) {
+      for (let i = 1; i < day.items.length; i++) {
+        const minutesMatch = day.items[i].travel.match(/약 (\d+)분/);
+        if (minutesMatch) expect(Number(minutesMatch[1])).toBeLessThan(90);
+      }
+    }
+    // FOOD는 이 정리 과정에서 제외되지 않는다(필수 슬롯 보호).
+    expect(allItems.some((i) => i.category === "FOOD")).toBe(true);
+  });
 });
 
 describe("buildDraftCourse — 2일차(09:30 시작, 오후 종료) 회귀 테스트: 점심이 가로채이지 않고, 도달 가능한 후보가 있으면 조기 종료하지 않는다", () => {

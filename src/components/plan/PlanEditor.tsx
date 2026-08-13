@@ -89,6 +89,15 @@ function resolveFitBadge(fit: PoiFitResult): { label: string; className: string 
     return { label: "후보 부족으로 보완 추천", className: FIT_GRADE_BADGE_CLASS.MEDIUM };
   }
   if (fit.grade !== "LOW") {
+    // 2026-08-14(운영 문제 재현 보완): 선호 테마를 아예 입력하지 않으면(themeFit.evaluated===false)
+    // 만점 기준(maxScore)에서 테마 항목이 빠져 카테고리+계절만으로도 100점에 도달하기 쉽다 — 그 결과
+    // 문화·역사 전략에서 워터파크·청소년수련관처럼 실제로는 테마와 무관할 수 있는 장소도 "적합도
+    // 높음"으로 표시돼, 사용자가 이를 "테마까지 확인된 높은 적합도"로 오해할 수 있다(실제 운영에서
+    // 확인됨). 판정 산식(grade/threshold)은 그대로 두고, 화면 문구에만 "테마 미입력으로 카테고리·시즌만
+    // 반영됨"을 짧게 덧붙여 실제 근거 범위를 명확히 한다.
+    if (!fit.breakdown.themeFit.evaluated) {
+      return { label: `${FIT_GRADE_LABEL[fit.grade]} (테마 미입력)`, className: FIT_GRADE_BADGE_CLASS[fit.grade] };
+    }
     return { label: FIT_GRADE_LABEL[fit.grade], className: FIT_GRADE_BADGE_CLASS[fit.grade] };
   }
   const { categoryFit, themeFit } = fit.breakdown;
