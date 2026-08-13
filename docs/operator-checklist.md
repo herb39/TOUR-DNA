@@ -213,23 +213,27 @@
   `CRON_SECRET` 인증을 그대로 쓰므로 게이트에서 제외했다. 로컬 개발/E2E는 `SITE_ACCESS_PASSWORD`를
   비워둬서 게이트가 꺼진 상태로 동작한다.
 
-## 로컬 전용 개발 정책 & Vercel 자동 배포 중단(2026-08-13)
+## 로컬 전용 개발 정책 & Vercel 배포 이력(2026-08-13)
 
-새 Neon 프로젝트로 DB 이관은 정상 완료됐지만(migration 13/13, ACTIVE=202606, 전국 audit PASS), 최종
-제출판 전까지는 Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가기로 했다. 상세 배경과
-cutover 절차 전체는 `docs/deployment.md`의 "로컬 전용 개발 정책 & Vercel 자동 배포 중단" 절 참고.
+새 Neon 프로젝트로 DB 이관은 정상 완료됐지만(migration 13/13, ACTIVE=202606, 전국 audit PASS), 2026-08-13
+초 한동안은 Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가려고 Vercel Git 자동 배포를
+잠시 중단했었다. **같은 날 Vercel 사용량 여유를 확인한 뒤 자동 배포를 다시 활성화했다** — 개발 DB
+정책(local-only)은 자동 배포 여부와 무관하게 계속 유지된다. 상세 배경과 cutover 절차 전체는
+`docs/deployment.md`의 "로컬 전용 개발 정책 & Vercel 배포 이력" 절 참고.
 
-- [x] `vercel git disconnect`로 Vercel Git 연동 해제 — GitHub push는 정상 유지, Production/Preview
-      자동 deployment만 중단. 기존 project/custom domain(`tour-dna.lib.lc`)/기존 Production
-      deployment는 전부 그대로 유지됨(변경 후 `link`/`productionBranch` 필드가 project API 응답에서
-      사라진 것으로 해제 확인, alias/도메인 목록 변화 없음 확인).
+- [x] `vercel git connect`로 Vercel Git 연동 재활성화(2026-08-13) — provider GitHub, repository
+      `herb39/TOUR-DNA`, Production branch `main` 확인(project API의 `link` 필드로 확인, 값은
+      비민감 메타데이터만 조회함). `main` push → Production 자동 배포가 실제로 동작함을 push 후
+      빌드 완료·`tour-dna.lib.lc` alias 갱신까지 확인했다. 기존 project/custom domain/Production
+      환경변수는 재연결 과정에서 변경되지 않았다.
 - [x] `.env.local`의 미사용 `DIRECT_URL`(옛 Neon 값) 제거 — `DATABASE_URL`은 localhost 그대로 유지.
 - [ ] **(cutover 시점에 수행)** 위 "최종 제출 전 cutover 절차" 1~7번 순서대로 진행 — 로컬 최종 검증 →
-      `pg_dump` → 새 Neon restore/import 재검증 → Vercel Production `DATABASE_URL` 교체 → Vercel Git
-      재연결(`vercel git connect`) 또는 `vercel --prod` 수동 배포 → 브라우저 smoke test.
-- [ ] cutover 전까지는 어떤 작업에서도 Production Neon에 write(seed/migration/dataset activate/sync)를
-      수행하지 않는다 — `DATABASE_URL`이 localhost가 아니면 개발 중 DB write를 하지 않는 것이 공통
-      원칙이다.
+      `pg_dump` → 새 Neon restore/import 재검증 → Vercel Production `DATABASE_URL` 교체 → (Git 자동
+      배포는 이미 켜져 있으므로) env 교체 후 다음 push 또는 대시보드 Redeploy → 브라우저 smoke test.
+- [ ] Git 자동 배포 활성화 여부와 무관하게, 개발용 작업(sync/seed/migration/dataset activate/개발용
+      reanalysis)은 Production Neon에서 절대 수행하지 않는다 — `DATABASE_URL`이 localhost가 아니면
+      개발 중 DB write를 하지 않는 것이 공통 원칙이다. cutover 절차(사용자가 명시적으로 요청하는
+      별도 작업)에서만 예외적으로 Production DB를 다룬다.
 
 ## 사고 대응
 

@@ -172,35 +172,48 @@ ACTIVE가 없기 때문) — 완전 자동(사람 개입 없는) 승격 스케�
 재사용 효과가 즉시 나타나지 않는다(첫 회차는 그대로 전량 호출됨 — 두 번째 STAGING baseYm부터
 절감 효과가 생긴다). 이 절차도 아직 Production에는 적용하지 않았다.
 
-## 10. 로컬 전용 개발 정책 & Vercel 자동 배포 중단(2026-08-13)
+## 10. 로컬 전용 개발 정책 & Vercel 배포 이력(2026-08-13)
 
 새 Neon 프로젝트로 DB 이관을 마쳤지만(스키마 13/13 migration, 전국 데이터, ACTIVE=202606, audit
-PASS 전부 확인됨 — `docs/implementation-status.md` 참고), **최종 제출판을 준비하는 기간에는
-Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가기로 했다.** 이를 뒷받침하기 위해
-Vercel Git 자동 배포를 의도적으로 중단했다.
+PASS 전부 확인됨 — `docs/implementation-status.md` 참고), 2026-08-13 초 한동안은 **최종 제출판을
+준비하는 기간 동안 Production Neon/Vercel을 건드리지 않고 로컬에서만 개발을 이어가기 위해** Vercel
+Git 자동 배포를 `vercel git disconnect`로 의도적으로 중단했었다. **같은 날 안에 Vercel 사용량에
+충분한 여유가 있음을 확인해 `vercel git connect`로 자동 배포를 다시 활성화했다** — 아래는 그 사이에
+있었던 일시 중단 이력과, 재활성화 이후에도 계속 유지되는 DB 정책을 함께 기록한다.
 
-### 현재 상태
+### 현재 상태(2026-08-13 재활성화 이후)
 
-- `.env.local`의 `DATABASE_URL`은 `localhost:5432/tour_dna_local` 그대로 유지(로컬 PostgreSQL).
+- **Vercel Git 연동이 다시 활성화되어 있다** — provider GitHub, repository `herb39/TOUR-DNA`,
+  Production branch `main`. `main` push → Production 자동 배포, 다른 branch push → Preview 자동
+  배포가 정상 동작한다(실제 push → 자동 build → `tour-dna.lib.lc` alias 갱신까지 확인 완료).
+- 기존 Vercel project(`tour-dna`)·custom domain(`tour-dna.lib.lc`)·Production 환경변수는 재연결
+  과정에서 전혀 변경되지 않았다(`vercel git connect`는 저장소 연결만 추가할 뿐, 프로젝트/도메인/env를
+  건드리지 않는다).
+- 필요하면 언제든 `vercel git disconnect`로 다시 자동 배포만 끌 수 있고, `vercel --prod` 수동 배포도
+  계속 가능하다.
+
+### 일시 중단됐던 기간의 기록(2026-08-13, 자동 배포 재활성화 전)
+
+- `.env.local`의 `DATABASE_URL`은 `localhost:5432/tour_dna_local` 그대로 유지(로컬 PostgreSQL) —
+  이 부분은 재활성화 이후에도 변함없다.
 - `.env.local`의 `DIRECT_URL`(옛 Neon 값)은 제거했다 — `prisma.config.ts`가 `DATABASE_URL` 하나만
   `datasource.url`에 연결하고 `DIRECT_URL`은 스키마·설정 어디에서도 참조되지 않는 완전 미사용
   변수였음을 코드로 확인한 뒤 정리한 것이다(혼동 방지 목적, 기능 영향 없음).
 - 새 Neon pooled 연결 문자열은 `.env.local` 최상단에 **주석으로만** 남겨뒀다 — 아직 활성 `DATABASE_URL`로
   쓰지 않는다.
-- **Vercel Git 연동을 `vercel git disconnect`로 해제했다(2026-08-13)** — `herb39/TOUR-DNA` GitHub
-  저장소로의 `git push`는 그대로 가능하지만, 이제 Vercel이 push를 감지해 Production/Preview
-  deployment를 자동 생성하지 않는다. 기존 Vercel project(`tour-dna`)·custom domain(`tour-dna.lib.lc`)·
-  기존 Production deployment는 전부 그대로 유지된다. `vercel --prod`로 수동 배포는 언제든 가능하고,
-  대시보드 Settings → Git → Connect 또는 `vercel git connect`로 자동 배포를 즉시 재활성화할 수 있다.
 
-### 개발 기간 원칙
+### 개발 기간 원칙(자동 배포 활성화 여부와 무관하게 계속 유지)
 
 - 개발/QA DB는 항상 local PostgreSQL(`tour_dna_local`)만 쓴다.
 - 공공데이터 API sync, Dataset STAGING/ACTIVE 작업, 대표 프로젝트 재분석은 전부 local에서만 수행한다.
-- Production Neon에는 접근/수정하지 않는다(seed·migration·dataset activate·sync 전부 금지).
-- GitHub push는 계속 정상 수행한다 — Vercel 자동 배포만 꺼져 있을 뿐이다.
-- 새 기능의 "완료" 조건에 Production deploy를 포함하지 않는다 — 로컬 검증(테스트/typecheck/lint/
-  build/audit)까지만으로 완료로 본다.
+- Production Neon에는 개발용 write 작업을 하지 않는다(seed·migration·dataset activate·sync·개발용
+  reanalysis·테스트 데이터 생성·대량 보정 스크립트 전부 금지) — 정상 사용자 기능의 read/write는
+  당연히 그대로 동작한다.
+- Vercel Git 자동 배포가 켜져 있어도 이 원칙은 그대로다 — 자동 배포는 "코드가 자동으로 Production에
+  올라간다"는 뜻일 뿐, "Production DB에 개발 작업을 해도 된다"는 뜻이 아니다.
+- 새 기능의 "완료" 조건에 Production deploy를 반드시 포함할 필요는 없다 — 로컬 검증(테스트/typecheck/
+  lint/build/audit)까지만으로 완료로 볼 수 있다. 다만 자동 배포가 켜져 있으므로 `main` push 자체가
+  곧 Production 배포로 이어진다는 점은 항상 인지한다.
 
 ### 최종 제출 전 cutover 절차(아직 실행 전, 이 시점에 한 번에 수행)
 
@@ -213,8 +226,8 @@ Vercel Git 자동 배포를 의도적으로 중단했다.
 5. Vercel 대시보드 → Settings → Environment Variables → Production에서 `DATABASE_URL`을 새 Neon
    pooled 연결 문자열로 교체(이미 스키마/데이터가 준비돼 있으므로 이 시점에는 migration/seed/
    dataset activate를 다시 실행할 필요가 없다 — 이미 맞는 상태를 불필요하게 덮어쓰지 않는다).
-6. Vercel 대시보드 → Settings → Git → Connect(또는 `vercel git connect`)로 자동 배포 재활성화, 또는
-   `vercel --prod`로 수동 배포.
+6. Git 자동 배포는 이미 켜져 있으므로 별도 조치가 필요 없다 — env 교체 후 다음 `main` push(또는
+   Vercel 대시보드의 Redeploy)로 새 `DATABASE_URL`이 반영된 배포가 자동 생성된다.
 7. 배포된 Production URL에서 브라우저 smoke test(대표 프로젝트 열람 등).
 
 ### Claude Code 공통 안전 원칙
@@ -224,3 +237,5 @@ Vercel Git 자동 배포를 의도적으로 중단했다.
 - 원격 Neon에서 전국 공공데이터 API 대량 sync를 실행하지 않는다.
 - Production Neon에서 seed/재분석/dataset promotion을 개발 과정 중 실행하지 않는다 — Production
   관련 검증은 위 cutover 절차에서만, 사용자가 명시적으로 요청한 별도 작업으로만 수행한다.
+- Git 자동 배포가 켜져 있으므로, `main`에 push하는 모든 커밋은 자동으로 Production에 배포된다는
+  점을 항상 염두에 둔다 — 커밋 전 로컬 검증(테스트/typecheck/lint/build)을 반드시 마친다.

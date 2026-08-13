@@ -14,7 +14,6 @@ import {
   buildPageWindow,
   type PageSize,
 } from "@/lib/pagination";
-import { perfNow, perfMark } from "@/lib/perfLog";
 
 export const dynamic = "force-dynamic";
 
@@ -91,9 +90,6 @@ function PaginationControls({
 }
 
 export async function ProjectListSection({ page, pageSize }: { page: number; pageSize: PageSize }) {
-  // 2026-08-13(임시 진단) — HomePage의 Promise.all과 별개로(다른 async 컴포넌트라 렌더 시점이 이후임)
-  // 이 조회가 실제로 얼마나 걸리는지 별도로 기록한다. 원인 확인 후 제거 예정.
-  const t0 = perfNow();
   let projects: Awaited<ReturnType<typeof listProjectSummaries>>["projects"] = [];
   let totalCount = 0;
   let loadError: string | null = null;
@@ -105,7 +101,6 @@ export async function ProjectListSection({ page, pageSize }: { page: number; pag
   } catch {
     loadError = "프로젝트 목록을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
   }
-  perfMark(t0, "project-list-section");
 
   if (loadError) {
     return (
@@ -196,14 +191,9 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }>;
 }) {
-  // 2026-08-13(임시 진단, Production 최초 Document ~6초 병목 조사) — 단계별 소요시간만 ms로 기록한다.
-  // 값(데이터 내용)은 로그에 남기지 않는다. 원인 확인 후 제거 예정.
-  const perfStart = perfNow();
-
   const { page: pageParam, pageSize: pageSizeParam } = await searchParams;
   const page = parsePage(pageParam);
   const pageSize = parsePageSize(pageSizeParam);
-  perfMark(perfStart, "searchParams-resolved");
 
   let freshness: Awaited<ReturnType<typeof getLatestDataFreshness>> = { baseYm: null, lastSyncedAt: null };
   let demoProject: Awaited<ReturnType<typeof getDemoProject>> = null;
@@ -221,7 +211,6 @@ export default async function HomePage({
   } catch {
     // 데이터 기준월/데모 프로젝트 조회 실패는 치명적이지 않으므로 조용히 기본값을 사용한다.
   }
-  perfMark(perfStart, "home-parallel-queries-done");
 
   return (
     <>

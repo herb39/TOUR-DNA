@@ -1724,3 +1724,33 @@ SIGUNGU 추가) 이전에 만들어진 대전의 유일한 SIGUNGU 레코드였�
 `previousDays=null`로 강제 전체 재계산)에서는 1212ms → 234ms로 약 5.2배 단축(결과값은 완전히 동일하게
 확인). 즉 이번 개선은 최초 실행안 생성·전략 재선택처럼 캐시된 값을 재사용할 수 없는 시점에 실질적으로
 체감된다.
+
+## 2026-08-13 갱신 — Vercel 자동배포 재활성화 + Production 최초 Document ~6초 병목 조사
+
+Vercel 사용량 여유를 확인한 뒤 `vercel git connect`로 GitHub → Vercel 자동배포를 다시 켰다(project API의
+`link` 필드로 GitHub/`herb39/TOUR-DNA`/Production branch `main` 연결을 확인, `main` push 후 실제
+Production 자동 배포·`tour-dna.lib.lc` alias 갱신까지 end-to-end 확인 완료). 개발 DB 정책은 그대로
+유지 — local PostgreSQL만 개발/QA에 쓰고 Production Neon에는 개발용 write를 하지 않는다.
+
+**Production 최초 Document ~6초 병목**: 홈(`/`) 서버 렌더 단계에 임시 계측(ms만 기록, 값은 로그에 남기지
+않음)을 추가해 Vercel 런타임 로그로 실측했다. 뚜렷한 두 패턴이 확인됐다:
+- **Cold**(해당 요청에서 Prisma client가 새로 생성됨 — `src/lib/db.ts`의 singleton은 `NODE_ENV !==
+  "production"`일 때만 `globalThis`에 캐시되므로, warm하지 않은 서버리스 인스턴스에서는 매번 새
+  PrismaClient/커넥션을 맺는다): 병렬 쿼리 그룹만 2900~4200ms, 프로젝트 목록 조회 900~2300ms.
+- **Warm**(같은 인스턴스가 재사용돼 Prisma client가 이미 있음): 병렬 쿼리 그룹 1050~1400ms, 프로젝트
+  목록 조회 880~2150ms — **커넥션을 새로 안 맺어도 쿼리 자체가 여전히 900ms~2s대**로, 코드 병렬화만으로는
+  해소되지 않는 수준이다. 이는 Vercel Function(iad1, 워싱턴 D.C. 확인됨) ↔ Neon DB 사이 네트워크
+  왕복 지연이 실제 지배적 요인일 가능성을 시사한다(Neon 쪽 정확한 리전은 `DATABASE_URL` 복호화가
+  필요해 이번 세션에서는 안전장치에 의해 확인하지 못했다 — 사용자가 Vercel 대시보드에서 직접 확인
+  필요).
+- `src/proxy.ts`(사이트 접근 게이트)는 순수 HMAC-SHA256 서명 검증만 하며 DB/외부 호출이 전혀 없음을
+  코드로 확인 — 게이트 자체는 병목이 아니다.
+- 실제로 안전하게 고칠 수 있었던 것은 `getLatestDataFreshness()`의 두 독립 조회(`dataSnapshot.findFirst`,
+  `syncLog.findFirst`)를 `Promise.all`로 병렬화한 것 하나뿐이다(반환값 불변, 회귀 없음, 기존 테스트
+  그대로 통과). `ProjectListSection`의 목록 조회를 홈 최상단 `Promise.all`에 합치는 리팩터링도 후보로
+  검토했으나, 이 컴포넌트의 async 시그니처(및 이를 직접 호출하는 다수의 기존 테스트)를 함께 바꿔야
+  해서 "가장 큰 병목 하나만, 위험 낮은 경우에만" 원칙에 비춰 이번에는 보류했다(다음 성능 작업 후보로
+  남김).
+- 결론: 6초 병목의 대부분은 코드의 순차 await가 아니라 (1) 서버리스 cold-connection 재수립 비용과
+  (2) warm 상태에서도 남는 Vercel↔Neon 네트워크 왕복 지연으로 보인다 — DB 리전 조사·이관은 이번
+  작업 범위 밖이라 실행하지 않았다(다음 작업에서 Neon 리전 확인 후 결정 필요).

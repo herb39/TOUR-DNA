@@ -400,11 +400,14 @@ npm run build
 
 ## 배포 현황
 
-- **Vercel 프로젝트**: `tour-dna` — ⚠️ **2026-08-13부터 GitHub Git 연동을 의도적으로 해제(`vercel git
-  disconnect`)했다.** `main` push는 정상 동작하지만 Vercel Production/Preview 자동 배포는 더 이상
-  생성되지 않는다(최종 제출판 cutover 전까지 로컬 전용 개발 정책 — [docs/deployment.md](docs/deployment.md)
-  "로컬 전용 개발 정책 & Vercel 자동 배포 중단" 절 참고). 기존 project/도메인/Production 배포는
-  그대로 유지되며, `vercel git connect` 또는 대시보드에서 즉시 재연결 가능하다.
+- **Vercel 프로젝트**: `tour-dna` — GitHub Git 연동(`herb39/TOUR-DNA`, Production branch `main`)이
+  **2026-08-13에 다시 활성화됐다**(`vercel git connect`). `main` push → Vercel Production 자동 배포,
+  다른 branch push → Preview 자동 배포가 정상 동작한다(2026-08-13 Vercel 사용량 여유 확인 후 재개 —
+  그 이전에 `vercel git disconnect`로 일시 중단했던 이력은 [docs/deployment.md](docs/deployment.md)
+  "로컬 전용 개발 정책 & Vercel 배포 이력" 절 참고). **단, 자동배포 재활성화와 별개로 DB 정책은
+  그대로 유지한다** — 개발/QA/데이터 구축(공공데이터 sync, Dataset STAGING/ACTIVE, 대표 프로젝트
+  재분석 등)은 계속 local PostgreSQL(`tour_dna_local`)에서만 수행하고, Production Neon에는 seed·
+  migration·dataset activate·sync 같은 개발용 write 작업을 실행하지 않는다.
 - **커스텀 도메인**: `tour-dna.lib.lc` (Cloudflare DNS, CNAME → Vercel, "DNS only" 모드)
 - **DB**: Neon PostgreSQL, 마이그레이션은 배포 파이프라인에서 자동 실행되지 않으며 `npm run db:migrate`로 수동 적용
 - **Cron**: `vercel.json`에 매월 1일 동기화 등록
