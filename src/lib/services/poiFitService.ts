@@ -3,6 +3,7 @@ import {
   classifyPoiCategoryTier,
   isExcludedFromRecommendation,
   isRequiredSlotCategory,
+  applyCoreMinimumReserve,
   type PoiFitResult,
 } from "@/lib/domain/poiFit";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
@@ -57,9 +58,21 @@ export async function buildStrategyPoiFitSummary(params: {
   const context = { template, travelMonth: params.travelMonth, preferredThemes: params.preferredThemes };
 
   const details = await fetchPoiDetailsInOrder(params.poiIds);
-  const fitsByPoiId: Record<string, PoiFitResult> = {};
-  for (const detail of details) {
-    fitsByPoiId[detail.id] = computePoiFit(
+  // 2026-08-13: params.poiIds는 이미 실제 코스에 포함된 POI 목록이다 — 여기서 각 POI의 raw fit만
+  // 따로 계산하면, filterRecommendablePois가 최소 보존(CORE_MINIMUM_RESERVE)으로 되돌린 POI도 raw
+  // 계산상으로는 여전히 BELOW_MINIMUM_FIT처럼 보여 "실제로는 코스에 있는데 배지에는 제외됐다고
+  // 나오는" 불일치가 생긴다. applyCoreMinimumReserve를 여기서도 동일하게 적용해 코스 생성
+  // (planService.ts)과 같은 결론을 보장한다.
+  const rawEvaluations = details.map((detail) => ({
+    poi: {
+      id: detail.id,
+      name: detail.name,
+      category: detail.category as PoiCategoryCode,
+      sourceType: detail.sourceType ?? "FIXTURE",
+      operatingHours: detail.operatingHours,
+      closedDays: detail.closedDays,
+    },
+    fit: computePoiFit(
       {
         id: detail.id,
         name: detail.name,
@@ -69,7 +82,12 @@ export async function buildStrategyPoiFitSummary(params: {
         closedDays: detail.closedDays,
       },
       context,
-    );
+    ),
+  }));
+  const adjustedEvaluations = applyCoreMinimumReserve(rawEvaluations, template);
+  const fitsByPoiId: Record<string, PoiFitResult> = {};
+  for (const e of adjustedEvaluations) {
+    fitsByPoiId[e.poi.id] = e.fit;
   }
 
   // 2026-07-30(통합 검증): planService.ts(ensureSelectedPlan)가 실제로 코스를 구성할 때 목표로 삼는

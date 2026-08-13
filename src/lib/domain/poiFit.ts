@@ -68,12 +68,17 @@ export type PoiFitGrade = "HIGH" | "MEDIUM" | "LOW";
  *   보통 사용자가 선호 테마 자체를 입력하지 않아(themeFit.evaluated===false) 테마 판단 근거가 없이
  *   카테고리+계절만으로 낮게 나온 경우다. 실제로 안 맞다는 근거가 없으므로 제외하지 않는다.
  * - REQUIRED_SLOT: FOOD/LODGING처럼 일정 구성상 반드시 필요한 역할 — 등급과 무관하게 항상 유지한다.
+ * - CORE_MINIMUM_RESERVE(2026-08-13 추가): BELOW_MINIMUM_FIT 판정을 받았지만, 이 전략의 테마 핵심
+ *   카테고리(FOOD/LODGING 제외 CORE)를 채울 다른 후보가 전혀 없어 `filterRecommendablePois`가 최소
+ *   보존을 위해 코스에 되돌린 경우 — `applyCoreMinimumReserve` 참고. 실제로 코스에 포함되므로
+ *   "제외되었다"고 표시하면 안 된다.
  */
 export type PoiRecommendationStatus =
   | "RECOMMENDED"
   | "BELOW_MINIMUM_FIT"
   | "INSUFFICIENT_EVALUATION_DATA"
-  | "REQUIRED_SLOT";
+  | "REQUIRED_SLOT"
+  | "CORE_MINIMUM_RESERVE";
 
 /** FOOD/LODGING은 일정 구성상 필수 슬롯 역할이라 일반 관광 POI 필터링 대상에서 제외한다(2026-07-30).
  * 코드에 명시적으로 분리해 두어 일반 관광 POI 판정 로직과 섞이지 않게 한다. */
@@ -250,25 +255,83 @@ export interface PoiFilterResult<T> {
   excluded: Array<{ poi: T; fit: PoiFitResult }>;
 }
 
+export interface PoiFitEvaluation<T> {
+  poi: T;
+  fit: PoiFitResult;
+}
+
+const CORE_MINIMUM_RESERVE_CAUTION =
+  "선호 테마와 일치하는 다른 후보가 없어, 전략 핵심 카테고리를 채우기 위해 최소한으로 포함되었습니다(실제 성격은 다를 수 있어 별도 확인 권장).";
+
+/** BELOW_MINIMUM_FIT 판정의 cautions에서 "제외되었습니다" 문구를 CORE_MINIMUM_RESERVE 문구로
+ * 바꾼, 상태만 다른 새 PoiFitResult를 만든다(원본은 변경하지 않는다 — 순수 함수 원칙 유지). */
+function reclassifyAsCoreMinimumReserve(fit: PoiFitResult): PoiFitResult {
+  const cautions = fit.cautions.filter((c) => c !== "전략 적합 기준에 미달해 실행안 추천에서 제외되었습니다.");
+  cautions.push(CORE_MINIMUM_RESERVE_CAUTION);
+  return { ...fit, recommendationStatus: "CORE_MINIMUM_RESERVE", cautions };
+}
+
+/**
+ * 전략의 테마 핵심 카테고리(FOOD/LODGING 제외 CORE)가 fit 필터링으로 완전히 0개가 되는 것을 막는
+ * 최소 보존 정책(2026-08-13, 경주/제천 FOOD-only 코스 버그 수정 — 강릉과 같은 근본 원인의 일반화).
+ *
+ * FOOD/LODGING은 REQUIRED_SLOT이라 등급과 무관하게 항상 살아남지만, 같은 전략의 CORE 카테고리라도
+ * ATTRACTION/EXPERIENCE는 테마 키워드가 이름에 없으면 BELOW_MINIMUM_FIT으로 탈락한다 — 실제 한국
+ * POI 이름은 "문화"/"역사"/"웰니스" 같은 일반 테마 단어를 거의 포함하지 않으므로, 이 비대칭 때문에
+ * 전략의 테마 핵심(sightseeing) 카테고리가 통째로 0개가 되고 코스가 FOOD(+LODGING)만으로 채워지는
+ * 문제가 경주(CULTURE_HISTORY)·제천(NATURE_WELLNESS)에서도 재현됐다.
+ *
+ * 개별 POI의 판정 기준(computePoiFit) 자체를 완화하면 2026-07-30에 막은 "워터파크/캠핑장이 문화·역사로
+ * 오인되는" 회귀가 다시 생기므로, 대신 평가 이후 단계에서 "이미 확인된(themeFit 근거가 실제로 일치하는)
+ * CORE POI가 하나라도 있는가"만 확인해, 하나도 없을 때만 테마 근거 불확실로 배제됐던 CORE 후보의
+ * recommendationStatus를 CORE_MINIMUM_RESERVE로 바꿔 되돌린다(BELOW_MINIMUM_FIT 그대로 두지 않음 —
+ * 그러면 "제외됨" 문구가 실제로는 포함된 POI에 남아 화면 표시가 실제 코스 구성과 어긋난다). 이미 확인된
+ * CORE POI가 하나라도 있으면 이 복귀 로직 자체가 발동하지 않으므로, 워터파크/캠핑장 시나리오처럼
+ * "이미 좋은 후보가 있는 경우"는 그대로 보수적으로 유지된다(회귀 없음 — 테스트로 확인).
+ *
+ * 코스 생성(filterRecommendablePois)과 화면 표시(poiFitService.ts의 buildStrategyPoiFitSummary)
+ * 양쪽이 이 함수 하나를 공유해, "실제로 코스에 포함된 POI인데 배지에는 제외됐다고 표시되는" 불일치를
+ * 만들지 않는다.
+ */
+export function applyCoreMinimumReserve<T extends PoiFitInput>(
+  evaluations: PoiFitEvaluation<T>[],
+  template: StrategyTemplate,
+): PoiFitEvaluation<T>[] {
+  const themeCoreCategories = template.poiCategories.filter((c) => !isRequiredSlotCategory(c));
+  const hasConfirmedThemeCore = evaluations.some(
+    (e) => !isExcludedFromRecommendation(e.fit) && themeCoreCategories.includes(e.poi.category),
+  );
+  if (hasConfirmedThemeCore) return evaluations;
+
+  return evaluations.map((e) => {
+    const isRecoverable =
+      isExcludedFromRecommendation(e.fit) &&
+      e.fit.breakdown.categoryFit.tier === "CORE" &&
+      themeCoreCategories.includes(e.poi.category);
+    return isRecoverable ? { poi: e.poi, fit: reclassifyAsCoreMinimumReserve(e.fit) } : e;
+  });
+}
+
 /**
  * 후보 목록에서 최소 적합 기준에 미달한 일반 관광 POI를 걸러낸다(2026-07-30, 저적합 POI 추천 제외
  * 보완). FOOD/LODGING(필수 슬롯)과 "정보 부족으로 낮게 나온" POI는 제외하지 않는다 — 제외 기준은
  * computePoiFit()의 recommendationStatus 판정 하나로 일원화해, 코스 생성(planService.ts)과 화면 표시
- * (poiFitService.ts) 양쪽이 같은 함수를 호출해 같은 결과를 얻도록 한다.
+ * (poiFitService.ts) 양쪽이 같은 함수를 호출해 같은 결과를 얻도록 한다. CORE_MINIMUM_RESERVE로
+ * 재분류된 POI는 isExcludedFromRecommendation이 false를 반환하므로 자동으로 recommended에 포함된다.
  */
 export function filterRecommendablePois<T extends PoiFitInput>(
   pois: T[],
   context: PoiFitContext,
 ): PoiFilterResult<T> {
+  const evaluations = applyCoreMinimumReserve(
+    pois.map((poi) => ({ poi, fit: computePoiFit(poi, context) })),
+    context.template,
+  );
   const recommended: T[] = [];
   const excluded: Array<{ poi: T; fit: PoiFitResult }> = [];
-  for (const poi of pois) {
-    const fit = computePoiFit(poi, context);
-    if (isExcludedFromRecommendation(fit)) {
-      excluded.push({ poi, fit });
-    } else {
-      recommended.push(poi);
-    }
+  for (const e of evaluations) {
+    if (isExcludedFromRecommendation(e.fit)) excluded.push(e);
+    else recommended.push(e.poi);
   }
   return { recommended, excluded };
 }

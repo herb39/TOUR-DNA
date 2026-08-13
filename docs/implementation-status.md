@@ -1661,3 +1661,40 @@ baseYm에 종속되지 않는 정적 API인데도 기존 completeness 게이트�
 제천은 이 조건("미식 단독" 테마)에 해당하지 않아 코드 경로 자체가 바뀌지 않았으므로 회귀 없음(두
 프로젝트가 현재도 FOOD-only 코스를 보이는 것은 각자의 테마(문화·역사/웰니스)에서 독립적으로 이미
 존재하던 별개 현상이며, 이번 수정 범위 밖이다 — 필요하면 후속 작업으로 별도 조사).
+
+## 2026-08-13 갱신 — 경주/제천 FOOD-only 코스의 일반적 근본 원인 수정(CORE 최소 보존)
+
+위 강릉 수정 직후 경주(CULTURE_HISTORY)·제천(NATURE_WELLNESS)도 같은 계열의 근본 원인으로 FOOD-only
+코스가 나오고 있음을 재확인했다: FOOD/LODGING은 `REQUIRED_SLOT`이라 등급과 무관하게 항상 살아남지만,
+ATTRACTION/EXPERIENCE는 전략의 CORE 카테고리여도 테마 키워드(예: "문화"/"역사"/"웰니스")가 실제
+POI 이름에 없으면 `BELOW_MINIMUM_FIT`으로 전부 탈락한다 — 실제 한국 관광지 이름은 이런 일반 테마
+단어를 거의 포함하지 않으므로, 이 REQUIRED_SLOT/CORE 비대칭이 강릉뿐 아니라 경주·제천에서도 동일하게
+관광/체험 POI를 0개로 만들고 있었다(파이프라인 감사로 확인: 경주는 전략 후보 ATTRACTION 2·
+EXPERIENCE 2가 전부 fit 탈락, 제천은 ATTRACTION 3·EXPERIENCE 2가 전부 fit 탈락).
+
+개별 POI의 판정 기준(`computePoiFit`)을 완화하는 대신(2026-07-30 워터파크/캠핑장 오인 방지 회귀
+재발 위험), `filterRecommendablePois`에 **CORE 최소 보존 정책**을 추가했다 — 전략의 테마 핵심
+카테고리(FOOD/LODGING 제외)에 이미 확인된(키워드가 실제로 일치하는) CORE POI가 하나라도 있으면
+그대로 두고, 하나도 없을 때만 테마 근거 불확실로 탈락했던 CORE 후보를 새 `recommendationStatus`
+값 `CORE_MINIMUM_RESERVE`로 재분류해 복귀시킨다(`applyCoreMinimumReserve`, `src/lib/domain/
+poiFit.ts`). 워터파크/캠핑장처럼 이미 좋은 후보가 있는 경우는 그대로 보수적으로 유지된다(테스트로
+회귀 확인).
+
+이 정책 적용 후 실제 재분석 결과: 경주는 화산숯불&손두부(FOOD)·경주시 자전거공원(ATTRACTION)·
+보문골프클럽(EXPERIENCE)·한화리조트 경주(ATTRACTION) 등으로 FOOD 5·ATTRACTION 6·EXPERIENCE 3·
+LODGING 2가 자연스럽게 섞인 3일 코스가 됐고, 제천도 FOOD 5·ATTRACTION 5·EXPERIENCE 5·LODGING 2로
+정상화됐다. 강릉은 영향받지 않음(이미 확인된 CORE 후보가 있어 이 정책이 발동하지 않음, 회귀 없음).
+
+**알려진 한계(투명하게 공개)**: CORE 최소 보존이 발동하면, 테마 키워드가 없는 CORE 후보 전부가
+동일하게(우열을 가릴 근거가 없으므로) 복귀 대상이 된다 — 실제로 경주 재분석 결과에 "강동 워터파크"
+(지역 실제 후보 데이터에 존재하는 ATTRACTION)도 함께 포함됐다. 이는 "관광지 0개"라는 더 심각한 실패
+모드를 피하기 위해 받아들인 의도적 트레이드오프이며, 카테고리·키워드만으로는 이 워터파크가 실제로
+부적절한지 판단할 근거가 없다(복잡한 점수화는 만들지 않기로 했다 — 작업 지시 원칙). 후속 개선이
+필요하면 거리·인기도 등 별도 신호를 도입하는 방향을 검토할 수 있다.
+
+화면 표시 일관성도 함께 고쳤다: `poiFitService.ts`(`buildStrategyPoiFitSummary`)가 실제 코스에 포함된
+POI에 대해 raw `computePoiFit`만 다시 계산해 CORE_MINIMUM_RESERVE로 복귀된 POI에도 "전략 적합
+기준에 미달해 제외되었습니다"라는 문구가 남아 실제 코스 상태와 어긋나는 문제를 발견해, 같은
+`applyCoreMinimumReserve`를 여기서도 적용하도록 고쳤다(코스 생성과 화면 표시가 항상 같은 결론을
+공유). `PlanEditor.tsx`의 fit 배지도 CORE_MINIMUM_RESERVE 전용 라벨("후보 부족으로 보완 추천")을
+추가했다.

@@ -372,7 +372,7 @@ describe("ensureSelectedPlan — 저적합 POI 추천 제외(2026-07-30, 경주 
     expect(allIds).toContain("food2");
   });
 
-  it("일반 관광 POI가 전부 저적합으로 제외되어도 예외 없이 완료되고, 식사·숙박 필수 슬롯은 그대로 유지된다", async () => {
+  it("테마 근거가 확인된 CORE 후보가 하나도 없으면(2026-08-13 최소 보존 정책), 테마 핵심 카테고리가 0개인 FOOD-only 코스가 되지 않도록 남은 CORE 후보를 복귀시킨다", async () => {
     const ids = ["food1", "lodge1", "waterpark", "camp"];
     projectFindUniqueOrThrow.mockResolvedValue({
       id: "project-7",
@@ -424,10 +424,12 @@ describe("ensureSelectedPlan — 저적합 POI 추천 제외(2026-07-30, 경주 
     const allItemIds = savedCourse.days.flatMap((d) => d.items.map((i) => i.poiId));
     const lodgingIds = savedCourse.days.map((d) => d.lodging?.poiId).filter(Boolean);
 
-    // 일반 관광 POI(워터파크·캠핑장)는 모두 제외된다.
-    expect(allItemIds).not.toContain("waterpark");
-    expect(allItemIds).not.toContain("camp");
-    // 필수 슬롯(식사·숙박)은 유지된다.
+    // 테마 핵심 카테고리(ATTRACTION/EXPERIENCE)를 확인해줄 다른 후보가 전혀 없으므로, 이름 키워드가
+    // 없다는 이유만으로 워터파크·캠핑장까지 전부 제외하면 코스가 FOOD-only가 된다 — 최소 보존을 위해
+    // 복귀된다(경주/제천 FOOD-only 버그와 동일한 근본 원인의 일반적 수정, 2026-08-13).
+    expect(allItemIds).toContain("waterpark");
+    expect(allItemIds).toContain("camp");
+    // 필수 슬롯(식사·숙박)은 그대로 유지된다.
     expect(allItemIds).toContain("food1");
     expect(lodgingIds).toContain("lodge1");
   });

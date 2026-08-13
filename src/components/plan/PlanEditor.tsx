@@ -82,6 +82,12 @@ const FIT_GRADE_LABEL: Record<PoiFitResult["grade"], string> = {
  * FALLBACK 티어인 경우는 실제로 낮은 게 맞으므로 "적합도 낮음"을 그대로 유지한다.
  */
 function resolveFitBadge(fit: PoiFitResult): { label: string; className: string } {
+  // 2026-08-13: CORE_MINIMUM_RESERVE는 이름 키워드로는 테마가 확인되지 않지만, 이 자리를 채울 다른
+  // 후보가 없어 전략 핵심 카테고리 최소 보존을 위해 실제로 코스에 포함된 경우다 — "적합도 낮음"·
+  // "제외됨" 계열 문구를 붙이면 실제 상태와 어긋나므로 별도 라벨을 쓴다.
+  if (fit.recommendationStatus === "CORE_MINIMUM_RESERVE") {
+    return { label: "후보 부족으로 보완 추천", className: FIT_GRADE_BADGE_CLASS.MEDIUM };
+  }
   if (fit.grade !== "LOW") {
     return { label: FIT_GRADE_LABEL[fit.grade], className: FIT_GRADE_BADGE_CLASS[fit.grade] };
   }

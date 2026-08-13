@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { computePoiFit, filterRecommendablePois, isExcludedFromRecommendation, type PoiFitContext } from "@/lib/domain/poiFit";
+import {
+  computePoiFit,
+  filterRecommendablePois,
+  isExcludedFromRecommendation,
+  applyCoreMinimumReserve,
+  type PoiFitContext,
+} from "@/lib/domain/poiFit";
 import { getTemplateById } from "@/lib/domain/strategyTemplates";
 
 // CULTURE_HISTORY: poiCategories=["ATTRACTION","EXPERIENCE","FOOD"](FOOD 제외 core=[ATTRACTION,EXPERIENCE]),
@@ -114,14 +120,28 @@ describe("filterRecommendablePois — 필터링 위치를 한 곳으로 일원�
     expect(excluded).toHaveLength(0);
   });
 
-  it("제외된 자리를 다시 채우지 않는다 — 필터링 결과는 순수하게 recommended/excluded 분리일 뿐, 새 POI를 만들어내지 않는다", () => {
+  it("입력에 없는 POI를 새로 만들어내지 않는다 — recommended+excluded 합은 항상 입력 개수와 같다", () => {
+    const pois = [
+      { id: "waterpark", name: "강동 워터파크", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "heritage", name: "경주 문화유적 전시관", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+    ];
+    const { recommended, excluded } = filterRecommendablePois(pois, context());
+    expect(recommended.length + excluded.length).toBe(pois.length);
+    // heritage(테마 키워드 확인됨)가 이미 테마 핵심 카테고리를 채우므로 복귀 로직이 발동하지 않는다 —
+    // waterpark는 그대로 제외된다(2026-07-30 워터파크 오인 방지 정책 유지).
+    expect(recommended.map((p) => p.id)).toEqual(["heritage"]);
+    expect(excluded.map((e) => e.poi.id)).toEqual(["waterpark"]);
+  });
+
+  it("2026-08-13: 테마 핵심 카테고리가 완전히 0개가 되면(대안 후보가 없을 때) 최소 보존을 위해 유일한 CORE 후보를 복귀시킨다", () => {
+    // heritage 같은 확인된 CORE 후보가 전혀 없는 상황 — 워터파크 하나뿐이라도 아예 배제하면 전략의
+    // 테마 핵심 카테고리(ATTRACTION)가 코스에서 0개가 되므로, 최소 보존을 위해 복귀시킨다.
     const pois = [
       { id: "waterpark", name: "강동 워터파크", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
     ];
     const { recommended, excluded } = filterRecommendablePois(pois, context());
-    expect(recommended).toHaveLength(0);
-    expect(excluded).toHaveLength(1);
-    expect(recommended.length + excluded.length).toBe(pois.length);
+    expect(recommended.map((p) => p.id)).toEqual(["waterpark"]);
+    expect(excluded).toHaveLength(0);
   });
 });
 
@@ -172,5 +192,45 @@ describe("computePoiFit — 미식(FOOD) 단독 테마의 비-FOOD 카테고리 
     expect(fit.breakdown.categoryFit.tier).toBe("CORE");
     expect(fit.breakdown.themeFit.evaluated).toBe(true);
     expect(fit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
+  });
+});
+
+describe("filterRecommendablePois — CORE_MINIMUM_RESERVE(2026-08-13, 경주/제천 FOOD-only 코스 버그 일반 수정)", () => {
+  it("확인된 CORE 후보가 하나도 없으면(경주 실제 재현) 자전거공원·컨트리클럽이 CORE_MINIMUM_RESERVE로 복귀하고, 코스에 실제로 포함된다는 사실과 배지 문구가 일치한다", () => {
+    const pois = [
+      { id: "bike", name: "경주시 자전거공원", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "golf", name: "보문골프클럽", category: "EXPERIENCE" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "food1", name: "화산숯불&손두부", category: "FOOD" as const, sourceType: "API", operatingHours: null, closedDays: null },
+    ];
+    const { recommended, excluded } = filterRecommendablePois(pois, context());
+    expect(recommended.map((p) => p.id).sort()).toEqual(["bike", "food1", "golf"]);
+    expect(excluded).toHaveLength(0);
+  });
+
+  it("applyCoreMinimumReserve로 재분류된 fit은 recommendationStatus=CORE_MINIMUM_RESERVE이고, '제외되었습니다' 문구가 남지 않는다", () => {
+    const pois = [
+      { id: "bike", name: "경주시 자전거공원", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+    ];
+    const evaluations = applyCoreMinimumReserve(
+      pois.map((poi) => ({ poi, fit: computePoiFit(poi, context()) })),
+      cultureHistory,
+    );
+    const fit = evaluations[0].fit;
+    expect(fit.recommendationStatus).toBe("CORE_MINIMUM_RESERVE");
+    expect(fit.cautions.some((c) => c.includes("제외되었습니다"))).toBe(false);
+    expect(fit.cautions.some((c) => c.includes("최소한으로 포함"))).toBe(true);
+  });
+
+  it("이미 확인된 CORE 후보(heritage)가 있으면 CORE_MINIMUM_RESERVE로 재분류하지 않는다(워터파크 오인 방지 회귀 없음)", () => {
+    const pois = [
+      { id: "waterpark", name: "강동 워터파크", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+      { id: "heritage", name: "경주 문화유적 전시관", category: "ATTRACTION" as const, sourceType: "API", operatingHours: null, closedDays: null },
+    ];
+    const evaluations = applyCoreMinimumReserve(
+      pois.map((poi) => ({ poi, fit: computePoiFit(poi, context()) })),
+      cultureHistory,
+    );
+    const waterparkFit = evaluations.find((e) => e.poi.id === "waterpark")!.fit;
+    expect(waterparkFit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
   });
 });
