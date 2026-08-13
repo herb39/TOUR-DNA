@@ -61,7 +61,14 @@ export function PromoContentEditor({
     setContent(newContent);
     setDirty(false);
     setGenerationKey((k) => k + 1);
-    showSuccess(overwrite ? "홍보자료를 다시 생성했습니다." : "홍보자료를 생성했습니다.");
+    // 2026-08-13(fallback observability): 재생성 버튼을 누른 시점에는 사용자가 AI 생성을 기대하므로,
+    // 결과가 rule(기본 생성)이면 실패 원인(timeout/429/키 없음 등 내부 사유)은 노출하지 않되 "AI가 아닌
+    // 기본 생성으로 대체됐다"는 사실만 부드럽게 알린다 — 아무 설명 없이 뱃지만 "기본 생성"으로 바뀌어
+    // 사용자가 원인을 전혀 알 수 없는 상황을 피한다.
+    const base = overwrite ? "홍보자료를 다시 생성했습니다." : "홍보자료를 생성했습니다.";
+    showSuccess(
+      newContent.generatedBy === "rule" ? `${base} (AI 생성이 지연되어 기본 생성 결과를 사용했습니다)` : base,
+    );
   }
 
   async function callGenerateOverwrite() {

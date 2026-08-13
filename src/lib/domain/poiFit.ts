@@ -131,8 +131,23 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
   // 기준(classifyThemes, audienceContext.ts)을 그대로 적용해 교집합이 있는지만 확인한다 — 새 분류
   // 체계를 만들지 않고 기존 전략 매칭 로직을 재사용한다. 선호 테마가 없으면 "불일치(0점)"가 아니라
   // "평가 제외"로 처리해 만점 계산에서도 뺀다.
-  const themeEvaluated = context.preferredThemes.length > 0;
-  const preferredCategories = themeEvaluated ? new Set(classifyThemes(context.preferredThemes)) : null;
+  //
+  // 2026-08-13(강릉 코스 밀도 버그 수정): 선호 테마가 순수 "미식(FOOD)" 단독일 때, FOOD가 아닌
+  // 카테고리(ATTRACTION 등)에도 무조건 "미식" 이름 키워드 일치를 요구하면, FOOD 테마 여행에서
+  // ATTRACTION CORE POI(예: 해변)가 "이름에 미식 키워드가 없다"는 이유만으로 BELOW_MINIMUM_FIT
+  // 처리돼 코스에서 통째로 빠지는 문제가 있었다(실제 강릉 프로젝트에서 재현·확인 — 1박2일 코스가
+  // 식당 3곳뿐이었던 원인). 미식 테마는 "식음 경험이 핵심 anchor이고 관광/체험/숙박과 연결되는
+  // 여행"이라는 뜻이지 "모든 방문지가 식당"이라는 뜻이 아니므로, FOOD가 아닌 카테고리에 미식
+  // 키워드 매칭을 강제하지 않는다(테마 평가 자체를 이 POI에는 적용하지 않음 — 선호 테마 미입력과
+  // 동일하게 "평가 제외"). 다른 테마(문화·역사/자연·웰니스 등)나 테마가 여러 개 섞인 경우는 건드리지
+  // 않는다 — 테마별로 동일 정책을 강제하지 않고, 카테고리만으로 확정하기 어려운 테마(예:
+  // CULTURE_HISTORY의 EXPERIENCE — "워터파크"류 오인 방지, 2026-07-30)는 기존 보수 정책을 그대로
+  // 유지한다.
+  const themeCategories = context.preferredThemes.length > 0 ? classifyThemes(context.preferredThemes) : [];
+  const isPureFoodTheme = themeCategories.length === 1 && themeCategories[0] === "FOOD";
+  const categoryIsThemeRelevant = !isPureFoodTheme || input.category === "FOOD";
+  const themeEvaluated = context.preferredThemes.length > 0 && categoryIsThemeRelevant;
+  const preferredCategories = themeEvaluated ? new Set(themeCategories) : null;
   const poiThemeCategories = themeEvaluated ? classifyThemes([input.name]) : [];
   const themeMatched = themeEvaluated ? poiThemeCategories.some((c) => preferredCategories!.has(c)) : false;
   const themeScore = themeEvaluated && themeMatched ? THEME_MATCH_SCORE : 0;

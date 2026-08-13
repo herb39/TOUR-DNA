@@ -124,3 +124,53 @@ describe("filterRecommendablePois — 필터링 위치를 한 곳으로 일원�
     expect(recommended.length + excluded.length).toBe(pois.length);
   });
 });
+
+describe("computePoiFit — 미식(FOOD) 단독 테마의 비-FOOD 카테고리 예외(2026-08-13, 강릉 코스 밀도 버그 수정)", () => {
+  const nightStay = getTemplateById("NIGHT_STAY_EXTENSION"); // poiCategories=["ATTRACTION","FOOD","LODGING"]
+  const foodOnlyContext = (overrides: Partial<PoiFitContext> = {}): PoiFitContext => ({
+    template: nightStay,
+    travelMonth: 9,
+    preferredThemes: ["미식"],
+    ...overrides,
+  });
+
+  it("FOOD 단독 테마에서는 ATTRACTION(CORE) POI에 이름 키워드 불일치를 근거로 삼지 않는다(사천해변 재현)", () => {
+    const fit = computePoiFit(
+      { id: "beach", name: "사천해변(사천해수욕장)", category: "ATTRACTION", sourceType: "API", operatingHours: null, closedDays: null },
+      foodOnlyContext(),
+    );
+    expect(fit.breakdown.categoryFit.tier).toBe("CORE");
+    expect(fit.breakdown.themeFit.evaluated).toBe(false);
+    expect(fit.grade).toBe("HIGH");
+    expect(fit.recommendationStatus).toBe("RECOMMENDED");
+  });
+
+  it("FOOD 단독 테마에서 FOOD 카테고리 POI는 기존과 동일하게 이름 키워드로 테마를 평가한다(정책 유지)", () => {
+    const fit = computePoiFit(
+      { id: "food1", name: "그냥 동네 식당", category: "FOOD", sourceType: "API", operatingHours: null, closedDays: null },
+      foodOnlyContext(),
+    );
+    expect(fit.breakdown.themeFit.evaluated).toBe(true);
+    expect(fit.breakdown.themeFit.matched).toBe(false);
+    // FOOD는 REQUIRED_SLOT이라 grade와 무관하게 항상 유지된다(기존 정책 그대로).
+    expect(fit.recommendationStatus).toBe("REQUIRED_SLOT");
+  });
+
+  it("테마가 미식 하나만이 아니라 여러 개 섞이면(예: 미식+문화·역사) 기존 보수 정책을 그대로 유지한다(예외 미적용)", () => {
+    const fit = computePoiFit(
+      { id: "beach2", name: "사천해변(사천해수욕장)", category: "ATTRACTION", sourceType: "API", operatingHours: null, closedDays: null },
+      foodOnlyContext({ preferredThemes: ["미식", "문화 역사"] }),
+    );
+    expect(fit.breakdown.themeFit.evaluated).toBe(true);
+  });
+
+  it("CULTURE_HISTORY 전략에서 EXPERIENCE(CORE) 카테고리는 여전히 기존 보수 정책이 적용된다(경주 캠핑장 회귀 없음)", () => {
+    const fit = computePoiFit(
+      { id: "camp", name: "경주초우오토캠핑장", category: "EXPERIENCE", sourceType: "API", operatingHours: null, closedDays: null },
+      { template: cultureHistory, travelMonth: 10, preferredThemes: ["문화 역사"] },
+    );
+    expect(fit.breakdown.categoryFit.tier).toBe("CORE");
+    expect(fit.breakdown.themeFit.evaluated).toBe(true);
+    expect(fit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
+  });
+});
