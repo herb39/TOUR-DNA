@@ -41,6 +41,8 @@ import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 import { resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
 import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
 import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCard";
+import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
+import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
 
 export const dynamic = "force-dynamic";
 
@@ -309,6 +311,25 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     role: project.role,
   });
 
+  // 사업 사전검증 리포트를 실행안 선택 전(no-plan) 단계에도 보여준다(2026-08-13) — 이전에는 plan/print
+  // 화면에만 있었다. computePreLaunchValidation()은 이미 코스가 없어도(totalCourseDays=0) POI 공급·
+  // 이동 현실성을 안전하게 "확인 필요"(UNKNOWN)로 처리하도록 설계돼 있어(plan.tsx의 코스 있는 호출과
+  // 동일한 함수), 이 단계에서 판단 가능한 두 신호(데이터 신뢰도·지역 차별성)만으로 새 로직 없이
+  // 그대로 재사용한다. 위험·KPI는 아직 실행안이 없어 빈 배열로 전달한다.
+  const analysisStagePreLaunchValidation = computePreLaunchValidation({
+    axisScores: axisData.map((a) => ({
+      axis: a.axisKey as DnaAxisKey,
+      score: a.score,
+      evidenceProvenances: (axisEvidenceByAxis.get(a.axisKey) ?? []).map((e) => e.provenance ?? null),
+    })),
+    poiShortage: null,
+    travelNoticeCount: 0,
+    totalCourseDays: 0,
+    regionComparisonCount: regionComparisonAnalysis.comparisons.length,
+    regionUniqueStrengthNote: regionComparisonAnalysis.uniqueStrengthNote,
+    riskMitigations: [],
+  });
+
   return (
     <>
       <SiteHeader />
@@ -395,6 +416,14 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             전략 3안 확인하기 →
           </a>
         </section>
+
+        {/* 사업 사전검증 리포트(2026-08-13, 실행안 선택 전 단계에도 노출) — 코스·KPI·위험은 아직 없어
+         * POI 공급 충분성·이동 현실성은 "확인 필요"로 안전하게 남는다(같은 함수를 plan 화면과 동일하게
+         * 재사용, 새 로직 없음). 실행안을 선택하면 plan/print 화면에서 네 신호 전부가 채워진 전체
+         * 리포트를 다시 볼 수 있다. */}
+        <div className="mt-6">
+          <PreLaunchValidationSection report={analysisStagePreLaunchValidation} />
+        </div>
 
         {tourismMetricCards.length > 0 ? (
           <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

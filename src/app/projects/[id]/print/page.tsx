@@ -354,6 +354,9 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
             추진 권고: {preLaunchValidation.recommendationLabel}
           </p>
           <p className="mt-0.5 text-xs text-slate-600">{preLaunchValidation.reason}</p>
+          <p className="mt-0.5 text-xs font-medium text-slate-700">
+            {preLaunchValidation.expectedOutcomeIfImproved}
+          </p>
           <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
             <li>데이터 신뢰도 — {preLaunchValidation.dataReliability.detail}</li>
             <li>POI 공급 충분성 — {preLaunchValidation.poiSupplySufficiency.detail}</li>

@@ -63,6 +63,7 @@ export function PreLaunchValidationSection({
       <div className={`mt-3 rounded-lg border p-3 ${RECOMMENDATION_STYLE[report.recommendation]}`}>
         <p className="text-sm font-bold">추진 권고: {report.recommendationLabel}</p>
         <p className="mt-1 text-xs">{report.reason}</p>
+        <p className="mt-1 text-xs font-medium">{report.expectedOutcomeIfImproved}</p>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">

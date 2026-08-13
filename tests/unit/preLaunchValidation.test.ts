@@ -308,3 +308,36 @@ describe("computePreLaunchValidation — KPI 연결용 부가 필드(weakestAxis
     expect(result.dataReliabilityFlaggedAxes.sort()).toEqual(["demand", "stay"].sort());
   });
 });
+
+/** "왜 조건부/보완 필요인가"를 배지 라벨만으로 끝내지 않고, 가장 결정적인 신호의 구체적 근거(detail)를
+ * reason에 그대로 이어붙인다(2026-08-13) — 새 문장을 지어내지 않고 이미 계산된 detail을 재사용한다. */
+describe("computePreLaunchValidation — reason에 구체적 근거(detail) 포함", () => {
+  it("BLOCKER일 때 reason에 그 신호의 detail 문장이 그대로 포함된다", () => {
+    const result = computePreLaunchValidation(baseInput({ travelNoticeCount: 3 }));
+    expect(result.reason).toContain(result.travelFeasibility.detail);
+  });
+
+  it("CAUTION일 때도 reason에 그 신호의 detail 문장이 포함된다", () => {
+    const result = computePreLaunchValidation(baseInput({ axisScores: axisScores({ demand: ["ESTIMATED"] }) }));
+    expect(result.reason).toContain(result.dataReliability.detail);
+  });
+});
+
+describe("computePreLaunchValidation — 보완 후 기대 상태(expectedOutcomeIfImproved)", () => {
+  it("판정 유형별로 서로 다른 정형 문구를 반환한다(근거 없이 새 사실을 지어내지 않음)", () => {
+    const recommended = computePreLaunchValidation(baseInput());
+    const conditional = computePreLaunchValidation(baseInput({ regionUniqueStrengthNote: null }));
+    const needsImprovement = computePreLaunchValidation(baseInput({ travelNoticeCount: 3 }));
+
+    expect(recommended.expectedOutcomeIfImproved).toContain("실행안 검토를 진행할 수 있습니다");
+    expect(conditional.expectedOutcomeIfImproved).toContain("보완 조건을 충족하면");
+    expect(needsImprovement.expectedOutcomeIfImproved).toContain("치명적 문제를 먼저 해결");
+
+    const values = new Set([
+      recommended.expectedOutcomeIfImproved,
+      conditional.expectedOutcomeIfImproved,
+      needsImprovement.expectedOutcomeIfImproved,
+    ]);
+    expect(values.size).toBe(3);
+  });
+});

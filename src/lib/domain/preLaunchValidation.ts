@@ -140,6 +140,9 @@ export interface PreLaunchValidationReport {
   /** DNA 5축 중 점수가 가장 낮은 축 — "체류/소비/수요 취약 지역 KPI" 등 축 기반 KPI 연결에 쓴다.
    * 점수가 있는 축이 하나도 없으면 null. */
   weakestAxis: DnaAxisKey | null;
+  /** 보완 후 기대 상태(2026-08-13) — "무엇을 보완하면 어디로 나아갈 수 있는가"를 판정 유형별 정형
+   * 문구로 한 줄 더 보여준다. 새 사실을 지어내지 않고 recommendation 값만으로 결정되는 고정 문구다. */
+  expectedOutcomeIfImproved: string;
 }
 
 const MAX_KEY_RISKS = 5;
@@ -325,19 +328,30 @@ function buildGatingSignals(
   ];
 }
 
+const EXPECTED_OUTCOME_BY_RECOMMENDATION: Record<PreLaunchRecommendation, string> = {
+  RECOMMENDED: "현재 확보된 근거만으로 실행안 검토를 진행할 수 있습니다.",
+  CONDITIONAL: "위 보완 조건을 충족하면 실행안 검토 단계로 안정적으로 진행할 수 있습니다.",
+  NEEDS_IMPROVEMENT: "치명적 문제를 먼저 해결한 뒤 다시 분석해야 실행 가능성을 판단할 수 있습니다.",
+};
+
+/** 2026-08-13: "왜 조건부/보완 필요인가"를 판정 배지 라벨만으로 끝내지 않기 위해, 가장 결정적이었던
+ * 신호 하나의 detail(이미 계산된 구체적 근거 문장)을 reason에 그대로 이어붙인다 — 새 문장을 지어내지
+ * 않고 있는 값을 재배열만 한다. 여러 신호가 동시에 문제여도 첫 번째(가장 먼저 나열되는, 곧 4가지
+ * 신호 목록 순서상 우선순위가 높은) 신호의 detail만 대표로 보여준다(전부 나열하면 한 줄 요약이 아니게
+ * 된다). */
 function decideRecommendation(signals: GatingSignal[]): { recommendation: PreLaunchRecommendation; reason: string } {
   const blockers = signals.filter((s) => s.signal.status === "BLOCKER");
   if (blockers.length > 0) {
     return {
       recommendation: "NEEDS_IMPROVEMENT",
-      reason: `${blockers.map((b) => b.label).join(", ")}에서 치명적인 문제가 확인되어, 다른 항목이 양호해도 보완 후 재검토를 권장합니다.`,
+      reason: `${blockers.map((b) => b.label).join(", ")}에서 치명적인 문제가 확인되어(${blockers[0].label}: ${blockers[0].signal.detail}), 다른 항목이 양호해도 보완 후 재검토를 권장합니다.`,
     };
   }
   const cautionsOrUnknown = signals.filter((s) => s.signal.status === "CAUTION" || s.signal.status === "UNKNOWN");
   if (cautionsOrUnknown.length > 0) {
     return {
       recommendation: "CONDITIONAL",
-      reason: `${cautionsOrUnknown.map((c) => c.label).join(", ")}에 보완이 필요해 조건부 권장으로 판단합니다.`,
+      reason: `${cautionsOrUnknown.map((c) => c.label).join(", ")}에 보완이 필요해(${cautionsOrUnknown[0].label}: ${cautionsOrUnknown[0].signal.detail}) 조건부 권장으로 판단합니다.`,
     };
   }
   return {
@@ -392,5 +406,6 @@ export function computePreLaunchValidation(input: PreLaunchValidationInput): Pre
     ruleVersion: PRE_LAUNCH_RULE_VERSION,
     dataReliabilityFlaggedAxes: dataReliabilityResult.flaggedAxes,
     weakestAxis: findWeakestAxis(input.axisScores),
+    expectedOutcomeIfImproved: EXPECTED_OUTCOME_BY_RECOMMENDATION[recommendation],
   };
 }
