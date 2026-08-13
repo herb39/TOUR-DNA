@@ -1,4 +1,6 @@
 import { EvidenceTable, type EvidenceRow } from "@/components/evidence/EvidenceTable";
+import { buildStrategyRationale } from "@/lib/domain/strategyRationale";
+import type { UserRoleCode } from "@/lib/domain/audienceContext";
 
 interface ScoreBreakdown {
   demandFit: number;
@@ -40,6 +42,9 @@ export interface StrategyCardData {
   stayStyle: string | null;
   executionDifficulty: "LOW" | "MEDIUM" | "HIGH" | null;
   expectedEffect: string | null;
+  /** 1순위 전략 근거(데이터 진단→해석→추천 이유→실행 방향, 2026-08-13)를 만들 때만 필요 — 없으면
+   * (레거시 호출부) 역할 문구 없이 근거를 만든다. */
+  role?: UserRoleCode;
 }
 
 type ScoreBreakdownKey = keyof Omit<ScoreBreakdown, "roleFitReason">;
@@ -80,6 +85,23 @@ export function StrategyCard({
   isSelected: boolean;
   onSelect: (formData: FormData) => void | Promise<void>;
 }) {
+  // 1순위 전략에만 "데이터 진단→해석→추천 이유→실행 방향" 4단계 근거를 보여준다(2026-08-13, 11절
+  // "2·3순위는 지나치게 길어지지 않도록 짧은 근거만" 방침) — 레거시 분석(coreProblem 등 5필드 null)은
+  // rationale이 null이라 기존 "차별화 포인트" flat 목록으로 안전하게 대체된다.
+  const rationale =
+    strategy.rank === 1
+      ? buildStrategyRationale({
+          role: strategy.role,
+          strategyName: strategy.name,
+          coreProblem: strategy.coreProblem,
+          coreResource: strategy.coreResource,
+          stayStyle: strategy.stayStyle,
+          reasons: strategy.reasons,
+          roleFitReason: strategy.scoreBreakdown.roleFitReason,
+          consumptionTouchpoints: strategy.consumptionTouchpoints,
+        })
+      : null;
+
   return (
     <div
       className={`flex flex-col rounded-lg border bg-white p-5 ${isSelected ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
@@ -107,19 +129,43 @@ export function StrategyCard({
         ※ 점수는 조건 적합도이며, 매출·방문객 증가 예측치가 아닙니다.
       </p>
 
-      <div className="mt-3">
-        <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
-        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-600">
-          {strategy.reasons.slice(0, 2).map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-        {strategy.reasons.length > 2 ? (
-          <p className="mt-1 text-[11px] text-slate-400">
-            그 외 {strategy.reasons.length - 2}개는 아래 상세 근거에서 확인할 수 있습니다.
-          </p>
-        ) : null}
-      </div>
+      {rationale ? (
+        <div className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-slate-800">추천 근거</p>
+          <dl className="mt-1.5 space-y-1.5 text-xs text-slate-600">
+            <div>
+              <dt className="font-medium text-slate-500">① 데이터 진단</dt>
+              <dd>{rationale.dataDiagnosis}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-slate-500">② 해석</dt>
+              <dd>{rationale.interpretation}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-slate-500">③ 추천 이유</dt>
+              <dd>{rationale.recommendationReason}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-slate-500">④ 실행 방향</dt>
+              <dd>{rationale.executionDirection}</dd>
+            </div>
+          </dl>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-600">
+            {strategy.reasons.slice(0, 2).map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+          {strategy.reasons.length > 2 ? (
+            <p className="mt-1 text-[11px] text-slate-400">
+              그 외 {strategy.reasons.length - 2}개는 아래 상세 근거에서 확인할 수 있습니다.
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {/* 해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과는 위쪽 "전략 3안 비교" 표에 이미 나란히
        * 표시되므로 카드에서는 중복 제거한다(2026-08-06) — 점수 세부·소비 접점·위험은 표에 없는
@@ -127,7 +173,10 @@ export function StrategyCard({
       <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
         <summary className="cursor-pointer text-xs font-medium text-slate-700">점수 세부·소비 접점·위험 보기</summary>
         <div className="mt-2">
-          {strategy.reasons.length > 2 ? (
+          {/* rationale이 있으면(1순위) reasons 전체가 이미 위 "추천 근거" 4단계에 녹아 있으므로
+           * 여기서 다시 나열하지 않는다(2026-08-13, 중복 문구 방지) — 2·3순위(rationale 없음)는
+           * 기존처럼 나머지 근거를 그대로 보여준다. */}
+          {!rationale && strategy.reasons.length > 2 ? (
             <div className="mb-3 text-xs text-slate-600">
               <p className="font-medium text-slate-700">차별화 포인트(나머지)</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">

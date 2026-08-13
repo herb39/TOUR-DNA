@@ -23,6 +23,7 @@ import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { fetchPoisByCategory } from "@/lib/services/fetchPoisByCategory";
 import { resolveAnalysisBaseYmMismatchNote } from "@/lib/domain/regionSimilarity";
 import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionComparisonAnalysis";
+import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
@@ -207,6 +208,11 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   const selectedStrategyPartners = selectedStrategy
     ? buildStrategyPartners(selectedStrategy.templateId, project.role)
     : [];
+  // 선택 전략 근거 축약형(2026-08-13) — plan 화면과 동일한 문장(coreProblem·coreResource 재사용)을
+  // 인쇄 결과에도 실어 지역 진단→추천 이유→전략→실행안 흐름이 인쇄물에서도 끊기지 않게 한다.
+  const selectedStrategyShortRationale = selectedStrategy
+    ? buildShortStrategyRationaleLine(selectedStrategy.coreProblem, selectedStrategy.coreResource)
+    : null;
 
   // 전략 3안 비교(A4 압축형, 2026-08-04) — 분석 화면(analysis/page.tsx)과 완전히 동일한
   // buildStrategyComparisonRows()를 그대로 재사용해, 레거시 판정("이전 분석 결과" 안내)까지
@@ -416,6 +422,9 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold">
             선택 전략: {selectedStrategy.name} ({selectedStrategy.totalScore}점)
           </h2>
+          {selectedStrategyShortRationale ? (
+            <p className="mt-1 text-xs text-slate-600">선택 전략 근거: {selectedStrategyShortRationale}</p>
+          ) : null}
           <p className="mt-1 text-xs text-slate-600">타깃: {plan.targetSummary}</p>
           {(() => {
             const breakdown = selectedStrategy.scoreBreakdown as unknown as {

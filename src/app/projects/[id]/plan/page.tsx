@@ -14,6 +14,7 @@ import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
 import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
+import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       })
     : null;
 
+  // 선택 전략 근거 축약형(2026-08-13) — analysis 화면의 4단계 전체 블록을 복제하지 않고, coreProblem
+  // (해석)·coreResource(추천 자원)만으로 "이 전략을 선택한 이유"를 한 줄로 재확인시킨다.
+  // roleDecisionSummary(이 역할이 지금 우선 볼 것)와 책임이 겹치지 않는다.
+  const shortRationale = selectedStrategy
+    ? buildShortStrategyRationaleLine(selectedStrategy.coreProblem, selectedStrategy.coreResource)
+    : null;
+
   return (
     <>
       <SiteHeader />
@@ -167,6 +175,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             <p className="text-sm font-semibold text-slate-900">
               선택 전략: {selectedStrategy.name} ({selectedStrategy.totalScore}점)
             </p>
+            {shortRationale ? (
+              <p className="mt-1 text-xs text-slate-600">선택 전략 근거: {shortRationale}</p>
+            ) : null}
             <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
                 <dt className="font-medium text-slate-500">해결하려는 문제</dt>

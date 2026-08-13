@@ -232,6 +232,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     stayStyle: s.stayStyle,
     executionDifficulty: s.executionDifficulty as "LOW" | "MEDIUM" | "HIGH" | null,
     expectedEffect: s.expectedEffect,
+    role: project.role,
   }));
 
   // 전략 비교 표 + 예산 항목·협력 대상(2026-08-04) — templateId는 StrategyResult 도입 이래 항상 존재하는
