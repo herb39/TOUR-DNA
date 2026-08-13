@@ -49,13 +49,15 @@ export interface RegionMetricValue {
 }
 
 /**
- * Network 축 원본 입력(Phase 1-E, 2026-07-23: POI 근거와 관계 근거를 독립적인 provenance로 분리했다 —
- * 이전에는 "non-API POI 존재 || 관계 존재"를 OR로 합쳐 하나의 provenance로 뭉갰는데, 그 결과 실제 API로
- * 수집한 POI 근거까지 사람이 만든 관계 데이터 때문에 CURATED로 격하되는 문제가 있었다.
+ * Network 축 원본 입력(Phase 3, 2026-08-13: "관광 접점 조합 가능성형(B/H1)" 재설계 — 중심 관광지와
+ * 음식/숙박/체험 공급만으로 축을 구성한다. PoiRelation(연관관광지) 기반 관계 근거는 완전히 제외했다 —
+ * 그 데이터가 대전/제천/양양 3개 지역에만 존재하는 초기 seed 잔재이며 전국 API 수집 경로가 없어,
+ * 실제로는 이 3개 지역만 부당하게 최상위권을 점유하게 만들었기 때문이다(상세 근거는
+ * docs/scoring-model.md 참고). PoiRelation DB 테이블/데이터 자체는 삭제하지 않았고 이 타입이 더 이상
+ * 참조하지 않을 뿐이다.
  */
 export interface NetworkRawInputs {
   attractionCount: number;
-  relatedPoiCount: number;
   foodCount: number;
   lodgingCount: number;
   experienceCount: number;
@@ -68,14 +70,6 @@ export interface NetworkRawInputs {
     provenance: DataProvenance;
     isSnapshotFallback: boolean;
   };
-  /** 연관 POI 관계(PoiRelation) 근거. 관계가 하나도 없으면 "확인된 0건"인지 "애초에 근거가 없는지"
-   * 현재 스키마로 구분할 수 없으므로 null로 두고 Evidence 자체를 만들지 않는다(임의로 CURATED 0건을
-   * 지어내지 않음). */
-  relation: {
-    count: number;
-    provenance: DataProvenance;
-    isSnapshotFallback: boolean;
-  } | null;
 }
 
 export interface VisitorCountPoint {

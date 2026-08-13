@@ -60,13 +60,11 @@ function dnaInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
     },
     networkInputs: {
       attractionCount: 8,
-      relatedPoiCount: 0,
       foodCount: 20,
       lodgingCount: 10,
       experienceCount: 5,
       collectedAt: "2026-07-01T00:00:00.000Z",
       poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-      relation: null,
     },
     ...overrides,
   };
@@ -651,15 +649,18 @@ describe("selectPois — theme(선호 테마) 반영(3단계)", () => {
     };
     const dna = computeDna(dnaInput());
 
+    // Network 산식 재설계(Phase 3)로 템플릿 간 순위가 바뀔 수 있으므로, 이 테스트의 관심사(POI 선택
+    // 로직)와 무관한 다른 템플릿을 excludedThemes로 제외해 FESTIVAL_EVENT가 항상 top3에 남도록 한다.
+    const excludedThemes = ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "가족 체험", "청년 로컬"];
     const withoutTheme = computeStrategies(
       dna,
-      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [] }),
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes }),
       pool,
       MODEL_VERSION,
     );
     const withTheme = computeStrategies(
       dna,
-      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"], excludedThemes }),
       pool,
       MODEL_VERSION,
     );
@@ -691,11 +692,14 @@ describe("selectPois — theme(선호 테마) 반영(3단계)", () => {
       EXPERIENCE: makePois("experience", "EXPERIENCE", 10),
     };
     const dna = computeDna(dnaInput());
+    // Network 산식 재설계(Phase 3)로 템플릿 순위가 바뀔 수 있으므로, 이 테스트의 관심사(POI 선택
+    // fallback 로직)와 무관한 다른 템플릿을 excludedThemes로 제외해 FESTIVAL_EVENT가 항상 top3에 남도록 한다.
+    const excludedThemes = ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "가족 체험", "청년 로컬"];
 
     expect(() =>
       computeStrategies(
         dna,
-        baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+        baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"], excludedThemes }),
         pool,
         MODEL_VERSION,
       ),
@@ -703,7 +707,7 @@ describe("selectPois — theme(선호 테마) 반영(3단계)", () => {
 
     const strategies = computeStrategies(
       dna,
-      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"], excludedThemes }),
       pool,
       MODEL_VERSION,
     );

@@ -1,6 +1,11 @@
 # 점수 산정 모델
 
-모델 버전: `tour-dna-v1.0.0` (`src/lib/domain/constants.ts`). 공식을 바꾸면 버전을 올린다.
+모델 버전: `tour-dna-v1.1.0`(`src/lib/domain/constants.ts`, 2026-08-13 Network 산식 재설계로 v1.0.0에서
+증가). 공식을 바꾸면 버전을 올린다. **dataset(baseYm) 변경과 model version 변경은 별개 개념이다** —
+전자는 "어느 시점의 데이터를 보는가"(`Dataset.ACTIVE`, Phase 2-A~2-D의 drift gate가 다루는 대상),
+후자는 "그 데이터를 어떤 산식으로 해석하는가"다. 이번 Network 재설계는 baseYm(202606)을 그대로 두고
+산식만 바꾼 model change이므로 `DRIFT_GATE_THRESHOLDS`(dataset drift 판정 기준)와는 무관하며, 이
+변경을 "202606월의 정상적인 월간 drift"로 기록하지 않는다.
 
 ## 1. 정규화 규칙
 
@@ -53,12 +58,29 @@ CV(변동계수) = 표준편차/평균 — 연령대별 값이 고르게 분포�
 **방문자수 증감률 → Demand 보조지표 변환**: `growthRatePercent = (current - previous) / previous * 100`,
 `normalized = clamp(50 + growthRatePercent, 0, 100)` (0%→50, +50%p→100, -50%p→0, 구간 밖은 clamp).
 
-**Network 축 구조적 산식**:
+**Network 축 구조적 산식(Phase 3, 2026-08-13 재설계 — "관광 접점 조합 가능성형 B/H1")**:
 ```
-raw = attractionCount * 4 + relatedPoiCount * 3 + categoryCoverage * (100/3/2)
-categoryCoverage = 음식/숙박/체험 중 POI가 1개 이상 존재하는 카테고리 수(0~3)
-score = clamp(raw, 0, 100)
+diminishingReturnsScore(count, half) = count<=0 ? 0 : 100 * count / (count + half)
+
+attractionScore = diminishingReturnsScore(attractionCount, half=53)
+foodScore       = diminishingReturnsScore(foodCount,       half=34)
+lodgingScore    = diminishingReturnsScore(lodgingCount,    half=5)
+experienceScore = diminishingReturnsScore(experienceCount, half=7)
+serviceCombinationScore = (foodScore + lodgingScore + experienceScore) / 3
+
+score = clamp(attractionScore * 0.5 + serviceCombinationScore * 0.5, 0, 100)
 ```
+half-saturation(53/34/5/7)은 전국 202606 SIGUNGU 255곳의 실제 count 분포 중앙값(median)으로 QA를 거쳐
+고정한 이 모델 version의 parameter다(`src/lib/domain/dna.ts` `NETWORK_*_HALF_SATURATION`). 매 분석 시
+다시 계산하지 않는다.
+
+이전 산식(attraction 50% + PoiRelation 기반 relation 20% + 음식/숙박/체험 존재여부 coverage 30%)은
+폐기했다 — PoiRelation(연관관광지) 데이터가 실제로는 대전/제천/양양 3개 지역에만 존재하는 초기 seed
+잔재(전국 API 수집 경로 없음)라, 그 3개 지역만 전국 Network 순위 최상위권을 부당하게 점유하는 문제가
+있었고, coverage(존재 여부만 봄)도 전국 88.6%가 만점이라 변별력이 없었다. 새 산식은 "중심 관광지와
+음식·숙박·체험 공급이 함께 갖춰져 하나의 여행 동선으로 조합하기 쉬운 정도"만 측정하며, 실제 관광지
+간 관계(edge)는 측정하지 않는다. PoiRelation DB 데이터 자체는 삭제하지 않았고 계산에서만 미사용
+처리했다(향후 실제 API 경로가 생기면 재검토 가능).
 
 **축 상태(status)**: 지표가 하나도 없으면 `MISSING`(score=null, 0점 아님). 있으면 `LIVE` 또는
 `SNAPSHOT`(구성 지표 중 하나라도 지난 성공 스냅샷으로 대체된 경우).

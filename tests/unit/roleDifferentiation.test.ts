@@ -70,13 +70,11 @@ function dnaInput(): DnaEngineInput {
     },
     networkInputs: {
       attractionCount: 8,
-      relatedPoiCount: 0,
       foodCount: 20,
       lodgingCount: 10,
       experienceCount: 5,
       collectedAt: "2026-07-01T00:00:00.000Z",
       poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-      relation: null,
     },
   };
 }

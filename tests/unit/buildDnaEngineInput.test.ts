@@ -61,36 +61,37 @@ describe("buildDnaEngineInput — Network 축 POI/관계 근거 분리 판정(Ph
     });
   });
 
-  it("연관관광지(PoiRelation)가 있어도 API POI만으로 구성된 poi 근거는 LIVE_API를 유지한다(관계가 POI 근거를 격하하지 않음)", async () => {
-    poiFindMany.mockResolvedValue([
-      { category: "ATTRACTION", sourceType: "API" },
-      { category: "FOOD", sourceType: "API" },
-    ]);
-    poiRelationCount.mockResolvedValue(5);
-
-    const input = await buildDnaEngineInput("DAEJEON", "202606");
-
-    expect(input.networkInputs?.poi.provenance).toBe("LIVE_API");
-    expect(input.networkInputs?.poi.isSnapshotFallback).toBe(false);
-    // 관계 근거는 별도로 CURATED다(현재 실 API가 절대 채우지 않는 데이터 — docs/public-api-status.md 6번).
-    expect(input.networkInputs?.relation).toEqual({ count: 5, provenance: "CURATED", isSnapshotFallback: true });
-  });
-
-  it("연관관광지가 하나도 없으면 relation은 null이다(0을 임의로 CURATED 근거로 지어내지 않음)", async () => {
-    poiFindMany.mockResolvedValue([{ category: "ATTRACTION", sourceType: "API" }]);
-    poiRelationCount.mockResolvedValue(0);
-
-    const input = await buildDnaEngineInput("DAEJEON", "202606");
-
-    expect(input.networkInputs?.relation).toBeNull();
-  });
-
   it("POI가 하나도 없으면 networkInputs 자체가 null이다(MISSING과 대응)", async () => {
     poiFindMany.mockResolvedValue([]);
-    poiRelationCount.mockResolvedValue(0);
 
     const input = await buildDnaEngineInput("DAEJEON", "202606");
 
     expect(input.networkInputs).toBeNull();
+  });
+});
+
+describe("buildDnaEngineInput — Network 산식 재설계(Phase 3, 2026-08-13): PoiRelation 완전 제외", () => {
+  it("networkInputs에 relation/relatedPoiCount 필드가 더 이상 존재하지 않는다", async () => {
+    poiFindMany.mockResolvedValue([
+      { category: "ATTRACTION", sourceType: "API" },
+      { category: "FOOD", sourceType: "API" },
+    ]);
+
+    const input = await buildDnaEngineInput("DAEJEON", "202606");
+
+    expect(input.networkInputs).not.toHaveProperty("relation");
+    expect(input.networkInputs).not.toHaveProperty("relatedPoiCount");
+  });
+
+  it("PoiRelation 테이블을 전혀 조회하지 않는다(DB의 기존 relation 데이터가 있어도 Network 계산에 영향 없음)", async () => {
+    poiFindMany.mockResolvedValue([
+      { category: "ATTRACTION", sourceType: "API" },
+      { category: "FOOD", sourceType: "API" },
+    ]);
+    poiRelationCount.mockResolvedValue(3); // 실제 DB에 relation row가 있어도 이 함수가 조회하지 않아야 한다.
+
+    await buildDnaEngineInput("DAEJEON", "202606");
+
+    expect(poiRelationCount).not.toHaveBeenCalled();
   });
 });

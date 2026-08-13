@@ -102,7 +102,10 @@ roleFit·KPI·체크리스트·위험 목록은 역할마다 실질적으로 달
 - **현재 스키마의 실제 상태 값**: `AxisStatus`는 `LIVE | SNAPSHOT | MISSING` 3종뿐([schema.prisma:67-71](../prisma/schema.prisma#L67-L71)). 마스터 프롬프트가 요구하는 `LIVE_API/CACHED_API/CURATED/ESTIMATED/MISSING` 5종 provenance는 **schema에 존재하지 않는다.**
 - `NormalizedMetric`, `Evidence`, `Poi`, `PoiRelation` 어느 모델에도 provenance/snapshotId 컬럼이 없다([schema.prisma:166-223](../prisma/schema.prisma#L166-L223)).
 - `overallDataMode`(`LIVE|HYBRID|SNAPSHOT`)와 `liveAxisCount`가 UI의 `LIVE 5/5` 배지로 이어지는데, 축 상태 계산이 `isSnapshotFallback: false` 하드코딩에 의존하므로 **fixture/추정값이 섞여도 `LIVE 5/5`가 나올 수 있다** — Phase 1의 핵심 문제가 현재도 그대로 존재함을 코드로 확인.
-- Network 축은 `sourceCode: "POI_RELATION"` 하나로만 표시되고([buildDnaEngineInput.ts:43](../src/lib/services/buildDnaEngineInput.ts#L43)), POI 수(TourAPI 실제 데이터 가능)와 연관관광지 관계 수(현재 `poiRelation.ts` 어댑터 — 실제 API 여부 미확인, [public-api-status.md](public-api-status.md) 6번 항목 "정식 서비스명 미확인")를 구분하지 않는다.
+- (2026-08-13 갱신) Network 축은 더 이상 `POI_RELATION`을 쓰지 않는다 — 대전/제천/양양 3개 지역에만
+  존재하는 seed 잔재라 그 3곳만 부당하게 최상위권을 점유하는 문제가 확인돼, `sourceCode: "TOUR_INFO"`
+  기반 중심 관광지·음식·숙박·체험 POI 수 4종만으로 재설계했다(`docs/scoring-model.md` 참고). 이
+  문단의 나머지 서술(당시 시점 기록)은 위 상태표와 별개로 그대로 보존한다.
 
 ## 3. 공공데이터 장애·결측 시 기능 유지 방식
 

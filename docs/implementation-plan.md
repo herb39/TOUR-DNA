@@ -349,7 +349,8 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 ## 1. 이미 완료된 것 (로컬 DB 기준, Production 미반영)
 
 - 전국 SIGUNGU 255/255 동기화 완료, ERROR 0, `npm run audit:tourism-data` PASS.
-- Demand/Spend DNA normalization을 log1p+min-max로 개선(Stay/Diversity/Network는 변경 없음).
+- Demand/Spend DNA normalization을 log1p+min-max로 개선(Stay/Diversity는 변경 없음, Network는
+  2026-08-13에 별도로 재설계 — 아래 Phase 3 참고).
 - 검증된 데이터셋(ACTIVE Dataset, Phase 2-A) 기반 도입 — `Dataset` 레지스트리 + `activeDataset.ts`
   + `npm run dataset:activate`/`dataset:status`. 로컬 ACTIVE는 `202606`.
 - 홍보 콘텐츠 LLM을 OpenRouter 무료 모델(Gemma)로 연동 + `promoLlmClient.ts`의 timeout 구조적 버그
@@ -396,6 +397,17 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
   없이는 쓸 수 없음, 실수로 전국 강제 재호출되는 기본값 없음). 상세는
   [docs/implementation-status.md](implementation-status.md)의 "2026-08-12 갱신 — Phase 2-D" 절
   참고.
+- **(2026-08-13 추가) Phase 3 — Network DNA 재설계("관광 접점 조합 가능성형 B/H1")**: 기존
+  Network 산식(attraction 50% + `PoiRelation` 기반 relation 20% + 음식/숙박/체험 존재여부 coverage
+  30%)을 조사한 결과, `PoiRelation`이 대전/제천/양양 3개 지역에만 존재하는 초기 seed 잔재(전국 API
+  수집 경로 없음)라 그 3곳만 전국 Network 순위 최상위권을 부당하게 점유하고 있었고, coverage도
+  전국 88.6%가 만점이라 변별력이 없었다. 전국 QA(대체 metric 후보 A/B/C 비교, similarity/strategy
+  downstream 회귀 확인)를 거쳐 `attraction 50% + (음식·숙박·체험 체감곡선 평균) 50%`(half-saturation
+  53/34/5/7, 전국 202606 median 기반 고정 parameter) 산식으로 교체했다. `PoiRelation` 계산 완전
+  제외(DB 데이터는 historical로 보존), Evidence를 실제 4개 POI count 기반으로 재구성, `MODEL_VERSION`을
+  `tour-dna-v1.1.0`으로 증가. `Dataset.ACTIVE`(202606)는 그대로 두고 산식만 바꾼 model change라
+  `DRIFT_GATE_THRESHOLDS`(dataset drift)와는 무관하다. 대표 프로젝트(강릉/경주/제천) 로컬 재분석 +
+  rule 기반 홍보자료 재생성까지 완료했다(상세는 `docs/scoring-model.md` "Network 축 구조적 산식" 참고).
 
 ## 2. 다음 우선순위
 
@@ -409,11 +421,7 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 3. **Demand 축 기술부채 검토**: `touResDemIxVal`이 전국 255개 지역 중 7개(2.8%)에서만 존재해,
    244개 지역(97%)의 Demand 점수가 사실상 `tarSvcDemIxVal` 단일 metric으로 결정된다. 이 metric
    coverage를 늘릴 수 있는지, 아니면 이 사실을 사용자에게 더 명확히 알릴지 검토가 필요하다.
-4. **Network 축 relation coverage 검토**: `POI_RELATION`(연관 관광지 관계) 데이터가 전국 255개 중
-   3개 지역에서만 존재해, Network 축의 relation 가중치(20%)가 나머지 252개 지역에서 사실상 항상
-   0으로 처리된다. 실제 API 확보 가능 여부 재조사 또는 가중치 재검토가 필요하다(단, 가중치 변경
-   자체는 별도 명시적 승인이 있을 때만 진행).
-5. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: 전국 규모에서 실제로 의미 있는 다음 제품 기능
+4. **위 검토가 끝난 뒤 제품 기능 우선순위 재평가**: 전국 규모에서 실제로 의미 있는 다음 제품 기능
    (관리자 모니터링, 프로젝트별 접근 제어 세분화, 카카오모빌리티 실제 경로 확대 등)의 우선순위를
    다시 정한다.
 

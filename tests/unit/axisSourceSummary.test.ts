@@ -50,23 +50,17 @@ describe("summarizeNetworkAxisSource — 연계 축 출처 배지", () => {
     expect(r).toEqual({ tier: "ALL_LIVE", label: "모두 실시간 API" });
   });
 
-  it("실제 제천 프로젝트 사례(API 249 · FIXTURE 7 · 관계 2)를 정확히 재현한다", () => {
+  it("실제 제천 프로젝트 사례(API 249 · FIXTURE 7, Phase 3부터 관계 근거는 더 이상 없음)를 정확히 재현한다", () => {
     const r = summarizeNetworkAxisSource([
       {
         metricCode: "networkPoiCount",
-        rawValue: 256,
+        rawValue: 249,
         provenance: "CURATED",
         appliedRule: "... API 수집 249건, 큐레이션(FIXTURE) 7건.",
       },
-      {
-        metricCode: "networkRelationCount",
-        rawValue: 2,
-        provenance: "CURATED",
-        appliedRule: "... 사람이 구성한 큐레이션 데이터.",
-      },
     ]);
     expect(r.tier).toBe("MIXED");
-    expect(r.label).toBe("API 249 · 정제 7 · 관계 정제 2");
+    expect(r.label).toBe("API 249 · 정제 7");
   });
 
   it("appliedRule 문구가 예상 형식과 다르면 크래시 없이 provenance 기반으로 안전하게 대체한다", () => {

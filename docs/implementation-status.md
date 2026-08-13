@@ -1,5 +1,11 @@
-# 구현 상태 (2026-08-12 갱신 — 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B/2-C/2-D·홍보 LLM 반영)
+# 구현 상태 (2026-08-13 갱신 — Network DNA 재설계(Phase 3) 반영, 전국 255/255 동기화·DNA normalization·ACTIVE Dataset·Phase 2-B/2-C/2-D·홍보 LLM 반영)
 
+> **2026-08-13 최신 요약**: Network DNA 산식을 attraction+PoiRelation(연관관광지)+coverage(50/20/30)에서
+> attraction+음식/숙박/체험 조합 가능성(B/H1, 50/50)으로 재설계했다(Phase 3) — PoiRelation이 대전/
+> 제천/양양 3곳에만 존재하는 seed 잔재라 그 3곳만 부당하게 최상위권을 점유하던 문제를 해소했다.
+> `MODEL_VERSION`을 `tour-dna-v1.1.0`으로 증가시켰다. 상세는 맨 아래 "## 2026-08-13 갱신 — Phase 3"
+> 절 참고.
+>
 > **2026-08-12 최신 요약(2)**: TOUR_INFO(POI 목록 API)는 baseYm에 종속되지 않는 정적 데이터인데도
 > 새 STAGING baseYm마다 전국 255개 지역을 무조건 재호출하던 낭비를 없앴다(Phase 2-D) — region의
 > 최근 TOUR_INFO가 TTL(60일) 이내면 API를 다시 호출하지 않고 기존 POI를 그대로 재사용한다. 상세는
@@ -1580,3 +1586,56 @@ baseYm에 종속되지 않는 정적 API인데도 기존 completeness 게이트�
    실행안을 다시 열면 그 사이 API 재조회로 바뀐(TTL 재사용이 아니라 실제 재수집이 일어난 경우)
    최신 좌표/주소가 보인다는 재현성 이슈가 있다 — 이번 라운드에서 대규모 스키마 변경 없이 사실만
    기록해 둔다.
+
+## 2026-08-13 갱신 — Phase 3(Network DNA 재설계: "관광 접점 조합 가능성형 B/H1")
+
+1. **문제 진단**: 기존 Network 산식(attraction 50% + `PoiRelation` 기반 relation 20% + 음식/숙박/
+   체험 존재여부 coverage 30%)을 조사한 결과, `PoiRelation`은 대전/제천/양양 3개 지역에만 존재하는
+   초기 seed fixture 8건이 전부였고(전국 API 수집 경로 없음 — 정식 서비스명·URL 자체가 미확인),
+   그 3곳만 relation 보너스로 전국 Network 순위 1~3위를 부당하게 점유하고 있었다(relation 없다고
+   가정 시 각각 24~128위로 하락). coverage도 전국 88.6%(224/255)가 만점이라 변별력이 거의 없었다.
+2. **새 산식**: `attractionScore*0.5 + serviceCombinationScore*0.5`, `serviceCombinationScore =
+   (foodScore+lodgingScore+experienceScore)/3`, 각 요소는 `diminishingReturnsScore(count, half) =
+   100*count/(count+half)`. half-saturation(attraction=53, food=34, lodging=5, experience=7)은
+   전국 202606 SIGUNGU 255곳 실제 count 분포의 median으로 QA를 거쳐 고정한 이 모델 version의
+   parameter다(`src/lib/domain/dna.ts`). 후보 A(단순 평균)/B(attraction 중심 조합)/C(entropy 기반
+   diversity)를 비교한 결과 B가 기존 산식과의 순위 상관(Spearman ρ=0.91)이 가장 높고 relation
+   보너스를 합리적으로 제거해 최종 채택했다.
+3. **PoiRelation 완전 제외**: `NetworkRawInputs` 타입에서 `relatedPoiCount`/`relation` 필드 자체를
+   제거했고, `buildDnaEngineInput.ts`는 더 이상 `prisma.poiRelation.count()`를 호출하지 않는다 —
+   타입 레벨에서 relation이 점수에 영향을 줄 수 없는 구조다. DB의 `PoiRelation` 8건과 seed는
+   삭제하지 않고 historical/reference로 보존했다(migration 없음).
+4. **Evidence 재구성**: `networkPoiCount`(중심 관광지 수)/`networkFoodCount`/`networkLodgingCount`/
+   `networkExperienceCount` 4개 metricCode만 생성한다(전부 출처 TOUR_INFO). `networkRelationCount`
+   evidence는 더 이상 만들지 않는다. 사용자 노출 문구에서 "연관관광지 수"/"POI_RELATION"/"실제
+   관광지 간 관계망"/"방문 흐름" 표현을 전부 제거하고, "중심 관광지와 음식·숙박·체험 공급이 함께
+   갖춰져 하나의 여행 동선으로 조합하기 쉬운 정도"로 재정의했다. `axisSourceSummary.ts`의 출처
+   배지 로직도 relation 분기를 제거했다.
+5. **MODEL_VERSION**: `tour-dna-v1.0.0` → `tour-dna-v1.1.0`(`src/lib/domain/constants.ts`). 이
+   변경은 `Dataset.ACTIVE`(202606)를 바꾸는 dataset drift가 아니라 산식 자체를 바꾸는 model
+   change이므로 `DRIFT_GATE_THRESHOLDS`는 손대지 않았고, 이번 변화를 월간 drift로 기록하지 않는다.
+6. **전국 202606 QA(실제 production 함수로 재계산)**: 255개 SIGUNGU 기준 mean 49.09, stddev 15.89,
+   0/100 saturation 없음(직전 별도 QA의 예측과 정확히 일치). 대전 3위→55위, 제천 2위→19위, 양양
+   1위→18위로 하락해 relation 보너스가 해소됐음을 확인했다.
+7. **downstream 회귀(old 산식 vs new 산식, 실제 production 함수로 비교)**: similarity seed 10곳
+   평균 Top3 overlap 2.40/3, Top1 변경 3/10(경주·제주·충주), zero-overlap 1건(충주) — 직전 QA
+   예측과 일치. strength/weakness 30개 표본 중 변경 3곳(10%). 대표 전략 3개 시나리오(강릉/경주/
+   제천) 전부 Top3 순서·1위 템플릿 유지, 점수만 ±1~3점 이동.
+8. **대표 프로젝트(강릉/경주/제천) 로컬 재분석**: `runAnalysisForProject`는 신규 프로젝트 전용이라
+   기존 프로젝트에 쓰면 `Project.selectedStrategyResultId`가 삭제된 옛 `StrategyResult`를 계속
+   가리키는 버그가 있음을 발견했다 — 실제 production 재분석 정책(`edit/actions.ts`
+   `updateProjectAndReanalyzeAction`)과 동일하게 SelectedPlan 삭제 → selectedStrategyResultId
+   null화 → 새 분석 결과의 1위 전략 재선택 → `ensureSelectedPlan` → rule 기반(LLM 미호출)
+   `generatePromoContentForProject`로 정상 복구했다. 재분석 후 Network 점수: 강릉 78→85, 경주
+   78→85, 제천 82→71(전부 직전 QA 예측과 일치). 3개 프로젝트 모두 전략 1위 템플릿이 유지돼
+   `ensureSelectedPlan`이 SelectedPlan을 재생성하지 않았지만(코스 자체는 동일), promoContent는
+   rule 생성기로 재생성해 옛 Network 점수(78/82) 참조가 남지 않도록 정리했다. 화면 표시용
+   `toDisplayDnaScore(10~90)` 변환은 전혀 손대지 않았다(예: 경주 raw 85 → display 78 — 강점 판정은
+   raw 85, 축 카드는 display 78로 원래부터 의도된 분리다).
+9. **검증**: 신규/수정 단위 테스트(`dna.test.ts`/`buildDnaEngineInput.test.ts`/`axisSourceSummary.test.ts`
+   등) 포함 전체 **1361개 테스트 통과**, typecheck/lint/build 전부 통과. Production Neon/Vercel은
+   전혀 접근하지 않았다(로컬 전용 개발 정책 유지).
+10. **남은 기술부채**: (a) `docs/scoring-model.md`의 Network 산식 설명이 이번 갱신 이전에도 실제
+    코드와 다른 더 오래된 버전(단순 가중합)으로 남아 있었다 — 이번에 함께 바로잡았다. (b) 향후
+    PoiRelation을 실제로 전국 API에서 수집할 방법이 생기면, 이번에 폐기한 20% 가중치 재도입 여부를
+    별도로 재검토할 수 있다(이번 세션에서는 시도하지 않음).

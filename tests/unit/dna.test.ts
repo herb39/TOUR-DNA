@@ -57,13 +57,11 @@ function baseInput(overrides: Partial<DnaEngineInput> = {}): DnaEngineInput {
     },
     networkInputs: {
       attractionCount: 8,
-      relatedPoiCount: 0,
       foodCount: 20,
       lodgingCount: 10,
       experienceCount: 5,
       collectedAt: "2026-07-01T00:00:00.000Z",
       poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-      relation: null,
     },
     ...overrides,
   };
@@ -113,148 +111,157 @@ describe("computeDna", () => {
     expect(result.network.status).toBe("MISSING");
   });
 
-  describe("Network 축 — P0-2: 체감(로그형) 곡선으로 포화 방지", () => {
-    function withAttractionCount(count: number) {
+  describe("Network 축 — Phase 3(2026-08-13): 관광 접점 조합 가능성형(B/H1)", () => {
+    function withCounts(counts: {
+      attraction?: number;
+      food?: number;
+      lodging?: number;
+      experience?: number;
+    }) {
       return baseInput({
         networkInputs: {
-          attractionCount: count,
-          relatedPoiCount: 0,
-          foodCount: 1,
-          lodgingCount: 1,
-          experienceCount: 1,
+          attractionCount: counts.attraction ?? 0,
+          foodCount: counts.food ?? 0,
+          lodgingCount: counts.lodging ?? 0,
+          experienceCount: counts.experience ?? 0,
           collectedAt: "2026-07-01T00:00:00.000Z",
-          poi: { apiCount: count, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: null,
+          poi: { apiCount: 1, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
         },
       });
     }
 
-    it("중심 관광지 개수가 많아져도(25개) 즉시 100점에 포화되지 않는다", () => {
-      const result = computeDna(withAttractionCount(25));
-      expect(result.network.score).not.toBeNull();
+    it("1. attraction/food/lodging/experience 모두 0이면 network 점수는 0이다", () => {
+      const result = computeDna(withCounts({}));
+      expect(result.network.score).toBe(0);
+    });
+
+    it("2. attraction만 존재하면 attraction 절반가중치(50%)만큼만 반영된다", () => {
+      const result = computeDna(withCounts({ attraction: 53 }));
+      // attractionScore(53)=50, serviceCombinationScore=0 → 50*0.5+0*0.5=25
+      expect(result.network.score).toBe(25);
+    });
+
+    it("3. food만 존재하면 food가 조합점수 1/3만큼만 기여한다", () => {
+      const result = computeDna(withCounts({ food: 34 }));
+      // foodScore(34)=50, serviceCombinationScore=(50+0+0)/3≈16.67 → 0*0.5+16.67*0.5≈8.33
+      expect(result.network.score).toBe(8);
+    });
+
+    it("4. lodging만 존재하면 lodging이 조합점수 1/3만큼만 기여한다", () => {
+      const result = computeDna(withCounts({ lodging: 5 }));
+      expect(result.network.score).toBe(8);
+    });
+
+    it("5. experience만 존재하면 experience가 조합점수 1/3만큼만 기여한다", () => {
+      const result = computeDna(withCounts({ experience: 7 }));
+      expect(result.network.score).toBe(8);
+    });
+
+    it("6. count가 half-saturation과 같으면 해당 component는 정확히 50에 도달한다", () => {
+      // attraction/food/lodging/experience를 전부 각자 half로 채우면 두 component 모두 정확히 50 →
+      // 50*0.5+50*0.5=50
+      const result = computeDna(withCounts({ attraction: 53, food: 34, lodging: 5, experience: 7 }));
+      expect(result.network.score).toBe(50);
+    });
+
+    it("7. count가 매우 크면 100에 점근적으로 접근하지만 도달하지 않는다", () => {
+      // count = half*100으로 두면 모든 component가 정확히 100/101(≈99.01%)에서 동일하게 포화돼,
+      // half 값과 무관하게 항상 100 미만(점근선)임을 확인할 수 있다.
+      const result = computeDna(
+        withCounts({ attraction: 53 * 100, food: 34 * 100, lodging: 5 * 100, experience: 7 * 100 }),
+      );
       expect(result.network.score as number).toBeLessThan(100);
+      expect(result.network.score as number).toBeGreaterThan(95);
     });
 
-    it("중심 관광지 개수가 아주 많아도(200개) 100점에 도달하지 않는다(점근선)", () => {
-      const result = computeDna(withAttractionCount(200));
-      expect(result.network.score as number).toBeLessThan(100);
-      expect(result.network.score as number).toBeGreaterThan(70);
+    it("8. PoiRelation(연관 관광지) 관계는 더 이상 입력 타입에 존재하지 않아, 있고 없고가 점수에 전혀 영향을 줄 수 없다", () => {
+      // NetworkRawInputs 타입 자체에 relation 필드가 없으므로(타입 레벨 보장), 동일 POI count 입력이면
+      // 항상 같은 점수가 나온다 — 과거 대전/제천/양양 fixture가 누렸던 relation 보너스가 구조적으로 불가능하다.
+      const a = computeDna(withCounts({ attraction: 51, food: 200, lodging: 16, experience: 9 })).network.score;
+      const b = computeDna(withCounts({ attraction: 51, food: 200, lodging: 16, experience: 9 })).network.score;
+      expect(a).toBe(b);
     });
 
-    it("중심 관광지 개수가 다르면 점수도 다르다(개수·다양성·핵심관광지 구성 구분)", () => {
-      const few = computeDna(withAttractionCount(3)).network.score as number;
-      const many = computeDna(withAttractionCount(30)).network.score as number;
-      expect(many).toBeGreaterThan(few);
+    it("9. category count가 늘어나면 network 점수는 단조 증가한다", () => {
+      const scores = [0, 5, 20, 60, 200].map(
+        (n) => computeDna(withCounts({ attraction: n, food: n, lodging: n, experience: n })).network.score as number,
+      );
+      for (let i = 1; i < scores.length; i++) {
+        expect(scores[i]).toBeGreaterThan(scores[i - 1]);
+      }
     });
 
-    it("개수가 0이면 해당 구성요소 기여도는 0이다(업종 커버리지만 반영)", () => {
-      const result = computeDna(withAttractionCount(0));
-      // categoryCoverage=3/3(food/lodging/experience 모두 1개 이상)이므로 30점만 나와야 한다.
-      expect(result.network.score).toBe(30);
+    it("10~12. NaN/Infinity 없이 항상 0~100 범위를 유지한다", () => {
+      const cases = [
+        {},
+        { attraction: 1 },
+        { food: 1, lodging: 1, experience: 1 },
+        { attraction: 1_000_000, food: 1_000_000, lodging: 1_000_000, experience: 1_000_000 },
+      ];
+      for (const c of cases) {
+        const score = computeDna(withCounts(c)).network.score as number;
+        expect(Number.isNaN(score)).toBe(false);
+        expect(Number.isFinite(score)).toBe(true);
+        expect(score).toBeGreaterThanOrEqual(0);
+        expect(score).toBeLessThanOrEqual(100);
+      }
     });
-  });
 
-  describe("Network 축 — POI 근거/관계 근거 분리(Phase 1-E)", () => {
-    it("POI/관계 근거가 서로 다른 metricCode의 별도 Evidence로 생성된다", () => {
-      const input = baseInput({
-        networkInputs: {
-          attractionCount: 8,
-          relatedPoiCount: 3,
-          foodCount: 2,
-          lodgingCount: 1,
-          experienceCount: 1,
-          collectedAt: "2026-07-01T00:00:00.000Z",
-          poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: { count: 3, provenance: "CURATED", isSnapshotFallback: true },
-        },
-      });
-      const result = computeDna(input);
-      expect(result.network.evidence).toHaveLength(2);
+    it("13. 동일 입력이면 결정론적으로 동일한 점수를 반환한다", () => {
+      const input = withCounts({ attraction: 40, food: 30, lodging: 8, experience: 4 });
+      const r1 = computeDna(input).network.score;
+      const r2 = computeDna(input).network.score;
+      expect(r1).toBe(r2);
+    });
+
+    it("evidence는 attraction/food/lodging/experience 4개 metricCode만 생성하고, relation 관련 metricCode는 전혀 없다", () => {
+      const result = computeDna(
+        withCounts({ attraction: 8, food: 2, lodging: 1, experience: 1 }),
+      );
       const codes = result.network.evidence.map((e) => e.metricCode);
-      expect(codes).toContain("networkPoiCount");
-      expect(codes).toContain("networkRelationCount");
+      expect(codes.sort()).toEqual(
+        ["networkExperienceCount", "networkFoodCount", "networkLodgingCount", "networkPoiCount"].sort(),
+      );
+      expect(codes).not.toContain("networkRelationCount");
+      for (const e of result.network.evidence) {
+        expect(e.appliedRule).not.toMatch(/연관|관계|POI_RELATION/);
+      }
     });
 
-    it("API POI만 있으면 POI 근거는 LIVE_API/isSnapshotFallback:false다", () => {
+    it("API POI만 있으면 evidence provenance는 LIVE_API/isSnapshotFallback:false다", () => {
       const input = baseInput({
         networkInputs: {
           attractionCount: 8,
-          relatedPoiCount: 0,
           foodCount: 2,
           lodgingCount: 1,
           experienceCount: 1,
           collectedAt: "2026-07-01T00:00:00.000Z",
           poi: { apiCount: 12, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: null,
         },
       });
       const result = computeDna(input);
       const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
       expect(poiEvidence?.provenance).toBe("LIVE_API");
+      expect(result.network.status).toBe("LIVE");
     });
 
-    it("fixture POI가 섞이면 POI 근거는 CURATED/isSnapshotFallback:true다", () => {
+    it("fixture POI가 섞이면 evidence provenance는 CURATED이고 axis 상태는 SNAPSHOT이다", () => {
       const input = baseInput({
         networkInputs: {
           attractionCount: 8,
-          relatedPoiCount: 0,
           foodCount: 2,
           lodgingCount: 1,
           experienceCount: 1,
           collectedAt: "2026-07-01T00:00:00.000Z",
           poi: { apiCount: 5, fixtureCount: 3, provenance: "CURATED", isSnapshotFallback: true },
-          relation: null,
         },
       });
       const result = computeDna(input);
       const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
       expect(poiEvidence?.provenance).toBe("CURATED");
-      // 혼합 상태를 API/fixture 건수로 투명하게 노출한다(단순히 "하나라도 API면 LIVE_API"가 아님).
       expect(poiEvidence?.appliedRule).toContain("API 수집 5건");
       expect(poiEvidence?.appliedRule).toContain("큐레이션(FIXTURE) 3건");
-    });
-
-    it("관계 근거(CURATED)가 있어도 API POI 근거는 CURATED로 격하되지 않는다", () => {
-      const input = baseInput({
-        networkInputs: {
-          attractionCount: 8,
-          relatedPoiCount: 4,
-          foodCount: 2,
-          lodgingCount: 1,
-          experienceCount: 1,
-          collectedAt: "2026-07-01T00:00:00.000Z",
-          poi: { apiCount: 10, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: { count: 4, provenance: "CURATED", isSnapshotFallback: true },
-        },
-      });
-      const result = computeDna(input);
-      const poiEvidence = result.network.evidence.find((e) => e.metricCode === "networkPoiCount");
-      const relationEvidence = result.network.evidence.find((e) => e.metricCode === "networkRelationCount");
-      // 관계는 CURATED지만 POI 근거는 여전히 LIVE_API — 관계가 POI 근거를 격하하지 않는다.
-      expect(poiEvidence?.provenance).toBe("LIVE_API");
-      expect(relationEvidence?.provenance).toBe("CURATED");
-      // 단, 축 전체 상태는 두 근거 중 하나라도 fallback이면 SNAPSHOT(기존 원칙 유지).
       expect(result.network.status).toBe("SNAPSHOT");
-    });
-
-    it("관계가 하나도 없으면(relation: null) 관계 Evidence 자체를 만들지 않는다", () => {
-      const input = baseInput({
-        networkInputs: {
-          attractionCount: 8,
-          relatedPoiCount: 0,
-          foodCount: 2,
-          lodgingCount: 1,
-          experienceCount: 1,
-          collectedAt: "2026-07-01T00:00:00.000Z",
-          poi: { apiCount: 8, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: null,
-        },
-      });
-      const result = computeDna(input);
-      expect(result.network.evidence).toHaveLength(1);
-      expect(result.network.evidence[0].metricCode).toBe("networkPoiCount");
-      // 관계 근거가 없을 뿐 POI 근거만으로는 여전히 LIVE 판정이 가능하다.
-      expect(result.network.status).toBe("LIVE");
     });
   });
 

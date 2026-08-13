@@ -202,10 +202,13 @@ overallDataMode=LIVE`, `liveAxisCount=5`가 나온다 — 3개 지역(해운대�
 - 수요(Demand) 축은 `tarSvcDemIxVal`(관광 서비스 수요)·`visitorCnt`(방문자수 증감률)만으로 계산되고,
   기존 7곳에서 ESTIMATED fixture로 채워지던 `touResDemIxVal`(관광자원수요) 근거는 신규 지역에
   **아예 존재하지 않는다**(결측 취급도 아니고, 축 계산에서 처음부터 빠진다).
-- 연계(Network) 축은 `networkPoiCount`(등록 POI 수, LIVE_API)만으로 계산되고, `PoiRelation`(연계
-  관광지) 근거는 신규 20곳 전부 0건이라 아예 존재하지 않는다 — 이는 결측이 아니라, `PoiRelation`이
-  seed 수작업 큐레이션 전용이라 신규 지역에 대해 만든 적이 없기 때문이다(위 "연계 축 관계 데이터
-  CURATED" 항목 참고).
+- 연계(Network) 축은 `networkPoiCount`(중심 관광지 수)·`networkFoodCount`·`networkLodgingCount`·
+  `networkExperienceCount`(모두 TOUR_INFO 기반 POI 수, LIVE_API)만으로 계산된다. `PoiRelation`(연관
+  관광지) 근거는 Phase 3(2026-08-13)부터 Network 계산에서 완전히 제외됐다 — 대전/제천/양양 3개
+  지역에만 존재하는 초기 seed 잔재였을 뿐 전국 API 수집 경로가 없어, 그 3곳만 전국 순위 최상위권을
+  부당하게 점유하는 문제가 있었기 때문이다(`docs/scoring-model.md` "Network 축 구조적 산식" 참고).
+  `PoiRelation` DB 데이터 자체는 삭제하지 않았지만 어떤 지역이든 이제 Network 점수에 영향을 주지
+  않는다.
 
 즉 신규 지역의 "LIVE 5/5"는 "있는 근거는 전부 실시간 API"라는 뜻이며, 기존 7곳 일부처럼 ESTIMATED/
 CURATED 근거가 섞여 들어와 있지 않다는 점에서 오히려 축 근거 구성이 더 단순(POI API 근거만)하다 —
@@ -224,7 +227,7 @@ API로 완전 검증됨"처럼 근거의 완전성까지 보장하는 표현은 
 | touDivIxVal | 관광 다양성(방문객 연령 evenness+소비 연령 evenness+국적 다양성의 합성값, scoring-model.md 참고) | Diversity | TOU_DIV_IX | 2026-07-21 실키 확인, 재계산 로직 구현 완료 |
 | visitorCnt | 방문자수(외지인+외국인, `touDivCd` 2+3 합계) | Demand 증감률 계산용 | VISITOR_CNT | 2026-07-28 실 API 구조 확인, LIVE_API로 기록 |
 | visitorCntLocal | 현지인 방문자수(`touDivCd=1` 합계, 보조지표) | 근거 패널 보조지표(DNA 점수식 미사용) | VISITOR_CNT | 2026-07-28 도입 |
-| poiNetworkDensity | POI/연관관광지 밀도(구조적 산식) | Network | POI_RELATION | 외부 API 지표 아님 — 자체 산식 |
+| networkPoiCount / networkFoodCount / networkLodgingCount / networkExperienceCount | 중심 관광지·음식·숙박·체험 POI 수(구조적 산식, Phase 3 재설계) | Network | TOUR_INFO | 외부 API 지표 아님 — 자체 산식(`docs/scoring-model.md` 참고). PoiRelation/POI_RELATION은 2026-08-13부터 미사용 |
 
 ## DataSource (공공데이터 출처)
 

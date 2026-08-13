@@ -33,13 +33,11 @@ function baseInput(overrides: Partial<DnaEngineInput> = {}, collectedAt = "2026-
     },
     networkInputs: {
       attractionCount: 5,
-      relatedPoiCount: 2,
       foodCount: 3,
       lodgingCount: 1,
       experienceCount: 1,
       collectedAt,
       poi: { apiCount: 5, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-      relation: { count: 2, provenance: "CURATED", isSnapshotFallback: false },
     },
     ...overrides,
   };
@@ -93,13 +91,11 @@ describe("computeDataVersion — P0-5: canonical payload, 휘발성 메타데이
       baseInput({
         networkInputs: {
           attractionCount: 50,
-          relatedPoiCount: 2,
           foodCount: 3,
           lodgingCount: 1,
           experienceCount: 1,
           collectedAt: "2026-07-01T00:00:00.000Z",
           poi: { apiCount: 50, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-          relation: { count: 2, provenance: "CURATED", isSnapshotFallback: false },
         },
       }),
     );
@@ -108,11 +104,5 @@ describe("computeDataVersion — P0-5: canonical payload, 휘발성 메타데이
 
   it("networkInputs가 없으면(null) 오류 없이 처리된다", () => {
     expect(() => computeDataVersion(baseInput({ networkInputs: null }))).not.toThrow();
-  });
-
-  it("relation이 없으면(null) 오류 없이 처리된다", () => {
-    const input = baseInput();
-    input.networkInputs = { ...input.networkInputs!, relation: null };
-    expect(() => computeDataVersion(input)).not.toThrow();
   });
 });

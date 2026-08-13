@@ -232,45 +232,45 @@ function diminishingReturnsScore(count: number, half: number): number {
   return 100 * (count / (count + half));
 }
 
-/** 중심 관광지 8곳이면 이 구성요소 만점(100)의 절반(50)에 도달한다는 뜻 — 실 서비스키 조사 표본
- * (대전/제천 등, docs/public-api-status.md)에서 지역당 중심 관광지가 대략 5~15곳 수준이었던 것을
- * 기준으로 삼았다. */
-const ATTRACTION_HALF_SATURATION = 8;
-/** 연관 관광지 관계는 개수 자체가 적어(POI_RELATION 큐레이션), 더 적은 개수에서 절반에 도달하게 한다. */
-const RELATION_HALF_SATURATION = 6;
+/** Phase 3(2026-08-13, "관광 접점 조합 가능성형 B/H1"): 전국 202606 SIGUNGU 255곳의 실제 POI count
+ * 분포 중앙값(median)을 QA로 확인해 고정한 half-saturation parameter다(docs/scoring-model.md 참고).
+ * 매 분석 시 다시 계산하지 않는다 — 이 모델 version의 고정 상수다. */
+const NETWORK_ATTRACTION_HALF_SATURATION = 53;
+const NETWORK_FOOD_HALF_SATURATION = 34;
+const NETWORK_LODGING_HALF_SATURATION = 5;
+const NETWORK_EXPERIENCE_HALF_SATURATION = 7;
 
-/** Network = 중심 관광지 체감곡선(50%) + 연관 관광지 체감곡선(20%) + 업종 커버리지(30%, 기존과 동일하게
- * 음식/숙박/체험 3종 중 몇 종이 있는지). 세 요소를 구분해서 반영하라는 요구(P0-2)에 따라 가중치를
- * 명시적으로 분리했다 — 이전에는 사실상 attractionCount 선형항이 지배적이었다. */
+/** Network = 중심 관광지 체감곡선(50%) + 음식/숙박/체험 체감곡선 3종 평균(조합 가능성 점수, 50%).
+ * 이전 산식(attraction 50% + PoiRelation 연관관광지 관계 20% + 업종 존재여부 coverage 30%)은
+ * PoiRelation이 대전/제천/양양 3개 지역에만 존재하는 seed 잔재라 그 3곳만 부당하게 최상위권을
+ * 점유하는 문제와, coverage가 전국 88.6%에서 만점이라 변별력이 없는 문제가 있어 폐기했다
+ * (docs/scoring-model.md 참고). 새 산식은 "중심 관광지와 음식·숙박·체험 공급이 함께 갖춰져 하나의
+ * 여행 동선으로 조합하기 쉬운 정도"만 측정하며, 실제 관광지 간 관계(edge)는 측정하지 않는다. */
 const NETWORK_ATTRACTION_WEIGHT = 0.5;
-const NETWORK_RELATION_WEIGHT = 0.2;
-const NETWORK_CATEGORY_COVERAGE_WEIGHT = 0.3;
+const NETWORK_SERVICE_COMBINATION_WEIGHT = 0.5;
 
 function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
   const net = input.networkInputs;
   if (!net) return { score: null, status: "MISSING", evidence: [] };
 
-  const categoryCoverage = [net.foodCount > 0, net.lodgingCount > 0, net.experienceCount > 0].filter(
-    Boolean,
-  ).length;
-  const attractionScore = diminishingReturnsScore(net.attractionCount, ATTRACTION_HALF_SATURATION);
-  const relationScore = diminishingReturnsScore(net.relatedPoiCount, RELATION_HALF_SATURATION);
-  const categoryCoverageScore = (categoryCoverage / 3) * 100;
+  const attractionScore = diminishingReturnsScore(net.attractionCount, NETWORK_ATTRACTION_HALF_SATURATION);
+  const foodScore = diminishingReturnsScore(net.foodCount, NETWORK_FOOD_HALF_SATURATION);
+  const lodgingScore = diminishingReturnsScore(net.lodgingCount, NETWORK_LODGING_HALF_SATURATION);
+  const experienceScore = diminishingReturnsScore(net.experienceCount, NETWORK_EXPERIENCE_HALF_SATURATION);
+  const serviceCombinationScore = (foodScore + lodgingScore + experienceScore) / 3;
   const rawScore = clamp(
-    attractionScore * NETWORK_ATTRACTION_WEIGHT +
-      relationScore * NETWORK_RELATION_WEIGHT +
-      categoryCoverageScore * NETWORK_CATEGORY_COVERAGE_WEIGHT,
+    attractionScore * NETWORK_ATTRACTION_WEIGHT + serviceCombinationScore * NETWORK_SERVICE_COMBINATION_WEIGHT,
     0,
     100,
   );
 
-  // Phase 1-E(2026-07-23): Network 근거를 POI 근거와 관계 근거로 분리한다(마스터 문서 1-3절:
-  // "관광지·음식·숙박·체험 POI 수는 TOUR_INFO 또는 각 POI의 실제 출처로 표시한다. 연관관광지 관계 수는
-  // POI_RELATION/CURATED로 별도 표시한다"). 점수 산식(rawScore)은 그대로 두고, evidence 배열만 늘린다.
-  const poiEvidence: EvidenceItem = {
+  // Network 근거는 실제 산식이 사용하는 4개 POI count(중심 관광지·음식·숙박·체험)만 노출한다 —
+  // PoiRelation(연관관광지) 근거는 더 이상 산식에 쓰이지 않으므로 Evidence도 만들지 않는다.
+  const provenanceNote = `API 수집 ${net.poi.apiCount}건, 큐레이션(FIXTURE) ${net.poi.fixtureCount}건.`;
+  const makeEvidence = (metricCode: string, rawValue: number, appliedRule: string): EvidenceItem => ({
     axis: "network",
-    metricCode: "networkPoiCount",
-    rawValue: net.poi.apiCount + net.poi.fixtureCount,
+    metricCode,
+    rawValue,
     normalizedValue: null,
     unit: "count",
     adminLevel: input.adminLevel,
@@ -279,41 +279,37 @@ function computeNetworkAxis(input: DnaEngineInput): DnaAxisResult {
     sourceCode: "TOUR_INFO",
     collectedAt: net.collectedAt,
     provenance: net.poi.provenance,
-    appliedRule:
+    appliedRule: `${appliedRule} ${provenanceNote}`,
+  });
+
+  const evidence: EvidenceItem[] = [
+    makeEvidence(
+      "networkPoiCount",
+      net.attractionCount,
       `Network 산식의 중심 관광지 구성 근거 — 개수가 늘수록 체감(로그형)으로 반영되어 ` +
-      `${ATTRACTION_HALF_SATURATION}곳이면 이 구성요소 만점의 절반(가중치 ${NETWORK_ATTRACTION_WEIGHT * 100}%), ` +
-      `업종 커버리지(가중치 ${NETWORK_CATEGORY_COVERAGE_WEIGHT * 100}%)에도 사용됨. ` +
-      `API 수집 ${net.poi.apiCount}건, 큐레이션(FIXTURE) ${net.poi.fixtureCount}건.`,
-  };
+        `${NETWORK_ATTRACTION_HALF_SATURATION}곳이면 이 구성요소 만점의 절반(가중치 ${NETWORK_ATTRACTION_WEIGHT * 100}%).`,
+    ),
+    makeEvidence(
+      "networkFoodCount",
+      net.foodCount,
+      `Network 산식의 음식 POI 공급 근거 — 음식/숙박/체험 조합 가능성 점수(가중치 ` +
+        `${NETWORK_SERVICE_COMBINATION_WEIGHT * 100}%)의 1/3, ${NETWORK_FOOD_HALF_SATURATION}곳이면 절반.`,
+    ),
+    makeEvidence(
+      "networkLodgingCount",
+      net.lodgingCount,
+      `Network 산식의 숙박 POI 공급 근거 — 음식/숙박/체험 조합 가능성 점수(가중치 ` +
+        `${NETWORK_SERVICE_COMBINATION_WEIGHT * 100}%)의 1/3, ${NETWORK_LODGING_HALF_SATURATION}곳이면 절반.`,
+    ),
+    makeEvidence(
+      "networkExperienceCount",
+      net.experienceCount,
+      `Network 산식의 체험 POI 공급 근거 — 음식/숙박/체험 조합 가능성 점수(가중치 ` +
+        `${NETWORK_SERVICE_COMBINATION_WEIGHT * 100}%)의 1/3, ${NETWORK_EXPERIENCE_HALF_SATURATION}곳이면 절반.`,
+    ),
+  ];
 
-  const evidence: EvidenceItem[] = [poiEvidence];
-
-  // 관계가 하나도 없으면(net.relation === null) "확인된 0건"과 "근거 없음"을 구분할 수 없으므로
-  // Evidence 자체를 만들지 않는다(허위 CURATED 0건 방지, buildDnaEngineInput.ts 참고).
-  if (net.relation) {
-    evidence.push({
-      axis: "network",
-      metricCode: "networkRelationCount",
-      rawValue: net.relation.count,
-      normalizedValue: null,
-      unit: "count",
-      adminLevel: input.adminLevel,
-      regionCode: input.regionCode,
-      baseYm: input.baseYm,
-      sourceCode: "POI_RELATION",
-      collectedAt: net.collectedAt,
-      provenance: net.relation.provenance,
-      appliedRule:
-        `Network 산식의 연관 관광지 관계 근거 — 개수가 늘수록 체감(로그형)으로 반영(가중치 ` +
-        `${NETWORK_RELATION_WEIGHT * 100}%). 사람이 구성한 큐레이션 데이터.`,
-    });
-  }
-
-  // 축 상태는 기존과 동일한 원칙(어느 근거든 fallback이면 SNAPSHOT)을 유지한다 — 이전에는 POI/관계를
-  // OR로 합친 단일 플래그였고, 지금은 분리된 두 근거의 fallback 여부를 OR로 합치므로 실질적으로 같은
-  // 결과를 낸다(점수/축 상태 계산식 자체는 변경하지 않음).
-  const isFallback = net.poi.isSnapshotFallback || (net.relation?.isSnapshotFallback ?? false);
-  const status: AxisStatus = isFallback ? "SNAPSHOT" : "LIVE";
+  const status: AxisStatus = net.poi.isSnapshotFallback ? "SNAPSHOT" : "LIVE";
   return { score: roundForDisplay(rawScore), status, evidence };
 }
 

@@ -66,15 +66,15 @@ interface NetworkEvidenceRow {
 const NETWORK_POI_SPLIT_PATTERN = /API 수집 (\d+)건, 큐레이션\(FIXTURE\) (\d+)건/;
 
 /**
- * network 축은 "여러 지표 평균"이 아니라 POI 근거·관계 근거를 합성한 별도 산식(computeNetworkAxis)이라
+ * network 축은 "여러 지표 평균"이 아니라 POI 공급 근거를 합성한 별도 산식(computeNetworkAxis)이라
  * 위 함수와 다르게 다룬다. API/큐레이션(FIXTURE) POI 건수 분리는 별도 DB 컬럼이 없어(스키마 변경 없이
  * 처리하기 위해) dna.ts가 이미 생성해 저장해 둔 appliedRule 문구(우리 코드가 직접 생성하는 고정 형식)에서
  * 그대로 읽어온다 — 문구가 바뀌어 매칭에 실패해도 provenance 기준 안전한 문구로 대체될 뿐 깨지지 않는다.
+ * Phase 3(2026-08-13)부터 PoiRelation(연관관광지) 근거는 산식에서 완전히 제외돼 더 이상 다루지 않는다.
  */
 export function summarizeNetworkAxisSource(rows: NetworkEvidenceRow[]): AxisSourceSummary {
   const poiRow = rows.find((r) => r.metricCode === "networkPoiCount");
   if (!poiRow) return { tier: "MISSING", label: "데이터 부족" };
-  const relationRow = rows.find((r) => r.metricCode === "networkRelationCount");
 
   const match = poiRow.appliedRule.match(NETWORK_POI_SPLIT_PATTERN);
   const apiCount = match ? Number(match[1]) : null;
@@ -87,11 +87,8 @@ export function summarizeNetworkAxisSource(rows: NetworkEvidenceRow[]): AxisSour
   } else {
     parts.push(`${shortProvenanceLabel(poiRow.provenance)} ${poiRow.rawValue}`);
   }
-  if (relationRow) {
-    parts.push(`관계 정제 ${relationRow.rawValue}`);
-  }
 
-  const allLive = fixtureCount === 0 && !relationRow;
+  const allLive = fixtureCount === 0;
   if (allLive) return { tier: "ALL_LIVE", label: "모두 실시간 API" };
   return { tier: "MIXED", label: parts.join(" · ") };
 }

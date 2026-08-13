@@ -91,23 +91,19 @@ function dnaInputFor(regionCode: string): DnaEngineInput {
     poisForRegion.length === 0
       ? {
           attractionCount: 0,
-          relatedPoiCount: 0,
           foodCount: 0,
           lodgingCount: 0,
           experienceCount: 0,
           collectedAt: "2026-07-01T00:00:00.000Z",
           poi: { apiCount: 0, fixtureCount: 0, provenance: "MISSING", isSnapshotFallback: true },
-          relation: null,
         }
       : {
           attractionCount: poisForRegion.filter((p) => p.category === "ATTRACTION").length,
-          relatedPoiCount: 0,
           foodCount: poisForRegion.filter((p) => p.category === "FOOD").length,
           lodgingCount: poisForRegion.filter((p) => p.category === "LODGING").length,
           experienceCount: poisForRegion.filter((p) => p.category === "EXPERIENCE").length,
           collectedAt: "2026-07-01T00:00:00.000Z",
           poi: { apiCount: 0, fixtureCount: poisForRegion.length, provenance: "CURATED", isSnapshotFallback: true },
-          relation: null,
         };
 
   return {

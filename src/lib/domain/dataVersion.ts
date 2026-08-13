@@ -35,7 +35,6 @@ export function computeDataVersion(input: DnaEngineInput): string {
   const network = input.networkInputs
     ? {
         attractionCount: input.networkInputs.attractionCount,
-        relatedPoiCount: input.networkInputs.relatedPoiCount,
         foodCount: input.networkInputs.foodCount,
         lodgingCount: input.networkInputs.lodgingCount,
         experienceCount: input.networkInputs.experienceCount,
@@ -44,12 +43,6 @@ export function computeDataVersion(input: DnaEngineInput): string {
           fixtureCount: input.networkInputs.poi.fixtureCount,
           provenance: input.networkInputs.poi.provenance,
         },
-        relation: input.networkInputs.relation
-          ? {
-              count: input.networkInputs.relation.count,
-              provenance: input.networkInputs.relation.provenance,
-            }
-          : null,
       }
     : null;
 

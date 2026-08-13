@@ -109,7 +109,9 @@ export const METRIC_LABEL_KO: Record<string, string> = {
   [METRIC_CODES.SPEND]: "소비 강도",
   [METRIC_CODES.DIVERSITY]: "관광 다양성",
   networkPoiCount: "중심 관광지 수",
-  networkRelationCount: "연관 관광지 연결 수",
+  networkFoodCount: "음식 POI 수",
+  networkLodgingCount: "숙박 POI 수",
+  networkExperienceCount: "체험 POI 수",
 };
 
 export function metricLabel(metricCode: string): string {

@@ -70,13 +70,11 @@ function scenarioDnaInput(regionCode: string, baseYm: string, bump: number): Dna
     },
     networkInputs: {
       attractionCount: 10,
-      relatedPoiCount: 0,
       foodCount: 15,
       lodgingCount: 8,
       experienceCount: 4,
       collectedAt: "2026-08-01T00:00:00.000Z",
       poi: { apiCount: 10, fixtureCount: 0, provenance: "LIVE_API", isSnapshotFallback: false },
-      relation: null,
     },
   };
 }
