@@ -248,3 +248,10 @@
       재배포, 코드 변경 불필요)
 - [ ] 잘못된 동기화로 데이터가 이상해졌을 때: `npm run db:seed`를 재실행하면 fixture 값으로 복원된다
       (NormalizedMetric은 upsert 방식이라 seed의 고정값으로 되돌아간다)
+
+## 후속 필수 고도화 과제(미해결)
+
+- [ ] **AI 홍보 콘텐츠 생성 안정화(2026-08-13 기록)** — 현재 deterministic rule fallback은 안정적으로
+      동작하지만, OpenRouter 무료 provider의 응답 지연으로 실제 AI 생성 성공률이 충분하지 않다. 향후
+      실제 서비스 단계에서는 소액 유료 모델을 포함한 안정적 provider/model 조합, timeout, 비용 상한,
+      fallback 정책을 별도 고도화해야 한다.

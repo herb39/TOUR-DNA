@@ -100,6 +100,52 @@ describe("computeProjectAnalysis — Phase 2-A: ACTIVE dataset baseYm만 사용�
   });
 });
 
+describe("computeProjectAnalysis — DNA 불변성(2026-08-13, 조건 수정/재분석 기능의 핵심 회귀 방지 장치)", () => {
+  /** 지역이 같다면 DNA 5축은 지역의 객관적 통계 결과이므로 역할/국적/선호 테마/여행월을 바꿔도 값이
+   * 달라지면 안 된다. `computeProjectAnalysis`는 `buildDnaEngineInput(regionCode, baseYm)`만으로
+   * DNA를 계산하고, role/nationality/preferredThemes/travelMonth는 이후 전략 계산에만 쓰인다 — 이
+   * 구조 자체를 실측으로 고정한다(문서·기억이 아니라 실제 호출 인자로 검증). */
+  it("역할이 달라져도 buildDnaEngineInput은 동일한 (regionCode, baseYm)으로만 호출되고 DNA 결과가 같다", async () => {
+    const a = await computeProjectAnalysis(minimalComputeInput({ role: "TRAVEL_AGENCY" }));
+    const b = await computeProjectAnalysis(minimalComputeInput({ role: "LOCAL_GOV" }));
+    expect(buildDnaEngineInput).toHaveBeenNthCalledWith(1, "SGG_TESTCITY", "202606");
+    expect(buildDnaEngineInput).toHaveBeenNthCalledWith(2, "SGG_TESTCITY", "202606");
+    expect(a.dna).toEqual(b.dna);
+  });
+
+  it("국적(nationality)이 달라져도 DNA 결과가 같다", async () => {
+    const a = await computeProjectAnalysis(minimalComputeInput({ nationality: "DOMESTIC" }));
+    const b = await computeProjectAnalysis(minimalComputeInput({ nationality: "FOREIGN" }));
+    expect(a.dna).toEqual(b.dna);
+  });
+
+  it("선호 테마(preferredThemes)가 달라져도 DNA 결과가 같다", async () => {
+    const a = await computeProjectAnalysis(minimalComputeInput({ preferredThemes: [] }));
+    const b = await computeProjectAnalysis(minimalComputeInput({ preferredThemes: ["웰니스", "자연"] }));
+    expect(a.dna).toEqual(b.dna);
+  });
+
+  it("여행월(travelMonth)이 달라져도 DNA 결과가 같다", async () => {
+    const a = await computeProjectAnalysis(minimalComputeInput({ travelMonth: 3 }));
+    const b = await computeProjectAnalysis(minimalComputeInput({ travelMonth: 12 }));
+    expect(a.dna).toEqual(b.dna);
+  });
+
+  it("역할/국적/테마/여행월을 모두 동시에 바꿔도 DNA는 그대로다(strategies는 달라질 수 있으므로 비교하지 않는다)", async () => {
+    const a = await computeProjectAnalysis(
+      minimalComputeInput({ role: "TRAVEL_AGENCY", nationality: "DOMESTIC", preferredThemes: ["미식"], travelMonth: 9 }),
+    );
+    const b = await computeProjectAnalysis(
+      minimalComputeInput({ role: "FESTIVAL_PLANNER", nationality: "FOREIGN", preferredThemes: ["웰니스"], travelMonth: 12 }),
+    );
+    expect(a.dna).toEqual(b.dna);
+    expect(buildDnaEngineInput).toHaveBeenCalledTimes(2);
+    for (const call of buildDnaEngineInput.mock.calls) {
+      expect(call).toEqual(["SGG_TESTCITY", "202606"]);
+    }
+  });
+});
+
 describe("computeProjectAnalysis — DB에 아무것도 쓰지 않는다", () => {
   it("읽기 전용 조회(buildDnaEngineInput/fetchPoisByCategory)만 사용하고 정상적으로 계산 결과를 반환한다", async () => {
     const result = await computeProjectAnalysis(minimalComputeInput());

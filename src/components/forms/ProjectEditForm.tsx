@@ -506,10 +506,26 @@ export function ProjectEditForm({
         <h2 className="text-sm font-semibold text-slate-900">변경 요약</h2>
         <dl className="mt-3 space-y-2 text-sm text-slate-600">
           <div className="flex justify-between">
+            <dt>지역</dt>
+            <dd>{sigunguOptions.find((s) => s.code === sigunguCode)?.name ?? sigunguCode}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt>역할</dt>
+            <dd>{ROLE_OPTIONS.find((o) => o.code === role)?.label ?? role}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt>내/외국인</dt>
+            <dd>{NATIONALITY_OPTIONS.find((o) => o.code === nationality)?.label ?? nationality}</dd>
+          </div>
+          <div className="flex justify-between">
             <dt>여행 시기</dt>
             <dd>
               {travelYear}년 {travelMonth}월
             </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt>선호 테마</dt>
+            <dd>{preferredThemesText.trim() || "미선택"}</dd>
           </div>
           <div className="flex justify-between">
             <dt>연령대</dt>
@@ -517,8 +533,10 @@ export function ProjectEditForm({
           </div>
         </dl>
         <p className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-500">
-          저장하면 이 조건으로 관광 DNA와 전략 3안을 다시 계산합니다. 계산 중 오류가 발생하면 기존 분석
-          결과는 그대로 유지되며 아무것도 바뀌지 않습니다.
+          {sidoCode === initial.sidoCode && sigunguCode === initial.sigunguCode
+            ? "저장하면 이 조건에 맞춰 추천 전략과 실행안을 새로 계산합니다. 지역은 그대로이므로 관광 DNA 5축 점수는 바뀌지 않습니다."
+            : "지역을 변경했습니다 — 관광 DNA 5축부터 전략·실행안까지 새 지역 기준으로 전부 다시 계산합니다."}{" "}
+          계산 중 오류가 발생하면 기존 분석 결과는 그대로 유지되며 아무것도 바뀌지 않습니다.
         </p>
       </aside>
     </form>

@@ -552,6 +552,18 @@ API 호출 성공 여부에 달려 있으며(`DATA_MODE=hybrid`), 임의 POI를 
 - **마이그레이션 불필요**: 기존 스키마 필드만 사용(`Project.updatedAt`은 이미 존재).
 - 커밋: `afa1b653d339faed966223a974a06283cac2b3b3`("feat: 프로젝트 조건 수정과 안전한 재분석 추가"),
   `origin/main`에 push 완료.
+- **지역 변경도 이 화면에서 함께 지원한다**(별도 화면·별도 플래그 없음) — `ProjectEditForm.tsx`의
+  시·도/시·군·구 select는 신규 생성 폼과 동일하게 지역을 바꿀 수 있고, `updateProjectAndReanalyzeAction`이
+  새 `regionCode`로 `computeProjectAnalysis`를 그대로 다시 호출한다. 지역을 바꾸면 DNA 5축·유사지역
+  비교·전략·POI·실행안까지 전부 새 지역 기준으로 재계산되며(사실상 새 분석), 이 경우에는 미리보기
+  문구도 "지역을 변경했습니다 — 관광 DNA 5축부터 전략·실행안까지 새 지역 기준으로 전부 다시
+  계산합니다"로 바뀐다(2026-08-13 명시적으로 구분해 안내하도록 보강).
+- **DNA 불변성 원칙(2026-08-13 재확인 및 회귀 테스트 추가)**: 지역이 같다면 역할/국적/선호 테마/
+  여행월을 바꿔도 관광 DNA 5축(raw score)은 절대 달라지지 않는다 — `computeProjectAnalysis`가
+  `buildDnaEngineInput(regionCode, baseYm)` 두 값만으로 DNA를 계산하고, role/nationality/
+  preferredThemes/travelMonth는 이후 전략(`computeStrategies`) 계산에만 쓰이는 구조이기 때문이다.
+  `tests/unit/analyzeProject.test.ts`에 이 사실을 실측(호출 인자·결과 동일성)으로 고정하는 회귀
+  테스트를 추가했다 — 문서나 기억이 아니라 실제 호출로 검증한다.
 
 ## Phase 7. 비교 코호트와 행정 범위 설명 — `DONE(사용자 표시지수 도입, 2026-08-07)`
 
@@ -1799,3 +1811,8 @@ region mismatch였음이 확정됐다. **Vercel Function region을 Singapore로 
 - 강릉·제천 실제 재생성(로컬 DB, `overwrite: true`)에서 두 번 모두 20초 후 정상적으로 규칙 기반
   fallback으로 저장됐다(`generatedBy: "rule"`, 7채널 전부 유효, UI 뱃지 "기본 생성"과 정확히 일치) —
   실패 시 fallback이 원자적으로(부분 AI 혼입 없이) 동작함을 재확인했다.
+
+**후속 필수 고도화 과제(미해결, 2026-08-13 기록)**: 현재 deterministic rule fallback은 안정적으로
+동작하지만, OpenRouter 무료 provider의 응답 지연으로 실제 AI 생성 성공률이 충분하지 않다. 향후
+실제 서비스 단계에서는 소액 유료 모델을 포함한 안정적 provider/model 조합, timeout, 비용 상한,
+fallback 정책을 별도 고도화해야 한다.
