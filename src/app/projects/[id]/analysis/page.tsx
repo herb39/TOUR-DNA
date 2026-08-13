@@ -422,7 +422,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
          * 재사용, 새 로직 없음). 실행안을 선택하면 plan/print 화면에서 네 신호 전부가 채워진 전체
          * 리포트를 다시 볼 수 있다. */}
         <div className="mt-6">
-          <PreLaunchValidationSection report={analysisStagePreLaunchValidation} />
+          <PreLaunchValidationSection report={analysisStagePreLaunchValidation} preliminary />
         </div>
 
         {tourismMetricCards.length > 0 ? (
