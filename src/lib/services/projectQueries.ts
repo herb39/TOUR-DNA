@@ -42,12 +42,12 @@ export async function listProjectSummaries(params: { page?: number; pageSize?: P
 }
 
 export async function getLatestDataFreshness() {
-  const latestSnapshot = await prisma.dataSnapshot.findFirst({
-    orderBy: { fetchedAt: "desc" },
-  });
-  const latestSyncLog = await prisma.syncLog.findFirst({
-    orderBy: { startedAt: "desc" },
-  });
+  // 2026-08-13(로딩 성능 조사) — 두 조회가 서로 의존하지 않는데 순차 await로 걸려 있었다. Promise.all로
+  // 병렬화한다(반환값·정렬 기준 등 조회 로직 자체는 그대로).
+  const [latestSnapshot, latestSyncLog] = await Promise.all([
+    prisma.dataSnapshot.findFirst({ orderBy: { fetchedAt: "desc" } }),
+    prisma.syncLog.findFirst({ orderBy: { startedAt: "desc" } }),
+  ]);
   return {
     baseYm: latestSnapshot?.baseYm ?? process.env.TOUR_DATA_BASE_YM ?? null,
     lastSyncedAt: latestSyncLog?.endedAt ?? latestSnapshot?.fetchedAt ?? null,
