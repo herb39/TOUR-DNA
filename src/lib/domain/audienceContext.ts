@@ -168,6 +168,58 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
 
 const THEME_CATEGORY_BONUS_CAP = 15;
 
+/**
+ * TourAPI 신 분류체계(lclsSystm1 대분류/lclsSystm2 중분류) → ThemeCategory 공식 신호 매핑(2026-08-14,
+ * POI 추천 품질 2차 고도화). THEME_KEYWORDS(자유 텍스트 이름 substring 매칭)와 달리, 한국관광공사가
+ * 실제로 부여한 분류 코드다 — 이미 이 프로젝트가 검증에 쓰던 것과 같은 방식(scripts/verify-region-
+ * codes.ts --lcls-systm1 <코드>, KorService2의 lclsSystmCode2 오퍼레이션을 실 서비스키로 직접 호출)으로
+ * 아래 코드의 공식 명칭을 확인했다:
+ * - HS(대분류 "역사관광", 확인됨): HS01 역사유적지/HS02 역사유물/HS03 종교성지/HS04 안보관광지. 이름에
+ *   "문화"/"역사" 등 일반 단어가 없는 실제 사적지(경주 첨성대·대릉원·천마총 등 — 실 로컬 DB로 확인)도
+ *   대분류 자체로 CULTURE_HISTORY와 정확히 대응된다.
+ * - NA(대분류 "자연관광", 확인됨): NA01~05 전부 자연경관(산/하천·해양)·자연생태·자연공원·기타자연관광 —
+ *   NATURE와 정확히 대응된다.
+ * - LS(대분류 "레포츠", 확인됨): LS01~04 전부 육상/수상/항공/복합 레저스포츠 — LEISURE_ACTIVITY와
+ *   정확히 대응된다.
+ * - FD(대분류 "음식", 이미 foodClassification.ts에서 세부분류 용도로 검증됨): FOOD와 정확히 대응된다.
+ * - lclsSystm2="EX05"(대분류 EX "체험관광"의 중분류 "웰니스관광"): 온천/사우나/스파/찜질방/한방체험/
+ *   힐링명상/뷰티스파/기타웰니스/자연치유/기타의료관광 — WELLNESS와 정확히 대응된다. EX 대분류의 나머지
+ *   중분류(전통체험/공예체험/농산어촌체험/산사체험/산업관광 등)는 WELLNESS와 무관해 EX05만 쓴다.
+ * - lclsSystm2="VE07"(대분류 VE "문화관광"의 중분류 "전시시설"): 박물관/기념관/전시관/컨벤션센터/
+ *   과학관/미술관 — CULTURE_HISTORY와 대응된다. VE 대분류 전체는 테마공원(VE02)·도시공원(VE03)·
+ *   레저스포츠시설(VE10)·교통시설(VE11) 등과 뒤섞여 있어(경주 "강동 워터파크"=VE02가 실제 사례) 신호로
+ *   쓰지 않고, 명확히 전시·박물관류인 VE07 중분류만 쓴다.
+ * 매핑에 없는 코드(값이 없는 경우 포함 — FIXTURE 큐레이션 데이터나 구형 저장 데이터)는 빈 배열을
+ * 반환한다 — 이 경우 호출부(computePoiFit)가 기존 이름 키워드 판정으로 안전하게 fallback한다(새 신호가
+ * 없다고 기존 판정을 더 나쁘게 만들지 않는다).
+ */
+const STRUCTURAL_LCLS_SYSTM1_THEME: Partial<Record<string, ThemeCategory>> = {
+  HS: "CULTURE_HISTORY",
+  NA: "NATURE",
+  LS: "LEISURE_ACTIVITY",
+  FD: "FOOD",
+};
+
+const STRUCTURAL_LCLS_SYSTM2_THEME: Partial<Record<string, ThemeCategory>> = {
+  VE07: "CULTURE_HISTORY",
+  EX05: "WELLNESS",
+};
+
+/** POI의 TourAPI 신 분류체계 코드로부터 확인 가능한 ThemeCategory를 반환한다(위 매핑 참고). 중분류가
+ * 대분류보다 더 구체적인 신호이므로 중분류 매핑을 먼저 확인한다 — 실제로는 두 매핑이 겹치는 대분류가
+ * 없어 결과에 차이는 없지만, 향후 매핑이 늘어났을 때 구체적인 신호를 우선한다는 원칙을 코드로 남긴다. */
+export function classifyStructuralPoiThemes(
+  lclsSystm1: string | null | undefined,
+  lclsSystm2: string | null | undefined,
+): ThemeCategory[] {
+  const categories = new Set<ThemeCategory>();
+  const byLevel2 = lclsSystm2 ? STRUCTURAL_LCLS_SYSTM2_THEME[lclsSystm2] : undefined;
+  if (byLevel2) categories.add(byLevel2);
+  const byLevel1 = lclsSystm1 ? STRUCTURAL_LCLS_SYSTM1_THEME[lclsSystm1] : undefined;
+  if (byLevel1) categories.add(byLevel1);
+  return [...categories];
+}
+
 /** 테마 카테고리 → 실제 코스 POI 선택에 우선순위를 줄 PoiCategoryCode(2026-08-10 도입, strategy.ts의
  * selectPois가 사용). THEME_TEMPLATE_BONUS(전략 점수 가산)와 별개의 매핑이다 — 여기서는 "이 테마를
  * 고른 사용자가 실제 코스에서 우선 마주치길 기대할 카테고리"만 담는다. 근거 없이 세부 취향을 추측하지

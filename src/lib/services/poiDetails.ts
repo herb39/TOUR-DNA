@@ -13,6 +13,26 @@ export function extractLclsSystm3FromRawPayload(rawPayload: unknown): string | n
   return null;
 }
 
+/** Poi.rawPayload(Json?)에서 신 분류체계 lclsSystm1(대분류)을 안전하게 꺼낸다(2026-08-14, POI 추천
+ * 품질 2차 고도화 — poiFit.ts의 classifyStructuralPoiThemes가 쓴다). */
+export function extractLclsSystm1FromRawPayload(rawPayload: unknown): string | null {
+  if (rawPayload && typeof rawPayload === "object" && "lclsSystm1" in rawPayload) {
+    const value = (rawPayload as Record<string, unknown>).lclsSystm1;
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
+/** Poi.rawPayload(Json?)에서 신 분류체계 lclsSystm2(중분류)를 안전하게 꺼낸다(2026-08-14, 위와 동일한
+ * 용도). */
+export function extractLclsSystm2FromRawPayload(rawPayload: unknown): string | null {
+  if (rawPayload && typeof rawPayload === "object" && "lclsSystm2" in rawPayload) {
+    const value = (rawPayload as Record<string, unknown>).lclsSystm2;
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
 /** 2026-07-27 신 체계 전환 이전(cat3만 있고 lclsSystm3가 없는)에 저장된 rawPayload에서만 쓰는 구형
  * 데이터 호환 fallback — 신규 저장 데이터에는 cat3 자체가 없으므로 항상 null을 반환한다. */
 export function extractCat3FromRawPayload(rawPayload: unknown): string | null {
@@ -69,6 +89,8 @@ function mapRowToPoiDetail(r: PoiRow): PoiDetail {
     mealEligible: deriveMealEligible(r),
     foodSubcategory: r.category === "FOOD" ? deriveFoodSubcategory(r) : undefined,
     sourceType: r.sourceType,
+    lclsSystm1: extractLclsSystm1FromRawPayload(r.rawPayload),
+    lclsSystm2: extractLclsSystm2FromRawPayload(r.rawPayload),
   };
 }
 

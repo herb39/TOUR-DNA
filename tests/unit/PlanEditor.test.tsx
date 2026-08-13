@@ -629,7 +629,7 @@ describe("PlanEditor 적합도 배지 라벨(2026-08-11 감사)", () => {
       recommendationStatus: tier === "FALLBACK" || (themeEvaluated && !themeMatched) ? "BELOW_MINIMUM_FIT" : "INSUFFICIENT_EVALUATION_DATA",
       breakdown: {
         categoryFit: { score: tier === "CORE" ? 30 : tier === "SUPPLEMENT" ? 15 : 6, tier },
-        themeFit: { score: 0, evaluated: themeEvaluated, matched: themeMatched },
+        themeFit: { score: 0, evaluated: themeEvaluated, matched: themeMatched, source: themeEvaluated ? "KEYWORD" : "NONE" },
         seasonFit: { score: 20, isIdealMonth: true },
       },
       positiveReasons: ["전략 핵심 카테고리(음식)와 일치합니다."],

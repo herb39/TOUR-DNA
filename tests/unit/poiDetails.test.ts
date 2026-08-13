@@ -12,6 +12,8 @@ import {
   deriveFoodSubcategory,
   deriveMealEligible,
   extractCat3FromRawPayload,
+  extractLclsSystm1FromRawPayload,
+  extractLclsSystm2FromRawPayload,
   fetchAdditionalGeneralPois,
   fetchAdditionalMealEligibleFood,
 } from "@/lib/services/poiDetails";
@@ -26,6 +28,22 @@ describe("extractCat3FromRawPayload", () => {
     expect(extractCat3FromRawPayload(undefined)).toBeNull();
     expect(extractCat3FromRawPayload({})).toBeNull();
     expect(extractCat3FromRawPayload({ cat3: 12345 })).toBeNull(); // 문자열이 아니면 무시
+  });
+});
+
+/** 2026-08-14(POI 추천 품질 2차 고도화) — poiFit.ts의 구조적 테마 신호가 읽는 원본 필드 추출기. */
+describe("extractLclsSystm1/2FromRawPayload", () => {
+  it("rawPayload 객체에서 lclsSystm1/2 문자열을 그대로 꺼낸다", () => {
+    expect(extractLclsSystm1FromRawPayload({ lclsSystm1: "HS", lclsSystm2: "HS01" })).toBe("HS");
+    expect(extractLclsSystm2FromRawPayload({ lclsSystm1: "HS", lclsSystm2: "HS01" })).toBe("HS01");
+  });
+
+  it("rawPayload가 없거나(FIXTURE) 필드가 없으면(구형 데이터) null을 반환한다", () => {
+    expect(extractLclsSystm1FromRawPayload(null)).toBeNull();
+    expect(extractLclsSystm1FromRawPayload(undefined)).toBeNull();
+    expect(extractLclsSystm1FromRawPayload({})).toBeNull();
+    expect(extractLclsSystm2FromRawPayload({ cat3: "A05020900" })).toBeNull(); // 신 체계 전환 이전 구형 데이터
+    expect(extractLclsSystm1FromRawPayload({ lclsSystm1: 123 })).toBeNull(); // 문자열이 아니면 무시
   });
 });
 

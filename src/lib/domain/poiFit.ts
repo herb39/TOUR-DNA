@@ -1,4 +1,4 @@
-import { classifyThemes } from "./audienceContext";
+import { classifyThemes, classifyStructuralPoiThemes } from "./audienceContext";
 import type { PoiCategoryCode, StrategyTemplate } from "./strategyTemplates";
 import { poiCategoryLabel } from "@/lib/format";
 
@@ -96,6 +96,12 @@ export interface PoiFitInput {
   sourceType: string;
   operatingHours: string | null;
   closedDays: string | null;
+  /** TourAPI 신 분류체계 대/중분류(2026-08-14, POI 추천 품질 2차 고도화 — classifyStructuralPoiThemes
+   * 참고). Poi.rawPayload(Json)에서 꺼낸 값을 그대로 받는다 — 값이 없으면(FIXTURE, 구형 데이터, 미확인
+   * 코드) 안전하게 이름 키워드 판정으로 fallback한다(하위 호환, 값을 넘기지 않는 기존 호출부도 그대로
+   * 동작한다). */
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
 }
 
 export interface PoiFitContext {
@@ -112,7 +118,14 @@ export interface PoiFitResult {
     categoryFit: { score: number; tier: PoiCategoryTier };
     /** evaluated=false면 선호 테마 자체가 입력되지 않아 이 항목을 점수에 포함하지 않았다는 뜻이다
      * (matched는 항상 false로 두되, 화면에서는 evaluated로 "평가 제외"와 "불일치"를 구분해야 한다). */
-    themeFit: { score: number; evaluated: boolean; matched: boolean };
+    themeFit: {
+      score: number;
+      evaluated: boolean;
+      matched: boolean;
+      /** 이 판정에 실제로 쓰인 근거(2026-08-14) — "STRUCTURAL"은 TourAPI 공식 분류체계
+       * (classifyStructuralPoiThemes), "KEYWORD"는 장소명 substring 매칭, evaluated=false면 "NONE". */
+      source: "STRUCTURAL" | "KEYWORD" | "NONE";
+    };
     seasonFit: { score: number; isIdealMonth: boolean };
   };
   /** 점수 계산에 실제로 반영된 근거만 문장화한다 — 계산에 안 쓰인 근거를 덧붙이지 않는다. */
@@ -153,8 +166,27 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
   const categoryIsThemeRelevant = !isPureFoodTheme || input.category === "FOOD";
   const themeEvaluated = context.preferredThemes.length > 0 && categoryIsThemeRelevant;
   const preferredCategories = themeEvaluated ? new Set(themeCategories) : null;
-  const poiThemeCategories = themeEvaluated ? classifyThemes([input.name]) : [];
-  const themeMatched = themeEvaluated ? poiThemeCategories.some((c) => preferredCategories!.has(c)) : false;
+
+  // 2026-08-14(POI 추천 품질 2차 고도화): 이름 키워드보다 신뢰할 수 있는 공식 분류 신호
+  // (classifyStructuralPoiThemes, TourAPI lclsSystm1/2)가 있으면 그것을 우선 쓰고, 없을 때만(FIXTURE,
+  // 구형 데이터, 매핑 없는 코드) 기존 이름 키워드 판정으로 fallback한다(10절 "구조 신호 우선 원칙").
+  // 실제 로컬 DB 검증(2026-08-14): 경주 첨성대·대릉원·천마총처럼 이름에 "문화"/"역사" 등 일반 키워드가
+  // 전혀 없는 실제 사적지가, 구조 신호(lclsSystm1="HS")로는 확인되지만 기존 이름 키워드로는 전혀
+  // 확인되지 않았다(경주 ATTRACTION 231건 중 124건이 이런 "구조 신호는 있지만 키워드로는 못 잡는" 사례).
+  const structuralThemeCategories = classifyStructuralPoiThemes(input.lclsSystm1, input.lclsSystm2);
+  const hasStructuralSignal = themeEvaluated && structuralThemeCategories.length > 0;
+  const poiThemeCategories = themeEvaluated && !hasStructuralSignal ? classifyThemes([input.name]) : [];
+
+  const themeMatched = hasStructuralSignal
+    ? structuralThemeCategories.some((c) => preferredCategories!.has(c))
+    : themeEvaluated
+      ? poiThemeCategories.some((c) => preferredCategories!.has(c))
+      : false;
+  const themeMatchSource: "STRUCTURAL" | "KEYWORD" | "NONE" = !themeEvaluated
+    ? "NONE"
+    : hasStructuralSignal
+      ? "STRUCTURAL"
+      : "KEYWORD";
   const themeScore = themeEvaluated && themeMatched ? THEME_MATCH_SCORE : 0;
 
   const isIdealMonth = context.template.idealMonths.includes(context.travelMonth);
@@ -197,9 +229,17 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
 
   if (themeEvaluated) {
     if (themeMatched) {
-      positiveReasons.push("선택한 선호 테마와 장소명 키워드가 일치합니다.");
+      positiveReasons.push(
+        themeMatchSource === "STRUCTURAL"
+          ? "한국관광공사 관광정보의 공식 분류상 선택한 선호 테마와 일치하는 유형입니다."
+          : "선택한 선호 테마와 장소명 키워드가 일치합니다.",
+      );
     } else {
-      cautions.push("선호 테마와 일치하는 키워드를 장소명에서 확인하지 못했습니다(실제 성격은 다를 수 있어 별도 확인 권장).");
+      cautions.push(
+        themeMatchSource === "STRUCTURAL"
+          ? "한국관광공사 관광정보의 공식 분류상 선호 테마와 다른 유형으로 확인되었습니다(실제 성격은 다를 수 있어 별도 확인 권장)."
+          : "선호 테마와 일치하는 키워드를 장소명에서 확인하지 못했습니다(실제 성격은 다를 수 있어 별도 확인 권장).",
+      );
     }
   }
 
@@ -229,7 +269,7 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
     recommendationStatus,
     breakdown: {
       categoryFit: { score: categoryScore, tier },
-      themeFit: { score: themeScore, evaluated: themeEvaluated, matched: themeMatched },
+      themeFit: { score: themeScore, evaluated: themeEvaluated, matched: themeMatched, source: themeMatchSource },
       seasonFit: { score: seasonScore, isIdealMonth },
     },
     positiveReasons,

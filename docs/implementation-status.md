@@ -1845,6 +1845,12 @@ LODGING 2가 자연스럽게 섞인 3일 코스가 됐고, 제천도 FOOD 5·ATT
 부적절한지 판단할 근거가 없다(복잡한 점수화는 만들지 않기로 했다 — 작업 지시 원칙). 후속 개선이
 필요하면 거리·인기도 등 별도 신호를 도입하는 방향을 검토할 수 있다.
 
+**(2026-08-14 갱신)** 위 한계는 TourAPI 공식 분류체계(`lclsSystm1/2`) 기반 구조 신호 도입으로
+상당 부분 완화됐다 — "강동 워터파크"(`lclsSystm2="VE02"` 테마공원)는 이제 이름 키워드와 무관하게
+공식 분류상 문화·역사가 아님이 확인돼 최소 보존 대상에서 제외된다. 자세한 내용은 아래 "2026-08-14
+갱신 — POI 추천 품질 2차 고도화" 절 참고(다만 구조 신호가 없는 나머지 후보는 여전히 이름 키워드에
+의존하므로 한계 자체가 완전히 사라진 것은 아니다).
+
 화면 표시 일관성도 함께 고쳤다: `poiFitService.ts`(`buildStrategyPoiFitSummary`)가 실제 코스에 포함된
 POI에 대해 raw `computePoiFit`만 다시 계산해 CORE_MINIMUM_RESERVE로 복귀된 POI에도 "전략 적합
 기준에 미달해 제외되었습니다"라는 문구가 남아 실제 코스 상태와 어긋나는 문제를 발견해, 같은
@@ -1957,3 +1963,56 @@ region mismatch였음이 확정됐다. **Vercel Function region을 Singapore로 
 동작하지만, OpenRouter 무료 provider의 응답 지연으로 실제 AI 생성 성공률이 충분하지 않다. 향후
 실제 서비스 단계에서는 소액 유료 모델을 포함한 안정적 provider/model 조합, timeout, 비용 상한,
 fallback 정책을 별도 고도화해야 한다.
+
+## 2026-08-14 갱신 — POI 추천 품질 2차 고도화(TourAPI 공식 분류체계 기반 테마 적합도)
+
+**배경**: 기존 `computePoiFit`의 테마 적합도 판정은 사용자가 선택한 선호 테마와 POI **이름**의 substring
+키워드 일치 여부로만 결정됐다. 조사 결과 이 방식은 두 가지 근본 한계가 있었다.
+1. 한국의 실제 문화·역사 유적(경주 첨성대·대릉원·천마총 등)은 이름에 "문화"/"역사"/"유적"/"고궁" 같은
+   일반 단어를 포함하지 않아, 실제로는 CULTURE_HISTORY 전략의 핵심 자산인데도 이름 키워드로는 전혀
+   확인되지 않았다(로컬 DB 검증: 경주시 ATTRACTION 231건 중 124건, 54%).
+2. "강동 워터파크"처럼 카테고리(ATTRACTION)만 일치하고 실제로는 무관한 장소가, 진짜 문화·역사 후보가
+   전부 이름 키워드 불일치로 제외되면 `CORE_MINIMUM_RESERVE`(2026-08-13 도입) 최소 보존 대상으로
+   함께 복귀되는 문제가 `docs/implementation-status.md`(2026-08-13 "알려진 한계") 항목에 이미
+   기록돼 있었다.
+
+**조사**: `Poi.rawPayload`(API로 동기화된 POI 48,268건 전부, 100%)에 TourAPI 신 분류체계
+`lclsSystm1`(대분류)·`lclsSystm2`(중분류)가 이미 저장돼 있음을 확인했다 — 별도 API 호출 없이 기존
+저장 데이터만으로 쓸 수 있는 신호다. `npm run verify:region -- --lcls-systm1 <코드>`(기존에 FD 음식
+분류를 검증했던 것과 동일한 방식, 실 서비스키로 `lclsSystmCode2` 오퍼레이션 직접 호출)로 이전까지
+미검증이던 비-음식 대분류(NA/HS/VE/AC/LS/SH/EV/EX)의 공식 명칭을 확인했다(상세는
+`docs/public-api-status.md`의 "4-B" 절 참고). 그 결과:
+- `lclsSystm1="HS"`(역사관광 — 역사유적지/역사유물/종교성지/안보관광지)가 CULTURE_HISTORY와,
+  `lclsSystm1="NA"`(자연관광)가 NATURE와, `lclsSystm1="LS"`(레포츠)가 LEISURE_ACTIVITY와,
+  `lclsSystm2="EX05"`(웰니스관광 — 온천/스파/찜질방/한방체험/힐링명상 등)가 WELLNESS와,
+  `lclsSystm2="VE07"`(전시시설 — 박물관/기념관/전시관/과학관/미술관)가 CULTURE_HISTORY와 각각
+  정확히 대응됨을 공식 코드표로 확인했다.
+- VE 대분류 전체(테마공원·도시공원·복합관광시설·레저스포츠시설 등 12개 중분류가 섞여 있음, "강동
+  워터파크"=VE02 테마공원이 실제 사례)는 신호로 쓰지 않고, 명확히 문화·역사와 연관된 VE07 중분류만
+  썼다 — 근거가 불확실한 대분류를 통째로 신호화해 새로운 오탐을 만들지 않기 위함이다.
+
+**적용**: `src/lib/domain/audienceContext.ts`에 `classifyStructuralPoiThemes()`를 추가했다.
+`src/lib/domain/poiFit.ts`의 `computePoiFit`은 이제 이 구조 신호가 있으면(대부분의 API POI) 그것을
+이름 키워드보다 우선 사용하고, 없으면(FIXTURE, 매핑 없는 코드) 기존 이름 키워드 판정으로 안전하게
+fallback한다 — 판정 산식의 배점·threshold·`CORE_MINIMUM_RESERVE` 알고리즘(cap=3 등)은 전혀 바꾸지
+않았다. `PoiFitResult.breakdown.themeFit.source`("STRUCTURAL"/"KEYWORD"/"NONE")로 어떤 근거를 썼는지
+노출하고, 화면에 이미 있던 추천 근거 문구("선택한 선호 테마와 장소명 키워드가 일치합니다" 등)를
+공식 분류 근거("한국관광공사 관광정보의 공식 분류상 선택한 선호 테마와 일치하는 유형입니다")로 갈아
+끼웠다 — 새 UI 배지를 추가하지 않고 기존 표현 자리를 재사용했다.
+
+**검증**: 전국 30개 지역 × 7개 전략 템플릿 A/B 비교(로컬 DB, `filterRecommendablePois` 직접 호출)에서
+추천 통과 후보가 16,541건 → 17,405건(+5.2%)으로 늘었고, 0건으로 급락하거나 완전히 사라진 조합은
+없었다. 브라우저로 경주(CULTURE_HISTORY) 실행안을 실제로 재생성한 결과 "강동 워터파크"가 더 이상
+포함되지 않고, 경주시자전거공원 등 실제로 구조 신호가 없는 후보만 여전히 CORE_MINIMUM_RESERVE로
+보완됐다 — 위 "알려진 한계" 항목이 완화됐다(완전히 사라진 것은 아니다: HS/VE07/NA/LS/EX05에 해당하지
+않는 POI는 여전히 이름 키워드 판정에 의존한다). 강릉(NIGHT_STAY_EXTENSION, FOOD 테마)과 제천
+(NATURE_WELLNESS)도 재생성해 기존 ATTRACTION/FOOD/LODGING/EXPERIENCE 구성이 그대로 유지됨을
+확인했다(회귀 없음).
+
+**적용하지 않은 것**: `fetchPoisByCategory.ts` 기반의 "지역 후보 부족 안내" 재계산 경로
+(`poiFitService.ts`의 shortage 계산)에는 구조 신호를 연결하지 않았다 — 이 경로는 `strategy.ts`의
+`PoiLike` 타입을 확장해야 하는데, strategy 점수 로직 파일을 건드리지 않기 위한 의도적 보수적 선택이다.
+영향은 "부족 안내 문구의 제외 건수"가 실제보다 다소 크게 표시될 수 있다는 점뿐이며(예: 경주
+"전략 적합 기준에 미달한 장소 300곳을 추천에서 제외했습니다"), 실제 코스 구성(`planService.ts`)과
+화면 배지(`poiFitService.ts`의 `buildStrategyPoiFitSummary`)는 정상적으로 구조 신호를 반영한다.
+PET_FRIENDLY 테마는 이번에도 대응하는 공식 분류 코드가 없어 그대로 MISSING 처리를 유지했다.

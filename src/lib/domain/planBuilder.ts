@@ -44,6 +44,11 @@ export interface PoiDetail {
   /** FOOD일 때만 의미가 있다(3단계 mealEligible의 세부판. foodClassification.ts 기준). 값이 없으면
    * 판정 안 함(레거시/비FOOD 호출부 하위 호환). */
   foodSubcategory?: FoodSubcategory;
+  /** TourAPI 신 분류체계 대/중분류(2026-08-14, POI 추천 품질 2차 고도화 — poiFit.ts의
+   * classifyStructuralPoiThemes 참고). 값이 없으면(FIXTURE, 구형 데이터) poiFit.ts가 안전하게 이름
+   * 키워드 판정으로 fallback한다. */
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
   /** POI 적합도 평가(poiFit.ts, P0-1)의 데이터 출처 판정에 쓴다 — Prisma PoiSourceType("API"|"FIXTURE")
    * 문자열 그대로. 값을 지정하지 않은 기존 호출부(테스트 등)는 undefined이며, 적합도 계산 쪽에서
    * 안전하게 CURATED로 취급한다(하위 호환). */

@@ -94,6 +94,110 @@ describe("computePoiFit — 저적합 POI 판정(2026-07-30 보완)", () => {
   });
 });
 
+/** 2026-08-14(POI 추천 품질 2차 고도화) — 이름 키워드보다 신뢰할 수 있는 TourAPI 공식 분류 신호
+ * (lclsSystm1/2)가 있으면 그것을 우선 쓰고, 없으면 기존 이름 키워드로 안전하게 fallback하는지 검증한다.
+ * 실제 로컬 DB 검증(경주 첨성대=lclsSystm1 "HS", 대릉원=lclsSystm1 "HS")에서 재현된 값을 그대로 쓴다. */
+describe("computePoiFit — 구조적 분류 신호(lclsSystm1/2) 우선 + 키워드 fallback(2026-08-14)", () => {
+  it("이름에 문화/역사 키워드가 전혀 없어도 lclsSystm1=HS이면 구조 신호로 테마가 일치한다(경주 첨성대 재현)", () => {
+    const fit = computePoiFit(
+      {
+        id: "cheomseongdae",
+        name: "경주 첨성대",
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "HS",
+        lclsSystm2: "HS01",
+      },
+      context(),
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ evaluated: true, matched: true, source: "STRUCTURAL" });
+    expect(fit.grade).toBe("HIGH");
+    expect(fit.recommendationStatus).toBe("RECOMMENDED");
+    expect(fit.positiveReasons.some((r) => r.includes("공식 분류"))).toBe(true);
+  });
+
+  it("lclsSystm2=VE07(전시시설)이면 대분류 VE 전체가 아니라 이 중분류만으로 문화·역사 테마가 일치한다(박물관류)", () => {
+    const fit = computePoiFit(
+      {
+        id: "museum",
+        name: "OO기념관",
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "VE",
+        lclsSystm2: "VE07",
+      },
+      context(),
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ matched: true, source: "STRUCTURAL" });
+  });
+
+  it("lclsSystm1=VE(전시시설 외 나머지 중분류)는 문화·역사와 무관한 신호가 없어 이름 키워드로 fallback한다(강동 워터파크 재현)", () => {
+    const fit = computePoiFit(
+      {
+        id: "waterpark",
+        name: "강동 워터파크",
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "VE",
+        lclsSystm2: "VE02",
+      },
+      context(),
+    );
+    // VE02(테마공원)는 매핑에 없어 구조 신호가 없다고 판단하고, 기존처럼 이름 키워드로 판정한다.
+    expect(fit.breakdown.themeFit).toMatchObject({ matched: false, source: "KEYWORD" });
+    expect(fit.recommendationStatus).toBe("BELOW_MINIMUM_FIT");
+  });
+
+  it("구조 신호가 확인한 실제 분류(NATURE)가 선호 테마(CULTURE_HISTORY)와 다르면, 이름에 우연히 다른 키워드가 있어도 구조 신호가 우선한다", () => {
+    const fit = computePoiFit(
+      {
+        id: "nature-with-culture-word",
+        name: "OO전통정원", // 이름에 "전통"(문화·역사 키워드)이 있지만 공식 분류는 자연(NA)
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "NA",
+        lclsSystm2: "NA04",
+      },
+      context(),
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ matched: false, source: "STRUCTURAL" });
+  });
+
+  it("웰니스 테마에서 lclsSystm2=EX05(웰니스관광)이면 온천/스파처럼 이름에 '웰니스' 단어가 없어도 구조 신호로 일치한다", () => {
+    const wellness = getTemplateById("NATURE_WELLNESS");
+    const fit = computePoiFit(
+      {
+        id: "hotspring",
+        name: "OO온천랜드",
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "EX",
+        lclsSystm2: "EX05",
+      },
+      { template: wellness, travelMonth: 10, preferredThemes: ["웰니스"] },
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ matched: true, source: "STRUCTURAL" });
+  });
+
+  it("lclsSystm1/2를 넘기지 않는(레거시 호출부·FIXTURE) 기존 방식은 그대로 이름 키워드로 판정한다(하위 호환)", () => {
+    const fit = computePoiFit(
+      { id: "legacy", name: "경주 문화유적 전시관", category: "ATTRACTION", sourceType: "FIXTURE", operatingHours: null, closedDays: null },
+      context(),
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ matched: true, source: "KEYWORD" });
+  });
+});
+
 describe("filterRecommendablePois — 필터링 위치를 한 곳으로 일원화한 순수 함수", () => {
   it("LOW+BELOW_MINIMUM_FIT인 일반 관광 POI만 제외하고, HIGH POI는 유지한다(경주 시나리오 축소 재현)", () => {
     const pois = [

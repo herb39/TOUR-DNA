@@ -80,6 +80,8 @@ export async function buildStrategyPoiFitSummary(params: {
         sourceType: detail.sourceType ?? "FIXTURE",
         operatingHours: detail.operatingHours,
         closedDays: detail.closedDays,
+        lclsSystm1: detail.lclsSystm1,
+        lclsSystm2: detail.lclsSystm2,
       },
       context,
     ),
