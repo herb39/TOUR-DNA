@@ -257,3 +257,26 @@ describe("generatePromoContentChannelsWithLlm — 프롬프트에 generation con
     expect(call.system).toContain("검증되지 않은 통계 수치");
   });
 });
+
+describe("generatePromoContentChannelsWithLlm — 출력 스키마 상한(2026-08-13, OpenRouter latency 조사)", () => {
+  it("cardNews.slides와 shortForm.scenes에 maxItems가 있다(무제한 출력으로 인한 불필요한 응답 크기 방지 — 규칙 기반 생성기의 실제 최대치와 일치)", async () => {
+    isPromoLlmConfigured.mockReturnValue(true);
+    callPromoLlmTool.mockResolvedValue({
+      ok: true,
+      input: {
+        ...validCommonChannels(),
+        roleContent: { productName: "p", targetAudience: "t", sellingPoints: ["a", "b", "c"], itineraryHighlight: "h" },
+      },
+    });
+    await generatePromoContentChannelsWithLlm(baseCtx());
+    const call = callPromoLlmTool.mock.calls[0][0];
+    const schema = call.inputSchema as {
+      properties: {
+        cardNews: { properties: { slides: { maxItems?: number } } };
+        shortForm: { properties: { scenes: { maxItems?: number } } };
+      };
+    };
+    expect(schema.properties.cardNews.properties.slides.maxItems).toBe(7);
+    expect(schema.properties.shortForm.properties.scenes.maxItems).toBe(4);
+  });
+});

@@ -142,9 +142,14 @@ function buildToolInputSchema(role: PromoUserRole): Record<string, unknown> {
         type: "object",
         additionalProperties: false,
         properties: {
+          // maxItems=7(2026-08-13 추가): 규칙 기반 생성기(buildCardNews)의 실제 최대 슬라이드 수(표지·
+          // 문제/기회·핵심전략·대표 방문지 최대 3장·마무리 = 최대 7장)와 맞춘 상한이다 — 사용자가 보는
+          // 카드뉴스 분량을 줄이는 게 아니라, 이전에 상한이 없어 LLM이 그보다 훨씬 많은 슬라이드를
+          // 생성할 수 있었던(불필요하게 큰 응답 payload/토큰 소모) 여지만 없앤다.
           slides: {
             type: "array",
             minItems: 3,
+            maxItems: 7,
             items: {
               type: "object",
               additionalProperties: false,
@@ -161,9 +166,12 @@ function buildToolInputSchema(role: PromoUserRole): Record<string, unknown> {
         properties: {
           title: { type: "string" },
           hook: { type: "string" },
+          // maxItems=4(2026-08-13 추가): 규칙 기반 생성기(buildShortForm)의 실제 최대 장면 수(Hook 1 +
+          // 대표 POI 최대 2 + CTA 1 = 최대 4)와 맞춘 상한이다 — 같은 이유로 상한만 추가한다.
           scenes: {
             type: "array",
             minItems: 2,
+            maxItems: 4,
             items: {
               type: "object",
               additionalProperties: false,

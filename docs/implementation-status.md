@@ -1773,3 +1773,29 @@ region mismatch였음이 확정됐다. **Vercel Function region을 Singapore로 
 먼저 확인한다: DB provider 변경, DB migration/이관, Vercel project 재생성, Vercel Function region
 변경. region 불일치는 코드를 아무리 최적화해도 해소되지 않는 종류의 지연이므로, 새 인프라를 구성할
 때마다 이 확인을 가장 먼저 한다.
+
+## 2026-08-13 갱신 — AI 홍보 콘텐츠 생성 timeout 실측 조사(결론: 외부 무료 provider 지연이 근본 원인)
+
+강릉 대표 프로젝트로 실제 OpenRouter 요청을 여러 차례 실측했다. 확인된 사실:
+- **timeout은 이미 요청 전체(헤더 수신+본문 읽기+JSON 파싱)를 보호한다** — `AbortController`를
+  `finally`에서만 clearTimeout하는 기존 구조(2026-08-11 수정)가 정상 동작함을 재확인.
+- **7채널 전체 요청과 2채널(proposalSummary+instagram)만 담은 축소 요청이 똑같이 정확히 20000ms에
+  timeout됐다** — payload/schema 크기가 원인이 아니라는 뜻이다(Case B: provider/model latency가
+  주원인). 같은 무료 모델(`google/gemma-4-26b-a4b-it:free`)로 추가 요청을 보내자 즉시 HTTP 429(분당
+  요청 제한)가 여러 번 발생했다 — 무료 모델 특성상 재시도로도 우회할 수 없다.
+- OpenRouter의 실제 모델 카탈로그(`/api/v1/models`, 비민감 메타데이터 조회)에서 structured output을
+  지원하는 무료 모델 6개를 확인하고 대표 후보 2개를 추가 실측했다: `openai/gpt-oss-20b:free`는
+  5.8초로 빠르게 응답했지만 **reasoning 전용 모델이라 최종 답변이 `message.content`가 아니라
+  `message.reasoning`에만 담겨**(실제 raw 응답으로 확인) 기존 파싱 로직과 호환되지 않는다(구조 변경
+  없이는 채택 불가). `liquid/lfm-2.5-2.6b:free`(2.6B, 가장 작은 후보)도 동일하게 20000ms timeout —
+  모델 크기와 지연이 상관관계가 없음을 보여준다.
+- 결론: **timeout의 근본 원인은 애플리케이션 코드가 아니라 OpenRouter 무료 모델의 업스트림 provider
+  지연/가용성 자체**다(Case B). 안전하게 코드로 고칠 수 있는 부분이 아니므로 억지로 모델을 바꾸거나
+  timeout을 늘리지 않았다.
+- 유일하게 적용한 변경: `cardNews.slides`/`shortForm.scenes`에 상한(각각 7/4, 규칙 기반 생성기의 실제
+  최대 출력량과 동일)을 추가했다 — 이전에는 상한이 전혀 없어 이론상 더 큰 응답을 요구할 수 있었다.
+  사용자 체감 콘텐츠 분량은 줄지 않으며(규칙 기반 fallback과 최대치가 같음), 최악의 경우 응답 크기만
+  보수적으로 제한한다.
+- 강릉·제천 실제 재생성(로컬 DB, `overwrite: true`)에서 두 번 모두 20초 후 정상적으로 규칙 기반
+  fallback으로 저장됐다(`generatedBy: "rule"`, 7채널 전부 유효, UI 뱃지 "기본 생성"과 정확히 일치) —
+  실패 시 fallback이 원자적으로(부분 AI 혼입 없이) 동작함을 재확인했다.
