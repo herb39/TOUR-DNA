@@ -257,6 +257,23 @@ const FALLBACK_TIER_MAX_SHARE = 0.4;
  * 넘어간다(코스 생성 실패 없음). */
 const THEME_TIER_MAX_SHARE = 0.5;
 
+/**
+ * 전략 핵심 테마 POI 최소 확보 비중(2026-08-16, 전략 핵심 테마 중심 코스 구성 강화). 기존 core 카테고리
+ * 라운드로빈은 카테고리별로 균등하게 한 개씩만 채우기 때문에, 핵심 테마를 담당하는 카테고리(예:
+ * CULTURE_HISTORY의 ATTRACTION)가 FOOD 등 다른 core 카테고리와 같은 비중만 배정받아, 실제 문화역사
+ * 코스인데도 ATTRACTION 슬롯이 1개뿐인 문제가 있었다(경주 ONE_NIGHT_TWO_DAYS: 목표 7개 중 mealReserve가
+ * 4개를 먼저 선점해 남은 3개를 ATTRACTION/EXPERIENCE/FOOD 3개 카테고리가 1개씩 나눠 가짐).
+ *
+ * 전국 30개 지역 조사 결과(핵심 테마가 있는 4개 템플릿 — LOCAL_FOOD_MARKET/NATURE_WELLNESS/
+ * CULTURE_HISTORY/FESTIVAL_EVENT), CULTURE_HISTORY/NATURE_WELLNESS/LOCAL_FOOD_MARKET은 29~30개 지역에서
+ * 관련성이 확인되는 후보가 3개 이상 존재해 30% 비중의 floor를 안정적으로 채울 수 있었다. FESTIVAL_EVENT는
+ * 축제 데이터 특성상 공급이 고르지 않아(3/30 지역이 관련 후보 0개) 이 floor를 적용해도 공급이 부족한
+ * 지역은 채워지지 않고 그대로 남는다(아래 구현이 강제로 채우지 않고 그래도 부족하면 포기하는 이유).
+ * 기존 THEME_TIER_MAX_SHARE(50%)보다는 작게, FALLBACK_TIER_MAX_SHARE(40%)보다도 작게 잡아 이 floor가
+ * 다양성(FOOD/EXPERIENCE 등 다른 필수 카테고리) 자체를 밀어내지 않도록 한다.
+ */
+const CORE_THEME_FLOOR_SHARE = 0.3;
+
 /** 카테고리 하나를 이름순 정렬 후, 템플릿+카테고리 조합 해시로 정한 위치부터 시작하도록 순환시킨다.
  * 입력 pool을 복사만 하고 원본은 건드리지 않는다. */
 function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, pool: PoiLike[]): PoiLike[] {
@@ -416,6 +433,48 @@ function selectPois(
     });
     return unselectedWithCoords[0].candidate;
   };
+
+  // 전략 핵심 테마 최소 확보(2026-08-16): 아래 priorityTiers 루프는 core 카테고리를 균등 라운드로빈으로
+  // 채우기 때문에, 핵심 테마를 담당하는 카테고리(coreThemeCarrierCats, 예: CULTURE_HISTORY→ATTRACTION)가
+  // FOOD 등 다른 core 카테고리와 같은 비중만 배정받는다. 라운드로빈 전에 이 카테고리들만 먼저
+  // CORE_THEME_FLOOR_SHARE만큼 우선 채운다 — templateCoreThemeCategories(선호 테마가 아니라 전략 자체의
+  // 핵심 테마만 기준)로 확인되는 관련 후보(구조 신호 우선, 없으면 키워드 fallback)만 채택하고, 그런
+  // 후보가 더 없으면 강제로 채우지 않고 그대로 둔다(공급 부족 지역은 기존처럼 아래 라운드로빈이 나머지를
+  // 처리). 핵심 테마 자체가 없는 템플릿(coreThemeCarrierCats가 빈 배열)은 이 블록이 전혀 동작하지 않아
+  // 기존 동작과 동일하다(회귀 없음).
+  const templateCoreThemes = templateCoreThemeCategories(template.id);
+  const coreThemeCarrierCats = themePreferredPoiCategories(templateCoreThemes).filter((c) => coreCats.includes(c));
+  if (coreThemeCarrierCats.length > 0) {
+    const pickNextForThemeFloor = (cat: PoiCategoryCode): PoiLike | null => {
+      for (const candidate of poolFor(cat)) {
+        if (selectedIds.has(candidate.id)) continue;
+        if (themeRelevanceTier(candidate, templateCoreThemes) < 2) return candidate;
+      }
+      return null;
+    };
+    const themeFloorTarget = Math.min(
+      nonLodgingTarget - selectedIds.size,
+      Math.max(1, Math.ceil(nonLodgingTarget * CORE_THEME_FLOOR_SHARE)),
+    );
+    let themeFloorFilled = 0;
+    let themeFloorProgressed = true;
+    while (themeFloorProgressed && themeFloorFilled < themeFloorTarget) {
+      themeFloorProgressed = false;
+      for (const cat of coreThemeCarrierCats) {
+        if (themeFloorFilled >= themeFloorTarget) break;
+        const picked = pickNextForThemeFloor(cat);
+        if (!picked) continue;
+        selectedIds.add(picked.id);
+        selectionOrder.push(picked);
+        registerCoords(picked);
+        const list = selectedByCategory[cat] ?? [];
+        list.push(picked);
+        selectedByCategory[cat] = list;
+        themeFloorFilled++;
+        themeFloorProgressed = true;
+      }
+    }
+  }
 
   // 티어 안에서는 카테고리를 순환하며 한 개씩 뽑아 균형 있게 채우고, 목표에 못 미치면 다음 티어로 내려간다.
   // P0-3(2026-07-27): 마지막 티어(fallbackCats, 템플릿과 무관한 나머지 카테고리)만은 목표를 끝까지

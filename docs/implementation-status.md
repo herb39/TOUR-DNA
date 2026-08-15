@@ -2127,3 +2127,69 @@ tie-break" 원칙 그대로다. 구조 신호는 `classifyStructuralPoiThemes`(p
 라운드로빈 배분 때문에) 구조 신호가 있어도 대표 관광지 전부가 들어가지는 못한다. (b) 동일 건물 입점
 매장 중복(현대백화점 등)은 이번 범위가 아니라 그대로다. (c) `poiFitService.ts`의 "지역 후보 부족 안내"
 재계산 경로는 여전히 구조 신호를 쓰지 않는다(2026-08-14 항목과 동일한 이유로 이번에도 손대지 않음).
+
+## 2026-08-16 갱신 — 전략 핵심 테마 중심 코스 구성 강화(core-theme floor) + 제품 로드맵 문서화
+
+**배경**: 바로 위(2026-08-15) 개선으로 후보 랭킹의 "순서"는 관련성 우선으로 바뀌었지만, 카테고리별
+**총 배정 개수**(목표 개수·라운드로빈 배분)는 그대로였다. 그 결과 경주 CULTURE_HISTORY(`ONE_NIGHT_
+TWO_DAYS`)에서 비숙박 목표 7개 중 `mealReserveTarget`(4개)가 먼저 FOOD를 선점하고, 남은 3자리를
+ATTRACTION/EXPERIENCE/FOOD 3개 core 카테고리가 라운드로빈으로 1개씩 나눠 가져 **ATTRACTION이 정확히
+1개로 고정**되는 근본 원인을 이번에 코드로 재현·확인했다(`selectPois`, `strategy.ts`).
+
+**1) 전략 template의 구조화된 테마 의미 조사**: 2026-08-15에 이미 도입한 `templateCoreThemeCategories()`
+(THEME_TEMPLATE_BONUS 역산, CULTURE_HISTORY→CULTURE_HISTORY / NATURE_WELLNESS→NATURE+WELLNESS /
+LOCAL_FOOD_MARKET→FOOD / FESTIVAL_EVENT→FESTIVAL, 나머지 3개 템플릿은 빈 배열)를 그대로 재사용했다 —
+새 판정표를 만들지 않았다. `preferredThemes`(사용자 입력)와 전략 기본 테마(`templateCoreThemeCategories`)
+의 책임은 기존과 동일하게 분리돼 있다: floor는 오직 **전략 자체의 핵심 테마**만 기준으로 삼고(사용자가
+선호 테마를 입력하지 않아도 적용됨), 핵심 테마가 없는 템플릿(NIGHT_STAY_EXTENSION/FAMILY_EXPERIENCE/
+YOUTH_LOCAL_CONTENT)에는 floor를 전혀 적용하지 않는다.
+
+**2) 전국 30개 지역 공급량 조사**: 핵심 테마가 있는 4개 템플릿에 대해 전략의 "carrier 카테고리"
+(`themePreferredPoiCategories(templateCoreThemeCategories(templateId))` ∩ 템플릿 core 카테고리 — 예:
+CULTURE_HISTORY→ATTRACTION, NATURE_WELLNESS→ATTRACTION+EXPERIENCE)에서 구조 신호 또는 키워드로
+관련성이 확인되는 후보 수 분포를 조사했다. CULTURE_HISTORY/NATURE_WELLNESS/LOCAL_FOOD_MARKET은
+29~30/30 지역에서 관련 후보 3개 이상 확보 가능했고, FESTIVAL_EVENT는 축제 데이터 특성상 공급이 고르지
+않아(3/30 지역이 관련 후보 0개) 낮은 지역은 floor를 못 채우고 그대로 부족한 채 남는다(강제 채우기 없음,
+아래 정책 참고).
+
+**3) 채택한 정책**: 후보 A(전체 최소 개수) 방식을 채택했다 — `CORE_THEME_FLOOR_SHARE = 0.3`(30%),
+비숙박 목표 개수의 30%를 core-theme carrier 카테고리에 우선 배정한 뒤, 기존 라운드로빈이 나머지를
+그대로 채운다(`strategy.ts`의 `selectPois`, 기존 mealReserve 블록 바로 다음, 기존 priorityTiers
+라운드로빈 이전에 삽입). 후보 B(날짜별 최소 1개)는 날짜별 분리 배치 자체가 `planBuilder.ts`(이번 범위
+밖) 책임이라 이번에는 채택하지 않았다. floor는 `themeRelevanceTier(candidate, templateCoreThemes) < 2`
+(구조 신호 우선, 키워드 fallback)로 확인되는 후보만 채택하고, 그런 후보가 더 없으면(공급 부족) 억지로
+채우지 않고 그대로 둔다 — 코스 생성 실패나 부정확한 장소로 채우는 일이 없다. FOOD/LODGING 확보 로직
+(`mealReserveTarget`/`LODGING_POI_TARGET_BY_DURATION`)과 `CORE_MINIMUM_RESERVE`(poiFit.ts, 별도
+메커니즘)는 전혀 건드리지 않았다.
+
+**4) 검증**: 신규 유닛 테스트 6개(floor 적용 시 관련 후보 3개 이상 확보/공급 부족 시 강제로 채우지
+않고 있는 만큼만 확보/핵심 테마 없는 전략은 기존과 동일하게 동작/FOOD·LODGING 개수 불변/deterministic/
+전략 점수 불변)를 "수정 전 실패, 수정 후 통과"로 확인했다(`tests/unit/strategy.test.ts`). 실제 DB로
+경주 CULTURE_HISTORY(`ONE_NIGHT_TWO_DAYS`) 재현 결과 ATTRACTION 1개→3개로, 청주 흥덕구
+NATURE_WELLNESS(`preferredThemes=[]`)는 ATTRACTION 2개→3개로 늘었다. 전국 30개 지역 A/B(핵심 테마
+템플릿 4종 × preferredThemes 4개 조합 = 154개 전략)에서 poiIds 총합(2832건)·후보 0개 전략(0건)·FOOD/
+LODGING 완전 누락 건수(0/48건)는 수정 전후 완전히 동일(회귀 없음 — 집합 크기 자체는 그대로), core-theme
+carrier 카테고리에 관련성 확인 POI가 1개 이상 포함된 비율은 149/154(96.8%)→154/154(100%)로 개선됐다.
+경주·청주 재현에서 30/60/90분 이상 이동 구간 발생 건수는 수정 전후 모두 0건(악화 없음). 강릉·제천
+재분석에서 ATTRACTION/FOOD/EXPERIENCE/LODGING 구성이 그대로 유지됐다(회귀 없음). 전체 유닛 테스트
+1451개, `npx tsc --noEmit`, lint, build 모두 통과했고, 375px 모바일에서 실제 경주·청주 실행안 화면을
+확인했다(가로 스크롤 없음, ATTRACTION 항목에 "적합도 높음(+테마 미입력)" 배지와 "전략 핵심 카테고리·
+구조 분류 일치" 근거 문구가 정상 노출됨).
+
+**5) 제품 로드맵 문서화**: `README.md`의 "다음 과제(로드맵)" 절 상단에 "TOUR-DNA 중장기 제품 로드맵
+(2026-08-16 합의)" 절을 신설해, 코스 스튜디오·Drag & Drop·지도 실시간 갱신·실시간 품질검증·콘텐츠
+테마 8종(문화예술/K-콘텐츠/야간관광 등 신규 후보 포함)·여행 조건 분리·축제 Anchor Event화·지역 문제
+해결형 UX·동일시설 dedup·관광 가치 랭킹·POI 체류시간 고도화 18개 항목과 Phase A~E 우선순위를
+완료/부분 구현/데이터 조사 필요/장기 후보로 구분해 기록했다 — 이미 구현된 기능과 아이디어 단계를
+섞어 "전부 구현됨"처럼 보이지 않도록 각 항목의 실제 저장소 기준 상태를 명시했다.
+
+**아직 남은 한계(투명하게 공개)**: (a) 이번 floor는 카테고리별 **총 배정 개수 안에서의 우선순위**만
+조정했을 뿐, `NON_LODGING_POI_TARGET_BY_DURATION`(기간별 목표 총 개수) 자체는 바꾸지 않았다 — 경주
+ONE_NIGHT_TWO_DAYS처럼 원래 목표가 빠듯한 조건에서는 floor를 적용해도 ATTRACTION이 3개(30%)에서 더
+늘어나지 않는다(대표 유적 전부를 담으려면 목표 개수 자체를 늘리는 별도 검토가 필요, 이번 범위 밖).
+(b) 동일 건물 입점매장 중복(현대백화점 등)은 이번에도 손대지 않았다 — 청주 재현 화면에서도 SHOPPING
+카테고리에 "갤럭시 현대백화점 충청점"/"갤럭시라이프스타일 현대백화점 충청점"/"골든듀 현대백화점
+충청점" 3건이 그대로 남아 있음을 실제로 확인했다. (c) `selectPois`가 기존에 이미 갖고 있던 관광 가치·
+대표성 신호 부재 문제(첨성대·대릉원처럼 이름만으로는 대표성이 확인되지 않는 문제)는 이번 floor로
+완화되지 않았다 — 여전히 구조 분류·키워드로 확인되는 "관련성"만 반영하며 "대표성/인기도"는 별도
+신뢰 가능한 데이터가 확보돼야 다룰 수 있다(위 로드맵 17번 항목).

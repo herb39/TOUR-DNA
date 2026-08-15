@@ -921,3 +921,155 @@ describe("selectPois — 구조적 테마 관련성 우선 랭킹(2026-08-15)", 
     expect(withStructuralFieldsAbsent.map((s) => s.poiIds)).toEqual(again.map((s) => s.poiIds));
   });
 });
+
+describe("selectPois — 전략 핵심 테마 중심 코스 구성 강화(core-theme floor, 2026-08-16)", () => {
+  const excludeAllExcept = (keep: string) =>
+    ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "축제·이벤트", "가족 체험", "청년 로컬"].filter(
+      (label) => !label.startsWith(keep),
+    );
+
+  it("ATTRACTION 목표 슬롯이 1개뿐이어도(ONE_NIGHT_TWO_DAYS) 관련성 확인된 ATTRACTION 후보가 여러 개 있으면 floor만큼 우선 확보된다", () => {
+    // 경주 재현: ONE_NIGHT_TWO_DAYS는 비숙박 목표 7개 중 mealReserve가 4개를 먼저 선점해, 기존
+    // 라운드로빈이면 ATTRACTION/EXPERIENCE/FOOD 3개 카테고리가 남은 3자리를 1개씩만 나눠 가져
+    // ATTRACTION이 1개로 고정됐다. floor(30% ≈ ceil(7*0.3)=3개)가 적용되면 구조 신호로 확인되는
+    // ATTRACTION 후보 3개가 라운드로빈보다 먼저 확보돼야 한다.
+    const historic = Array.from({ length: 5 }, (_, i) => ({
+      id: `historic-${i}`,
+      name: `가나다역사유적지${i}`,
+      category: "ATTRACTION" as const,
+      lclsSystm1: "HS",
+      lclsSystm2: "HS01",
+    }));
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: historic,
+      EXPERIENCE: makePois("exp", "EXPERIENCE", 5),
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    const attractionCount = cultureHistory.poiIds.filter((id) => categoryOf(id, pool) === "ATTRACTION").length;
+    expect(attractionCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("관련성 확인된 core-theme 후보가 공급 부족이면 강제로 채우지 않고 있는 만큼만 확보한다(코스 생성 실패 없음)", () => {
+    // ATTRACTION 후보 자체가 1개뿐이면 floor 목표(3개)를 못 채워도 실패하지 않고, 그 1개만 확보한 채
+    // 나머지는 기존 라운드로빈이 다른 카테고리로 자연스럽게 채운다.
+    const historic: PoiLike = { id: "historic-1", name: "유일한역사유적지", category: "ATTRACTION", lclsSystm1: "HS" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [historic],
+      EXPERIENCE: makePois("exp", "EXPERIENCE", 5),
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    expect(cultureHistory.poiIds).toContain("historic-1");
+    expect(cultureHistory.poiIds.length).toBe(7); // 목표 개수는 그대로 채워짐(다른 카테고리로 보완)
+  });
+
+  it("핵심 테마가 없는 전략(예: FAMILY_EXPERIENCE)은 floor를 적용하지 않아 기존 라운드로빈과 동일하게 동작한다", () => {
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 10),
+      EXPERIENCE: makePois("exp", "EXPERIENCE", 10),
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("가족") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const familyExperience = strategies.find((s) => s.templateId === "FAMILY_EXPERIENCE")!;
+    expect(familyExperience).toBeDefined();
+    // 카테고리별 개수가 기존 라운드로빈 결과(균등 배분)와 같은지, 특정 카테고리로 쏠리지 않았는지만 확인한다.
+    const attractionCount = familyExperience.poiIds.filter((id) => categoryOf(id, pool) === "ATTRACTION").length;
+    const experienceCount = familyExperience.poiIds.filter((id) => categoryOf(id, pool) === "EXPERIENCE").length;
+    expect(Math.abs(attractionCount - experienceCount)).toBeLessThanOrEqual(1);
+  });
+
+  it("FOOD/LODGING 확보 개수는 core-theme floor 적용 여부와 무관하게 그대로 유지된다", () => {
+    const historic = Array.from({ length: 5 }, (_, i) => ({
+      id: `historic-${i}`,
+      name: `가나다역사유적지${i}`,
+      category: "ATTRACTION" as const,
+      lclsSystm1: "HS",
+    }));
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: historic,
+      FOOD: makePois("food", "FOOD", 10),
+      LODGING: makePois("lodging", "LODGING", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    expect(cultureHistory.consumptionTouchpoints.food).toBe(true);
+    expect(cultureHistory.consumptionTouchpoints.lodging).toBe(true);
+    const lodgingCount = cultureHistory.poiIds.filter((id) => categoryOf(id, pool) === "LODGING").length;
+    expect(lodgingCount).toBe(1); // ONE_NIGHT_TWO_DAYS의 LODGING_POI_TARGET_BY_DURATION 그대로
+  });
+
+  it("동일 입력에는 항상 동일 결과(deterministic)", () => {
+    const historic = Array.from({ length: 5 }, (_, i) => ({
+      id: `historic-${i}`,
+      name: `가나다역사유적지${i}`,
+      category: "ATTRACTION" as const,
+      lclsSystm1: "HS",
+    }));
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: historic,
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const run = () =>
+      computeStrategies(
+        dna,
+        baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+        pool,
+        MODEL_VERSION,
+      ).map((s) => ({ id: s.templateId, poiIds: s.poiIds, score: s.totalScore }));
+    expect(run()).toEqual(run());
+  });
+
+  it("core-theme floor 적용 여부와 무관하게 전략 점수(scoreBreakdown/totalScore)는 변하지 않는다", () => {
+    const historic = Array.from({ length: 5 }, (_, i) => ({
+      id: `historic-${i}`,
+      name: `가나다역사유적지${i}`,
+      category: "ATTRACTION" as const,
+      lclsSystm1: "HS",
+    }));
+    const generic = Array.from({ length: 5 }, (_, i) => poi(`generic-${i}`, `일반명소${i}`, "ATTRACTION"));
+    const dna = computeDna(dnaInput());
+    const withCoreTheme = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      { ATTRACTION: historic, FOOD: makePois("food", "FOOD", 5) },
+      MODEL_VERSION,
+    ).find((s) => s.templateId === "CULTURE_HISTORY")!;
+    const withoutCoreTheme = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      { ATTRACTION: generic, FOOD: makePois("food", "FOOD", 5) },
+      MODEL_VERSION,
+    ).find((s) => s.templateId === "CULTURE_HISTORY")!;
+    // POI 후보 구조 신호(lclsSystm1)만 다르고 DNA/입력 조건은 동일 — 점수는 POI 선택과 무관하게 같아야 한다.
+    expect(withCoreTheme.scoreBreakdown).toEqual(withoutCoreTheme.scoreBreakdown);
+    expect(withCoreTheme.totalScore).toBe(withoutCoreTheme.totalScore);
+  });
+});
