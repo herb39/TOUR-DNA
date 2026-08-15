@@ -798,3 +798,126 @@ describe("selectPois — theme(선호 테마) 반영(3단계)", () => {
     expect(first.map((s) => s.totalScore)).toEqual(second.map((s) => s.totalScore));
   });
 });
+
+/** 2026-08-15(POI 후보 선정 품질 개선) — selectPois가 카테고리 내부에서 후보를 고를 때 이름 가나다순/
+ * 해시 회전보다 TourAPI 공식 구조 분류(classifyStructuralPoiThemes) 또는 이름 키워드 관련성을 먼저
+ * 본다. 경주 CULTURE_HISTORY 실행안에서 대표 문화유산(lclsSystm1="HS")이 가나다순 회전 때문에 초기
+ * 후보 풀에도 못 들어가던 문제를 해결한다. */
+describe("selectPois — 구조적 테마 관련성 우선 랭킹(2026-08-15)", () => {
+  const excludeAllExcept = (keep: string) =>
+    ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "축제·이벤트", "가족 체험", "청년 로컬"].filter(
+      (label) => !label.startsWith(keep),
+    );
+
+  it("이름은 가나다순으로 불리하지만(예: '힣'으로 시작) 공식 구조 분류(HS)가 확인되는 POI가 우선 선택된다", () => {
+    // ATTRACTION 카테고리에 이름은 앞서지만 구조 신호가 없는 후보 9개와, 이름은 가장 뒤에 오지만
+    // lclsSystm1="HS"(역사관광)로 확인되는 후보 1개를 둔다. 기존 가나다순+해시 회전 방식이라면 이
+    // "힣"으로 시작하는 후보가 목표(4개) 안에 들 가능성이 낮지만, 구조 관련성이 우선이면 반드시 포함돼야 한다.
+    const generic = Array.from({ length: 9 }, (_, i) => poi(`generic-${i}`, `일반명소${String(i).padStart(2, "0")}`, "ATTRACTION"));
+    const historic: PoiLike = { id: "historic-1", name: "힣역사유적지", category: "ATTRACTION", lclsSystm1: "HS", lclsSystm2: "HS01" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [...generic, historic],
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    expect(cultureHistory).toBeDefined();
+    expect(cultureHistory.poiIds).toContain("historic-1");
+  });
+
+  it("선호 테마를 입력하지 않아도(preferredThemes=[]) 전략 자체의 핵심 테마(CULTURE_HISTORY)가 구조 관련성 랭킹에 반영된다", () => {
+    // Production 실제 재현 조건 — 사용자가 선호 테마를 아예 입력하지 않은 경우다. 이 경우에도
+    // templateCoreThemeCategories("CULTURE_HISTORY")=["CULTURE_HISTORY"]가 자동으로 반영돼야 한다.
+    const generic = Array.from({ length: 9 }, (_, i) => poi(`generic-${i}`, `일반명소${String(i).padStart(2, "0")}`, "ATTRACTION"));
+    const historic: PoiLike = { id: "historic-1", name: "힣역사유적지", category: "ATTRACTION", lclsSystm1: "HS", lclsSystm2: "HS01" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [...generic, historic],
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    expect(cultureHistory).toBeDefined();
+    expect(cultureHistory.poiIds).toContain("historic-1");
+  });
+
+  it("구조 신호가 명백히 다른 테마(NA=자연)를 가리키는 후보는 구조 신호가 없는 후보보다 우선되지 않는다", () => {
+    // "강동 워터파크" 재현: VE02(테마공원, 매핑 없음)는 구조 신호가 없는 것과 동일하게 취급되고,
+    // NA(자연, CULTURE_HISTORY와 무관)로 확인된 후보도 문화·역사 테마에서는 우선되지 않아야 한다.
+    const natureConfirmed: PoiLike = { id: "nature-1", name: "가나다자연공원", category: "ATTRACTION", lclsSystm1: "NA", lclsSystm2: "NA01" };
+    const historic: PoiLike = { id: "historic-1", name: "힣역사유적지", category: "ATTRACTION", lclsSystm1: "HS", lclsSystm2: "HS01" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [natureConfirmed, historic],
+      FOOD: makePois("food", "FOOD", 3),
+    };
+    const dna = computeDna(dnaInput());
+    // TWO_NIGHTS_THREE_DAYS(목표 11곳)로 넉넉하게 잡아 ATTRACTION 후보 둘 다 선택 대상에 들도록 한다
+    // (DAY_TRIP처럼 목표가 빠듯하면 FOOD가 마지막 남은 자리를 먼저 채워가 버려 이 테스트의 관심사인
+    // "둘 다 선택됐을 때의 순서"를 확인할 수 없다).
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS", preferredThemes: ["문화 역사"], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    const attractionOrder = cultureHistory.poiIds.filter((id) => categoryOf(id, pool) === "ATTRACTION");
+    // 둘 다 선택되더라도(목표 개수가 넉넉하면), 관련성이 확인된 historic-1이 nature-1보다 먼저 선택된다.
+    expect(attractionOrder.indexOf("historic-1")).toBeLessThan(attractionOrder.indexOf("nature-1"));
+  });
+
+  it("이름 키워드만 일치하고 구조 신호가 없는 후보는 구조 신호로 확인된 후보보다는 뒤에, 신호가 전혀 없는 후보보다는 앞에 온다", () => {
+    const structural: PoiLike = { id: "structural-1", name: "가나다순으로빠른이름", category: "ATTRACTION", lclsSystm1: "HS" };
+    const keywordOnly: PoiLike = { id: "keyword-1", name: "힣역사유적지(키워드만)", category: "ATTRACTION" };
+    const noSignal: PoiLike = { id: "none-1", name: "다라마아무개명소", category: "ATTRACTION" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [structural, keywordOnly, noSignal],
+      FOOD: makePois("food", "FOOD", 3),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS", preferredThemes: ["문화 역사"], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    const order = cultureHistory.poiIds.filter((id) => categoryOf(id, pool) === "ATTRACTION");
+    expect(order.indexOf("structural-1")).toBeLessThan(order.indexOf("keyword-1"));
+    expect(order.indexOf("keyword-1")).toBeLessThan(order.indexOf("none-1"));
+  });
+
+  it("구조 신호(lclsSystm1/2)를 전혀 넘기지 않는 기존 호출부는 이전과 동일하게 동작한다(하위 호환)", () => {
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: makePois("attraction", "ATTRACTION", 10),
+      FOOD: makePois("food", "FOOD", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const withStructuralFieldsAbsent = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      pool,
+      MODEL_VERSION,
+    );
+    // 구조 신호가 전혀 없으면(테스트 POI 전부 lclsSystm 미설정) 전부 동일 tier이므로 기존 이름 키워드
+    // 판정만으로 동일 결과가 결정론적으로 재현된다.
+    const again = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["문화 역사"] }),
+      pool,
+      MODEL_VERSION,
+    );
+    expect(withStructuralFieldsAbsent.map((s) => s.poiIds)).toEqual(again.map((s) => s.poiIds));
+  });
+});

@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/db";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import type { PoiLike } from "@/lib/domain/strategy";
-import { deriveFoodSubcategory, deriveMealEligible } from "./poiDetails";
+import {
+  deriveFoodSubcategory,
+  deriveMealEligible,
+  extractLclsSystm1FromRawPayload,
+  extractLclsSystm2FromRawPayload,
+} from "./poiDetails";
 
 export async function fetchPoisByCategory(
   regionCode: string,
@@ -24,6 +29,10 @@ export async function fetchPoisByCategory(
       lng: p.lng,
       mealEligible: category === "FOOD" ? deriveMealEligible(p) : undefined,
       ...(category === "FOOD" ? { foodSubcategory: deriveFoodSubcategory(p) } : {}),
+      // 2026-08-15: selectPois의 테마 관련성 랭킹(themeRelevanceTier)이 이름 키워드보다 우선 참고할
+      // TourAPI 공식 분류 신호 — computePoiFit과 동일한 신호를 재사용한다(새 판정 로직 아님).
+      lclsSystm1: extractLclsSystm1FromRawPayload(p.rawPayload),
+      lclsSystm2: extractLclsSystm2FromRawPayload(p.rawPayload),
     });
     map[category] = list;
   }

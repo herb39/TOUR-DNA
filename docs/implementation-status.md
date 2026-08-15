@@ -2075,3 +2075,55 @@ PET_FRIENDLY 테마는 이번에도 대응하는 공식 분류 코드가 없어 
 
 두 항목 모두 특정 POI 이름을 블랙리스트로 제외하는 방식이 아니라, 이미 존재하는 공식 분류·좌표
 신호를 재사용하는 일반화 가능한 규칙으로 후속 세션에서 다뤄야 한다.
+
+## 2026-08-15 갱신 — 전략 테마 기반 POI 후보 우선순위 개선(selectPois 랭킹 고도화)
+
+**배경**: 위(2026-08-14) 조사에서 확인한 근본 원인 — `strategy.ts`의 `selectPois`(전략별 POI 후보를
+처음 뽑는 단계, 실행안 생성보다 앞선 analysis 시점)가 카테고리 안에서 후보를 **이름 가나다순 + 템플릿
+·카테고리 해시 오프셋 회전**으로만 골라, `computePoiFit`/구조적 테마 분류를 전혀 참고하지 않는 문제를
+이번에 고쳤다. 실제 DB로 확인한 결과 경주의 대표 유적(첨성대·대릉원·천마총 등, 전부 `lclsSystm1="HS"`)
+은 이 랭킹 문제 때문에 애초에 후보 풀에 못 들어가고 있었다 — 뒤 단계(`excludeBelowMinimumFitPois`)는
+이미 뽑힌 후보만 거를 수 있어 이 문제를 되돌릴 수 없었다.
+
+**1) 전략 자체의 테마 조사**: 새 데이터를 추가하지 않고 이미 있던 `THEME_TEMPLATE_BONUS`(전략 점수
+가산표, `audienceContext.ts`)를 역방향으로 도출해 "전략이 정체성으로 갖는 테마"를 확인했다 — 어떤
+ThemeCategory가 그 templateId에 주는 가산점이 최댓값이면서 10점 이상이면 핵심 테마로 인정한다(12/10점
+은 정체성 값, 3~6점은 부차적 가산일 뿐이라는 기존 데이터 분포에 근거). 결과: LOCAL_FOOD_MARKET→FOOD,
+NATURE_WELLNESS→NATURE+WELLNESS, CULTURE_HISTORY→CULTURE_HISTORY, FESTIVAL_EVENT→FESTIVAL. 나머지
+3개 템플릿(NIGHT_STAY_EXTENSION/FAMILY_EXPERIENCE/YOUTH_LOCAL_CONTENT)은 데이터상 핵심 테마가
+뚜렷하지 않아 억지로 지어내지 않고 빈 배열로 둔다(`templateCoreThemeCategories`, audienceContext.ts).
+사용자가 `preferredThemes`를 입력하지 않아도(Production 실제 사례) 이 값이 자동으로 후보 랭킹에
+반영된다 — `preferredThemeCategories`(사용자 입력)와 `templateCoreThemeCategories`(전략 정체성)를
+합집합해 "랭킹에 쓸 관련 테마 집합"으로 쓴다.
+
+**2) 적용한 우선순위 구조**: `selectPois`의 카테고리 내부 후보 선택(`pickNext`/`pickNextByRotation`)이
+이제 "관련성 tier(0=구조 신호 일치 > 1=이름 키워드 일치 > 2=확인 불가/불일치) → 거리(공간적 응집,
+기존 유지) → 이름 가나다순 회전(기존 tie-break)" 순으로 후보를 고른다 — "관련성 > deterministic
+tie-break" 원칙 그대로다. 구조 신호는 `classifyStructuralPoiThemes`(poiFit.ts와 동일 함수 재사용, 새
+판정 로직 없음)를 그대로 쓰고, 없을 때만 이름 키워드로 fallback한다. 구조 신호가 다른 테마를 가리키는
+경우(예: "강동 워터파크"=VE02)는 tier 0을 받지 못할 뿐 별도로 더 낮은 tier로 떨어뜨리지 않는다(최소
+구조). `PoiLike`에 `lclsSystm1/2`(옵션)를 추가하고 `fetchPoisByCategory.ts`가 rawPayload에서 채워
+넣는다 — DB 재조회·외부 API 호출 없이 이미 로드된 필드만 쓴다. `computeStrategies`의 점수 계산
+(demandFit/supplyFit/targetFit/seasonFit/roleFit/feasibilityFit)은 selectPois보다 먼저·독립적으로
+계산되므로 이번 변경의 영향을 받지 않는다(코드로 확인, 아래 검증 참고).
+
+**3) 검증**: 신규 유닛 테스트 5개(가나다순 최하위인데 구조 신호가 있는 후보가 우선 선택되는지,
+`preferredThemes=[]`여도 전략 정체성 테마가 반영되는지, 구조 신호가 다른 테마를 가리키는 후보가
+우선되지 않는지, 구조>키워드>없음 3단계 순서, 구조 신호를 넘기지 않는 기존 호출부의 하위 호환)를
+"수정 전에는 실패, 수정 후에는 통과"로 직접 확인했다. 전국 30개 지역 A/B에서 후보 0개·FOOD/LODGING
+완전 누락 건수는 수정 전후 완전히 동일(회귀 없음, 후보 집합 크기 자체는 바뀌지 않고 순서만 바뀜을
+확인). CULTURE_HISTORY 전략의 ATTRACTION 후보 중 구조 신호(HS/VE07) 매치가 1개 이상 포함된 지역이
+8/30(27%) → 26/30(87%)으로, 선택된 ATTRACTION 중 "매치 없음"이 17건 → 0건으로 개선됐다. 로컬에서
+실제 신규 분석(경주 문화·역사, 청주 흥덕구 자연·웰니스〈선호 테마 미입력〉, 강릉, 제천)을 재실행한
+결과, 경주는 대표 유적은 아니어도(전체 목표 대비 ATTRACTION 배정 자리 자체가 1곳뿐이라 첨성대까지는
+못 들어갔다) `lclsSystm1="HS02"`(역사유물)로 확인되는 진짜 사적("경주 굴불사지 석조사면불상")이
+선택됐고, 청주는 기존 "SK하이닉스 문화센터" 대신 `lclsSystm1="NA"`(자연공원)로 확인되는 "문암생태공원"
+이 선택됐다. 강릉·제천은 ATTRACTION/FOOD/EXPERIENCE/LODGING 구성이 그대로 유지됐다(회귀 없음). 375px
+모바일에서 가로 스크롤 없음을 확인했다. 전체 유닛 테스트 1445개, `npx tsc --noEmit`, lint, build 모두
+통과했다.
+
+**아직 남은 한계(투명하게 공개)**: (a) 한 카테고리에 배정되는 총 개수 자체(목표 개수·티어 배분)는 이번
+에 바꾸지 않았다 — 경주 사례처럼 ATTRACTION 배정 자리가 원래도 적으면(식사 선점·다른 카테고리와의
+라운드로빈 배분 때문에) 구조 신호가 있어도 대표 관광지 전부가 들어가지는 못한다. (b) 동일 건물 입점
+매장 중복(현대백화점 등)은 이번 범위가 아니라 그대로다. (c) `poiFitService.ts`의 "지역 후보 부족 안내"
+재계산 경로는 여전히 구조 신호를 쓰지 않는다(2026-08-14 항목과 동일한 이유로 이번에도 손대지 않음).

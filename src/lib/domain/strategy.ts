@@ -5,11 +5,13 @@ import type { FoodSubcategory } from "./foodClassification";
 import { AXIS_LABEL_KO, METRIC_CODES, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
 import { formatSignedPercent } from "@/lib/format";
 import {
+  classifyStructuralPoiThemes,
   classifyThemes,
   computeNationalityFeasibilityDelta,
   computeRoleFit,
   computeThemeFit,
   roleLabel,
+  templateCoreThemeCategories,
   themePreferredPoiCategories,
   type NationalityCode,
   type ThemeCategory,
@@ -54,6 +56,12 @@ export interface PoiLike {
    * 판단에서 제외되고 기존 방식(회전 순서)으로 안전하게 처리된다(하위 호환, 회귀 없음). */
   lat?: number;
   lng?: number;
+  /** TourAPI 신 분류체계 대/중분류(2026-08-15, POI 후보 선정 품질 개선 — poiFit.ts의
+   * classifyStructuralPoiThemes와 동일한 신호를 selectPois의 후보 우선순위에도 재사용한다). 값이
+   * 없으면(FIXTURE, 구형 데이터, 값을 넘기지 않는 기존 호출부) 이름 키워드 판정으로 안전하게
+   * fallback한다(하위 호환, 회귀 없음). */
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
 }
 
 function hasPoiCoords(p: PoiLike): p is PoiLike & GeoPoint {
@@ -258,6 +266,28 @@ function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, p
   return [...sorted.slice(offset), ...sorted.slice(0, offset)];
 }
 
+/**
+ * POI 후보가 이 전략에서 실제로 관련성이 확인되는 테마와 얼마나 맞는지(2026-08-15, POI 후보 선정 품질
+ * 개선). 0(구조 신호로 확인된 일치)이 가장 우선이고, 2(확인 불가/불일치)가 가장 낮다 — 가나다순/해시
+ * 회전(deterministic tie-break)보다 이 관련성을 먼저 본다는 것이 이번 변경의 핵심이다. `themeCategories`가
+ * 비어 있으면(전략 자체에도 핵심 테마가 없고 사용자도 선호 테마를 입력하지 않은 경우) 비교할 대상이
+ * 없으므로 전부 동일 tier(2)로 취급해 기존 순서를 그대로 유지한다(회귀 없음).
+ *
+ * `classifyStructuralPoiThemes`(poiFit.ts와 동일한 함수 재사용, 새 판정 로직을 만들지 않는다)로 확인되는
+ * 공식 분류가 있으면 그것만 근거로 쓰고, 없을 때만 이름 키워드(classifyThemes)로 fallback한다 — "구조
+ * 신호 우선, 없으면 keyword fallback" 원칙을 여기서도 그대로 따른다. 구조 신호가 있지만 이 전략의 테마와
+ * 명백히 다른 경우("강동 워터파크"류)는 tier 0을 받지 못해 구조 신호 없는 후보와 동일하게(tier 2) 취급될
+ * 뿐, 별도로 더 낮은 tier로 떨어뜨리지는 않는다 — 최소 구조로 "관련성 높은 후보가 우선"만 보장한다.
+ */
+function themeRelevanceTier(candidate: PoiLike, themeCategories: ThemeCategory[]): 0 | 1 | 2 {
+  if (themeCategories.length === 0) return 2;
+  const structural = classifyStructuralPoiThemes(candidate.lclsSystm1, candidate.lclsSystm2);
+  if (structural.some((c) => themeCategories.includes(c))) return 0;
+  const keyword = classifyThemes([candidate.name]);
+  if (keyword.some((c) => themeCategories.includes(c))) return 1;
+  return 2;
+}
+
 function selectPois(
   template: StrategyTemplate,
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
@@ -284,6 +314,12 @@ function selectPois(
   const nonLodgingTarget = NON_LODGING_POI_TARGET_BY_DURATION[duration];
   const lodgingTarget = LODGING_POI_TARGET_BY_DURATION[duration];
 
+  // 후보 랭킹에 쓰는 "관련성 있는 테마" 집합(2026-08-15) — 사용자가 입력한 선호 테마와 전략 자체의
+  // 핵심 테마(templateCoreThemeCategories, THEME_TEMPLATE_BONUS에서 도출)를 합친다. 사용자가
+  // preferredThemes를 입력하지 않았어도(Production에서 실제로 흔한 경우) 전략 자체가 정체성으로 갖는
+  // 테마(예: CULTURE_HISTORY 전략의 CULTURE_HISTORY 테마)가 있으면 그것만으로도 후보 랭킹에 반영된다.
+  const rankingThemeCategories = [...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(template.id)])];
+
   // 우선순위 티어: ① 템플릿 핵심 카테고리 → ② 선호 테마 카테고리(2026-08-10) → ③ 지역 소비 접점
   // 보완 카테고리 → ④ 나머지 비숙박 카테고리. 테마 티어를 hard filter가 아니라 우선순위로만 넣어,
   // 테마 POI가 존재하면 먼저 채워지되 부족하면 자연스럽게 다음 티어로 넘어간다(코스 생성 실패 없음).
@@ -298,7 +334,6 @@ function selectPois(
   const priorityTiers = [coreCats, themeCats, supplementCats, fallbackCats];
 
   const rotatedPools = new Map<PoiCategoryCode, PoiLike[]>();
-  const cursorByCategory = new Map<PoiCategoryCode, number>();
   const poolFor = (cat: PoiCategoryCode): PoiLike[] => {
     let rotated = rotatedPools.get(cat);
     if (!rotated) {
@@ -316,8 +351,8 @@ function selectPois(
   // 목표를 다 채운 뒤 보완 티어(FOOD 포함)까지 내려가지 않아 FOOD가 하나도 선택되지 않을 수 있었다.
   // 아래 티어 루프보다 먼저, mealEligible이 false가 아닌(=식사 가능) FOOD만 회전된 풀의 원래 순서
   // 그대로 최대 MEAL_RESERVE_TARGET_BY_DURATION개까지 선점한다. 카페 등(mealEligible===false)은
-  // 여기서 건너뛰되 cursorByCategory를 건드리지 않으므로, 아래 일반 티어 루프에서는 원래 순서 그대로
-  // (건너뛴 카페 포함) 다시 훑을 수 있다 — 일반 방문 후보로 선택될 기회를 잃지 않는다.
+  // 여기서 건너뛰되 selectedIds에만 반영하므로, 아래 일반 티어 루프에서는 건너뛴 카페도 포함해 다시
+  // 훑을 수 있다 — 일반 방문 후보로 선택될 기회를 잃지 않는다.
   const mealReserveTarget = Math.min(MEAL_RESERVE_TARGET_BY_DURATION[duration], nonLodgingTarget);
   if (mealReserveTarget > 0) {
     for (const candidate of poolFor("FOOD")) {
@@ -332,27 +367,34 @@ function selectPois(
     }
   }
 
-  /** 회전 순서 기준 다음 미선택 후보(기존 방식) — 좌표가 없어 거리 판단이 불가능할 때의 fallback이다. */
+  /** 회전 순서 기준 다음 미선택 후보 — 좌표가 없어 거리 판단이 불가능할 때의 fallback이다.
+   * 2026-08-15: 이제 "다음 순번"을 그대로 받지 않고, 미선택 후보 전체에서 관련성 tier가 가장 낮은(=가장
+   * 관련 있는) 후보를 먼저 찾는다 — 같은 tier 안에서는 원래 회전 순서(가장 먼저 나온 후보)로 동점을
+   * 깨므로 결정론성은 그대로 유지된다("관련성 > deterministic tie-break"). rankingThemeCategories가
+   * 비어 있으면 모든 후보가 동일 tier(2)이므로 기존 동작과 완전히 같다(회귀 없음). */
   const pickNextByRotation = (cat: PoiCategoryCode): PoiLike | null => {
     const rotated = poolFor(cat);
-    let idx = cursorByCategory.get(cat) ?? 0;
-    let picked: PoiLike | null = null;
-    while (idx < rotated.length) {
-      const candidate = rotated[idx];
-      idx++;
-      if (!selectedIds.has(candidate.id)) {
-        picked = candidate;
-        break;
+    let best: PoiLike | null = null;
+    let bestTier = 3;
+    for (const candidate of rotated) {
+      if (selectedIds.has(candidate.id)) continue;
+      const tier = themeRelevanceTier(candidate, rankingThemeCategories);
+      if (tier < bestTier) {
+        bestTier = tier;
+        best = candidate;
+        if (tier === 0) break; // 가장 좋은 tier를 이미 찾았고, 이후 후보는 회전 순서상 늦으므로 더 볼 필요 없다.
       }
     }
-    cursorByCategory.set(cat, idx);
-    return picked;
+    return best;
   };
 
   /** 해당 카테고리에서 다음으로 선택할 후보 하나. 이미 선택된 POI의 무게중심과 후보 좌표가 모두 있으면
    * 그 중심에 가장 가까운 후보를 우선한다(1단계: 가까운 POI 우선 선택 + 공간적 응집). 좌표가 없는
    * 후보뿐이면(기존 데이터/테스트) 기존 회전 순서 그대로 동작해 회귀가 없다. 동일 거리(반올림 오차
-   * 이내)면 회전 순서로 동점을 깬다 — 완전히 결정론적이다. */
+   * 이내)면 회전 순서로 동점을 깬다 — 완전히 결정론적이다.
+   * 2026-08-15: 거리보다 먼저 관련성 tier를 비교한다 — 같은 카테고리 안에서 테마가 명확히 확인되는
+   * 후보를 우선 소진한 뒤에만 거리 기반 선택으로 넘어간다(장거리 이동 정책·CORE_MINIMUM_RESERVE는
+   * 그대로 두고, 이 함수가 "어떤 후보를 먼저 고려하는지"만 바꾼다). */
   const pickNext = (cat: PoiCategoryCode): PoiLike | null => {
     const centroid = currentCentroid();
     if (!centroid) return pickNextByRotation(cat);
@@ -364,6 +406,9 @@ function selectPois(
     if (unselectedWithCoords.length === 0) return pickNextByRotation(cat);
 
     unselectedWithCoords.sort((a, b) => {
+      const tierA = themeRelevanceTier(a.candidate, rankingThemeCategories);
+      const tierB = themeRelevanceTier(b.candidate, rankingThemeCategories);
+      if (tierA !== tierB) return tierA - tierB;
       const da = haversineDistanceKm(centroid, a.candidate as PoiLike & GeoPoint);
       const db = haversineDistanceKm(centroid, b.candidate as PoiLike & GeoPoint);
       if (Math.abs(da - db) > 0.01) return da - db;

@@ -169,6 +169,47 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
 const THEME_CATEGORY_BONUS_CAP = 15;
 
 /**
+ * 전략(템플릿)이 그 자체로 갖는 "핵심 테마"(2026-08-15, POI 후보 선정 품질 개선). 새 테이블을 만들지
+ * 않고 위 THEME_TEMPLATE_BONUS(전략 점수 가산, 이미 존재하는 CURATED 데이터)를 그대로 재사용해
+ * 역방향으로 도출한다 — template.id 문자열을 파싱하는 방식은 쓰지 않는다.
+ *
+ * 판정 기준: 어떤 ThemeCategory가 이 templateId에 주는 가산점이, 그 ThemeCategory가 주는 가산점들
+ * 중 **최댓값**이면서 **10점 이상**이면 그 템플릿의 핵심 테마로 본다. THEME_TEMPLATE_BONUS의 값 분포를
+ * 보면 12/10점(예: FOOD→LOCAL_FOOD_MARKET, NATURE→NATURE_WELLNESS, CULTURE_HISTORY→CULTURE_HISTORY,
+ * FESTIVAL→FESTIVAL_EVENT, WELLNESS→NATURE_WELLNESS)은 "이 전략이 곧 이 테마"에 해당하는 정체성 값이고,
+ * 3~6점(예: LEISURE_ACTIVITY가 NATURE_WELLNESS/YOUTH_LOCAL_CONTENT/NIGHT_STAY_EXTENSION 세 곳에 나눠
+ * 붙는 것)은 "그 테마와도 어느 정도 어울린다"는 부차적 가산일 뿐 그 전략의 정체성이라고 보기 어렵다 —
+ * 10점 미만은 핵심 테마로 채택하지 않는다. 이 기준으로는 NIGHT_STAY_EXTENSION/FAMILY_EXPERIENCE/
+ * YOUTH_LOCAL_CONTENT에 핵심 테마가 없다(THEME_TEMPLATE_BONUS에 이 세 템플릿을 최댓값으로 갖는
+ * ThemeCategory가 없음) — 억지로 지어내지 않고 빈 배열을 반환한다.
+ */
+const TEMPLATE_CORE_THEME_MIN_BONUS = 10;
+
+function computeTemplateCoreThemes(): Partial<Record<string, ThemeCategory[]>> {
+  const result: Partial<Record<string, ThemeCategory[]>> = {};
+  for (const [theme, templateBonuses] of Object.entries(THEME_TEMPLATE_BONUS) as [ThemeCategory, Record<string, number>][]) {
+    const maxBonus = Math.max(...Object.values(templateBonuses));
+    if (maxBonus < TEMPLATE_CORE_THEME_MIN_BONUS) continue;
+    for (const [templateId, bonus] of Object.entries(templateBonuses)) {
+      if (bonus !== maxBonus) continue;
+      const list = result[templateId] ?? [];
+      list.push(theme);
+      result[templateId] = list;
+    }
+  }
+  return result;
+}
+
+const TEMPLATE_CORE_THEMES = computeTemplateCoreThemes();
+
+/** templateId가 정체성으로 갖는 ThemeCategory 목록(위 TEMPLATE_CORE_THEMES 참고). 없으면 빈 배열 —
+ * 사용자가 preferredThemes를 입력하지 않아도(THEME_TEMPLATE_BONUS 근거가 있는 4개 템플릿에 한해)
+ * 전략 자체의 테마가 POI 후보 랭킹에 반영되도록 strategy.ts의 selectPois가 이 함수를 사용한다. */
+export function templateCoreThemeCategories(templateId: string): ThemeCategory[] {
+  return TEMPLATE_CORE_THEMES[templateId] ?? [];
+}
+
+/**
  * TourAPI 신 분류체계(lclsSystm1 대분류/lclsSystm2 중분류) → ThemeCategory 공식 신호 매핑(2026-08-14,
  * POI 추천 품질 2차 고도화). THEME_KEYWORDS(자유 텍스트 이름 substring 매칭)와 달리, 한국관광공사가
  * 실제로 부여한 분류 코드다 — 이미 이 프로젝트가 검증에 쓰던 것과 같은 방식(scripts/verify-region-
