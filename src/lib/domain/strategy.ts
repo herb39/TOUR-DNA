@@ -297,7 +297,7 @@ function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, p
  * 명백히 다른 경우("강동 워터파크"류)는 tier 0을 받지 못해 구조 신호 없는 후보와 동일하게(tier 2) 취급될
  * 뿐, 별도로 더 낮은 tier로 떨어뜨리지는 않는다 — 최소 구조로 "관련성 높은 후보가 우선"만 보장한다.
  */
-function themeRelevanceTier(candidate: PoiLike, themeCategories: ThemeCategory[]): 0 | 1 | 2 {
+export function themeRelevanceTier(candidate: PoiLike, themeCategories: ThemeCategory[]): 0 | 1 | 2 {
   if (themeCategories.length === 0) return 2;
   const structural = classifyStructuralPoiThemes(candidate.lclsSystm1, candidate.lclsSystm2);
   if (structural.some((c) => themeCategories.includes(c))) return 0;

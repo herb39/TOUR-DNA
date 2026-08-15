@@ -2334,3 +2334,73 @@ dedup 대상 밖이라, 이 재계산에서도 여전히 별도 후보로 집계
 자체는 여전히 부정확하다(단, 이 값은 shortage 요약에서 사용하지 않는다). (c) 관광 가치/대표성
 ranking은 여전히 없다(로드맵 17번). (d) 코스 스튜디오 후보 풀·Drag & Drop/실시간 지도는 이번에도
 손대지 않았다.
+
+## 2026-08-16 갱신(4) — 실행안 추천 POI 후보 풀(Phase B 첫 단계)
+
+**배경**: 위(2026-08-16(3))에서 남긴 "코스 스튜디오 후보 풀은 이번에도 손대지 않았다"는 한계를 이번에
+실제로 해소했다. README 제품 로드맵의 "자동 초안 + 전문가 편집"이라는 Phase B 방향의 첫 실제 UI다 —
+자동 생성된 실행안을 대체하지 않고, 그 옆에 대체 가능한 POI 후보를 보여줘 사용자가 골라 추가할 수
+있게 한다.
+
+**1) 기존 장소 추가 기능 재사용 조사**: 실행안의 "+ 장소 추가"는 `searchAvailablePoisAction`(이름
+검색, `poiDetails.ts`의 `searchPoisInRegion`)으로 후보를 찾고, `PlanEditor.tsx`의 `addPoiToDay`가
+클라이언트 state(`days`)에 항목을 추가한 뒤 폼 제출(`savePlanAction`)로 한 번에 저장하는 구조였다 —
+장소 추가 전용 서버 mutation은 원래 없었다. 후보 풀도 이 구조를 그대로 따른다 — 새 저장 API를 만들지
+않고, `addPoiToDay`의 파라미터 타입만 필요한 최소 필드(`Pick<PoiDetail, "id"|"name"|"category"|
+"lat"|"lng">`)로 넓혀 후보 카드에서도 같은 함수를 그대로 호출한다.
+
+**2) 후보 선정 신호**: `src/lib/services/candidatePoolService.ts`(신규)의 `buildRecommendedPoiCandidates()`
+가 새 알고리즘 없이 기존 함수만 조합한다 — `fetchPoisByCategory`(지역 POI 1회 조회), `dedupeBySameCoordinates`
+(SHOPPING만 동일 시설 대표 1건), `computePoiFit`/`isExcludedFromRecommendation`(BELOW_MINIMUM_FIT
+제외), `themeRelevanceTier`(구조 신호 우선 → 키워드 → 관련성 없음 — 이번에 strategy.ts에서 `export`
+로 전환해 재사용). `rankingThemeCategories`는 `classifyThemes(preferredThemes)`와
+`templateCoreThemeCategories(templateId)`의 합집합으로, selectPois와 완전히 같은 계산이라
+`preferredThemes=[]`(청주 운영 사례)에서도 전략 핵심 테마 기반 추천이 그대로 동작한다.
+
+**3) 후보 수/그룹 정책**: 전체 최대 12개, 카테고리별 최대 4개로 제한했다(별도 그룹 UI/탭은 만들지
+않고, 카드에 카테고리 라벨과 기존 `POI_CATEGORY_TIER_LABEL_KO` 배지 스타일을 재사용해 최소한으로
+구분). 정렬은 관련성 tier → 카테고리 tier(CORE>SUPPLEMENT>FALLBACK) → 이름 가나다순으로 완전히
+결정론적이다.
+
+**4) UI 구성**: `PlanEditor.tsx`의 "일자·시간대별 코스" 섹션 바로 아래 "추천 후보" 섹션을 추가했다.
+카드에는 이름·카테고리·기존 `resolveFitBadge` 적합도 배지·`positiveReasons[0]`(추천 근거 한 줄)을
+보여주고, 날짜 select(1일차/2일차/...)와 "이 날짜에 추가" 버튼이 있다. 현재 course에 있는 POI는
+`existingPoiIds`(기존에 이미 있던 `useMemo`)로 클라이언트에서 필터링해 제외한다 — 서버 재조회 없이
+추가/삭제 즉시 후보 풀에 반영된다(추가하면 사라지고, 삭제하면 다시 나타남). 빈 상태("현재 조건에서
+추가로 추천할 수 있는 장소가 없습니다")와 오류 상태("추천 후보를 불러오지 못했습니다. 기존 일정은
+그대로 편집·저장할 수 있습니다")를 명확히 구분해 보여준다.
+
+**5) 데이터 흐름**: `page.tsx`가 기존 `poiFitSummary`와 같은 방식(`Promise.all` 병렬 조회 +
+`.catch(() => null)`)으로 `buildRecommendedPoiCandidates()`를 한 번만 호출해 `candidatePois` prop으로
+내려준다 — 실패해도 다른 조회(홍보자료·POI 적합도·유사지역 비교)에는 영향이 없고, 후보 풀만 오류
+상태로 표시된다. 외부 API 추가 호출·N+1 쿼리 없음(지역 POI 조회 1회만 재사용).
+
+**6) 경주/청주/강릉/제천 QA(실제 로컬 DB)**: 경주 CULTURE_HISTORY에서 감은사지·경덕왕릉·경애왕릉·
+계림 등 실제 신라 유적지가 "적합도 높음"(구조 신호 일치)으로 상단에 노출되고 FOOD 후보는 뒤에
+배치됨을 확인했다. 청주 NATURE_WELLNESS(`preferredThemes=[]`)는 뉴베라관광호텔·메리제인호텔(숙박)·
+문암생태공원캠핑장(체험)·바른스포츠월드·백록서원(관광지) 등이 "적합도 높음(테마 미입력)"으로
+우선됐고, 이미 코스에 있는 문암생태공원·청주 발산공원·현대백화점·롯데아울렛은 후보에서 정상 제외됐다.
+강릉·제천은 회귀 없이 12개 후보(카테고리 다양)가 정상 노출됐다 — 제천은 큐레이션(FIXTURE) POI가
+많은 지역인데도 구조 신호가 없을 때 이름 키워드 fallback(국립제천치유의숲·본초다담·제천킹스파찜질방
+등)이 정상 동작함을 확인했다.
+
+**7) 검증**: 신규 유닛 테스트 8개(`candidatePoolService.test.ts` — 현재 course 제외/structural
+relevance 우선/preferredThemes 빈 배열/SHOPPING dedup/BELOW_MINIMUM_FIT 제외/좌표 없는 POI 제외/
+빈 배열/deterministic)와 신규 컴포넌트 테스트 6개(`PlanEditor.test.tsx` — 후보 표시/현재 course 제외/
+빈 상태/오류 상태/추가 후 즉시 제외/날짜 변경/삭제 후 재후보)를 추가했다. 핵심 차별 테스트를 "수정
+전 실패(6개 모두), 수정 후 통과"로 직접 확인했다. 전체 유닛 테스트 1489개, `npx tsc --noEmit`, lint,
+build 모두 통과했다. 375px 모바일에서 실제 경주 실행안 화면을 확인했다(가로 스크롤 없음,
+`scrollWidth===clientWidth===375`).
+
+**8) 변경 금지 범위 준수 확인**: DNA/Network/similarity/전략 점수/`CORE_THEME_FLOOR_SHARE`/dedup
+기준/route algorithm은 전혀 건드리지 않았다 — `buildRecommendedPoiCandidates`는 읽기 전용 계산이고
+StrategyResult/SelectedPlan.course를 변경하지 않는다(코드 경로상 이 함수를 호출하는 곳은 화면
+표시뿐이다).
+
+**아직 남은 위험(투명하게 공개)**: (a) Drag & Drop은 이번에도 없다 — 후보 추가는 날짜 select + 버튼
+클릭 방식이다. (b) 후보를 추가해도 저장 전에는 지도가 실시간으로 갱신되지 않는다(기존과 동일하게
+저장 후에만 지도가 최신 course를 반영). (c) 실시간 코스 품질 검증(추가 직후 "핵심 테마 POI 부족"
+같은 경고)은 없다 — 저장된 실행안 기준의 "사업 사전검증 리포트"만 있다. (d) 후보 카드에 예상 이동
+거리는 표시하지 않는다(이번 범위에서 저비용 근사조차 넣지 않음 — 필요성이 확인되면 후속 검토). (e)
+카테고리별 최대 4개·전체 12개라는 상한은 이번 세션의 판단이며, 실제 사용자 피드백에 따라 조정될 수
+있다.

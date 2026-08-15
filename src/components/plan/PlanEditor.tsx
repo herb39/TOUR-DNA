@@ -18,9 +18,10 @@ import {
 import { CourseMap } from "@/components/map/CourseMap";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
+import type { CandidatePoi } from "@/lib/services/candidatePoolService";
 import { enrichKpis, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
-import { travelSourceLabel } from "@/lib/format";
+import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -113,10 +114,16 @@ export function PlanEditor({
   plan,
   poiFits,
   poiShortage,
+  candidatePois,
 }: {
   plan: PlanEditorData;
   poiFits?: Record<string, PoiFitResult>;
   poiShortage?: PoiShortageNotice | null;
+  /** 추천 POI 후보 풀(Phase B 첫 단계, 2026-08-16) — null이면 조회 자체가 실패한 것(오류 상태로 표시),
+   * 빈 배열이면 조회는 성공했으나 추천할 후보가 없는 것(빈 상태로 표시)이다. 서버(page.tsx)에서 이미
+   * 전략/테마 관련성·SHOPPING dedup·최소 적합 기준을 반영해 계산해 둔 값을 그대로 받는다 — 이 컴포넌트는
+   * 현재 course에 이미 있는 POI만 클라이언트에서 걸러낸다(추가/삭제 즉시 반영, 별도 재조회 없음). */
+  candidatePois?: CandidatePoi[] | null;
 }) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
   const [state, formAction, isPending] = useActionState(boundSave, initialActionState);
@@ -180,6 +187,15 @@ export function PlanEditor({
   }, [isDirty]);
 
   const existingPoiIds = useMemo(() => new Set(days.flatMap((d) => d.items.map((i) => i.poiId))), [days]);
+
+  // 추천 후보 풀(Phase B 첫 단계, 2026-08-16): 서버가 이미 계산해 둔 후보 목록에서 현재 course에 있는
+  // POI만 클라이언트에서 걸러낸다 — 후보를 추가하면 existingPoiIds에 즉시 반영되어 후보 풀에서
+  // 사라지고, 삭제하면 즉시 다시 나타난다(별도 재조회·캐시 없이 리렌더링만으로 동작).
+  const visibleCandidates = useMemo(
+    () => (candidatePois ?? []).filter((c) => !existingPoiIds.has(c.id)),
+    [candidatePois, existingPoiIds],
+  );
+  const [candidateAddDay, setCandidateAddDay] = useState<Record<string, number>>({});
 
   const [addingToDay, setAddingToDay] = useState<number | null>(null);
   const [poiQuery, setPoiQuery] = useState("");
@@ -247,7 +263,9 @@ export function PlanEditor({
     });
   }
 
-  function addPoiToDay(dayIndex: number, poi: PoiDetail) {
+  // 후보 풀(CandidatePoi)과 검색 결과(PoiDetail)가 공통으로 가진 최소 필드만 요구한다(2026-08-16) —
+  // "기존 장소 추가 기능을 그대로 재사용한다"는 원칙에 따라 이 함수 자체는 바꾸지 않고 시그니처만 넓힌다.
+  function addPoiToDay(dayIndex: number, poi: Pick<PoiDetail, "id" | "name" | "category" | "lat" | "lng">) {
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
@@ -674,6 +692,72 @@ export function PlanEditor({
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="no-print rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-slate-900">추천 후보</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            현재 선택한 전략·테마와 관련성이 높은 대체 장소입니다. 자동 생성된 코스를 대체하지 않고,
+            마음에 드는 장소만 골라 원하는 날짜에 추가할 수 있습니다.
+          </p>
+          {candidatePois === null ? (
+            <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              추천 후보를 불러오지 못했습니다. 기존 일정은 그대로 편집·저장할 수 있습니다.
+            </p>
+          ) : visibleCandidates.length === 0 ? (
+            <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              현재 조건에서 추가로 추천할 수 있는 장소가 없습니다.
+            </p>
+          ) : (
+            <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {visibleCandidates.map((candidate) => {
+                const badge = resolveFitBadge(candidate.fit);
+                const reason = candidate.fit.positiveReasons[0] ?? candidate.fit.cautions[0] ?? null;
+                const selectedDay = candidateAddDay[candidate.id] ?? days[0]?.dayIndex ?? 1;
+                return (
+                  <li key={candidate.id} className="rounded-md border border-slate-200 p-3 text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-slate-800">{candidate.name}</p>
+                        <p className="mt-0.5 text-slate-400">{poiCategoryLabel(candidate.category)}</p>
+                      </div>
+                      <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    {reason ? <p className="mt-2 text-slate-500">{reason}</p> : null}
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
+                        {candidate.name} 추가할 날짜
+                      </label>
+                      <select
+                        id={`candidate-day-${candidate.id}`}
+                        value={selectedDay}
+                        onChange={(e) =>
+                          setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: Number(e.target.value) }))
+                        }
+                        className="rounded border border-slate-300 px-1.5 py-1 text-xs"
+                      >
+                        {days.map((d) => (
+                          <option key={d.dayIndex} value={d.dayIndex}>
+                            {d.dayIndex}일차
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => addPoiToDay(selectedDay, candidate)}
+                        aria-label={`${candidate.name} ${selectedDay}일차에 추가`}
+                        className="cursor-pointer rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        이 날짜에 추가
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
 
         <details className="rounded-lg border border-slate-200 bg-white p-5">

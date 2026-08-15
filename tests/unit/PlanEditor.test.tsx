@@ -710,3 +710,90 @@ describe("PlanEditor 적합도 배지 라벨(2026-08-11 감사)", () => {
     expect(screen.queryByText(/테마 미입력/)).not.toBeInTheDocument();
   });
 });
+
+describe("PlanEditor — 추천 후보 풀(Phase B 첫 단계, 2026-08-16)", () => {
+  function makeCandidateFit(overrides: Partial<PoiFitResult> = {}): PoiFitResult {
+    return {
+      totalScore: 90,
+      grade: "HIGH",
+      recommendationStatus: "RECOMMENDED",
+      breakdown: {
+        categoryFit: { score: 30, tier: "CORE" },
+        themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+        seasonFit: { score: 20, isIdealMonth: true },
+      },
+      positiveReasons: ["한국관광공사 공식 분류상 문화·역사 테마와 일치합니다."],
+      cautions: [],
+      dataSource: {
+        provenance: "LIVE_API",
+        sourceLabel: "실제 공공데이터 동기화 결과",
+        operatingHoursConfirmed: false,
+        operatingHoursText: null,
+        closedDaysText: null,
+      },
+      ...overrides,
+    };
+  }
+
+  function makeCandidate(id: string, name: string) {
+    return { id, name, category: "ATTRACTION" as const, lat: 35.8, lng: 129.2, fit: makeCandidateFit() };
+  }
+
+  it("후보를 이름·카테고리·추천 근거와 함께 목록으로 보여준다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("cand-1", "첨성대")]} />);
+    expect(screen.getByText("첨성대")).toBeInTheDocument();
+    expect(screen.getByText("한국관광공사 공식 분류상 문화·역사 테마와 일치합니다.")).toBeInTheDocument();
+  });
+
+  it("현재 course에 이미 포함된 POI는 후보 목록에 나타나지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("poi-a", "A장소(이미 코스에 있음)")]} />);
+    expect(screen.queryByText("A장소(이미 코스에 있음)")).not.toBeInTheDocument();
+  });
+
+  it("추천 후보가 없으면(빈 배열) 이해 가능한 빈 상태 문구를 보여준다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[]} />);
+    expect(screen.getByText("현재 조건에서 추가로 추천할 수 있는 장소가 없습니다.")).toBeInTheDocument();
+  });
+
+  it("후보 조회 자체가 실패하면(null) 오류 상태를 보여주되 기존 일정 편집은 그대로 가능하다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={null} />);
+    expect(screen.getByText(/추천 후보를 불러오지 못했습니다/)).toBeInTheDocument();
+    // 기존 일정(A장소)은 여전히 정상 렌더링된다 — 후보 풀 오류가 페이지 전체를 막지 않는다.
+    expect(screen.getByText("A장소")).toBeInTheDocument();
+  });
+
+  it("후보를 특정 날짜에 추가하면 그 날짜의 코스에 반영되고, 후보 목록에서 즉시 사라진다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("cand-1", "첨성대")]} />);
+    expect(screen.getByText("첨성대")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "첨성대 1일차에 추가" }));
+
+    // 후보 카드(추가 버튼)는 사라지고, 1일차 코스 목록에 새로 추가된 장소가 나타난다(기존 장소 추가
+    // 흐름 재사용 확인).
+    expect(screen.queryByRole("button", { name: /첨성대.*에 추가/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("첨성대 시간")).toBeInTheDocument();
+  });
+
+  it("선택한 날짜를 바꿔서 다른 날짜에 추가할 수 있다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("cand-1", "첨성대")]} />);
+    fireEvent.change(screen.getByLabelText("첨성대 추가할 날짜"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "첨성대 2일차에 추가" }));
+    expect(screen.getByLabelText("첨성대 시간")).toBeInTheDocument();
+  });
+
+  it("기존 course의 POI를 삭제하면(계속 좋은 후보라면) 후보 풀에 다시 나타난다", () => {
+    // "poi-a"(기존 1일차 코스 항목)가 후보 목록에도 나오도록 candidatePois에 함께 넘긴다 — 아직 코스에
+    // 있으니 처음에는 숨겨져야 하고, 삭제하면 다시 보여야 한다.
+    render(
+      <PlanEditor
+        plan={makePlan()}
+        candidatePois={[{ id: "poi-a", name: "A장소", category: "FOOD" as const, lat: 36.35, lng: 127.38, fit: makeCandidateFit() }]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /A장소.*에 추가/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "A장소 삭제" })[0]);
+
+    expect(screen.getByRole("button", { name: /A장소.*에 추가/ })).toBeInTheDocument();
+  });
+});

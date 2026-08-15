@@ -4,6 +4,7 @@ import { getProjectDetail } from "@/lib/services/projectQueries";
 import { ensureSelectedPlan } from "@/lib/services/planService";
 import { getPromoContentForProject } from "@/lib/services/promoContentService";
 import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
+import { buildRecommendedPoiCandidates, type CandidatePoi } from "@/lib/services/candidatePoolService";
 import type { DurationCode } from "@/lib/domain/strategy";
 import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { PromoContentEditor } from "@/components/plan/PromoContentEditor";
@@ -88,7 +89,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 2026-08-13(로딩 성능 개선): promoContent 조회·POI 적합도 계산·유사지역 비교 재계산은 서로 완전히
   // 독립적인데 이전에는 순차 await로 걸려 있었다 — 세 작업 중 가장 느린 것 하나만큼만 기다리도록
   // Promise.all로 병렬화한다(각 함수의 계산 로직·산식 자체는 전혀 바꾸지 않음).
-  const [promoContentResult, poiFitSummary, regionComparisonResolved] = await Promise.all([
+  const [promoContentResult, poiFitSummary, regionComparisonResolved, candidatePois] = await Promise.all([
     getPromoContentForProject(id),
     poiIds && templateId && project.input
       ? buildStrategyPoiFitSummary({
@@ -108,6 +109,18 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           analysisOwnBaseYm,
         })
       : Promise.resolve(null),
+    // 추천 POI 후보 풀(Phase B 첫 단계, 2026-08-16) — 이미 계산된 신호(structural/keyword relevance,
+    // core-theme, SHOPPING dedup)만 재사용해 현재 course에 없는 대체 POI를 보여준다. 실패해도(null)
+    // 기존 실행안 화면 자체는 그대로 동작해야 한다 — 후보 풀만 오류 상태로 표시한다.
+    poiIds && templateId && project.input
+      ? buildRecommendedPoiCandidates({
+          templateId,
+          regionCode: project.region.code,
+          travelMonth: project.travelMonth,
+          preferredThemes: project.input.preferredThemes as string[],
+          existingPoiIds: poiIds,
+        }).catch((): CandidatePoi[] | null => null)
+      : Promise.resolve([] as CandidatePoi[]),
   ]);
 
   // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미
@@ -208,6 +221,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             plan={planData}
             poiFits={poiFitSummary?.fitsByPoiId}
             poiShortage={poiFitSummary?.shortage ?? null}
+            candidatePois={candidatePois}
           />
         </div>
         <div className="mt-6">
