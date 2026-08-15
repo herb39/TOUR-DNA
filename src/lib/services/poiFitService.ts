@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain/strategy";
 import { fetchPoiDetailsInOrder } from "./poiDetails";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
+import { dedupeBySameCoordinates } from "@/lib/domain/poiDedup";
 
 /**
  * 목표 개수보다 적합한 POI가 부족할 때의 안내(P0-1, 2026-07-30). strategy.ts의 selectPois는 이미
@@ -110,7 +111,21 @@ export async function buildStrategyPoiFitSummary(params: {
     const coreSupplementCategories = (Object.keys(poisByCategory) as PoiCategoryCode[]).filter(
       (c) => c !== "LODGING" && classifyPoiCategoryTier(template, c) !== "FALLBACK",
     );
-    const regionCandidates = coreSupplementCategories.flatMap((c) => poisByCategory[c] ?? []);
+    // 2026-08-16(후보 부족 안내 판정 정합성): 이 재계산은 실제 추천 파이프라인(selectPois/
+    // ensureSelectedPlan)이 보는 것과 같은 후보 집합·같은 fit 판정 기준을 써야 한다. 이전에는 두 가지가
+    // 어긋났다 — ① `fetchPoisByCategory`가 이미 채워주는 `lclsSystm1/2`(TourAPI 공식 구조 분류)를 여기서는
+    // 넘기지 않아 구조 신호를 전혀 못 쓰고 항상 이름 키워드로만 판정했다(실제 재현: 경주 CULTURE_HISTORY
+    // filteredOutCount가 300으로 계산됐지만, 구조 신호를 반영하면 176으로 줄어든다 — 첨성대·대릉원류
+    // 124건이 "구조 신호로는 확인되지만 이름 키워드로는 못 잡는" 잘못된 제외였다). ② `4f093ec`의 SHOPPING
+    // 동일 시설 dedup을 이 재계산에는 적용하지 않아, 백화점 입점매장 중복이 "적합 기준 미달로 제외" 또는
+    // "추천 가능"에 그대로 섞여 카운트됐다(중복 억제와 적합도 판정은 서로 다른 개념이므로 섞이면 안 된다).
+    // 새 적합도 로직을 만들지 않고 selectPois와 동일한 `dedupeBySameCoordinates`(poiDedup.ts)만 재사용해
+    // SHOPPING만 대표 1건으로 좁힌 뒤, 그 결과에 기존 `computePoiFit`을 그대로 적용한다 — 외부 API 호출·
+    // N+1 쿼리 없이 이미 로드된 필드만 재사용한다.
+    const regionCandidates = coreSupplementCategories.flatMap((c) => {
+      const pool = poisByCategory[c] ?? [];
+      return c === "SHOPPING" ? dedupeBySameCoordinates(pool, (group) => group[0]) : pool;
+    });
     let recommendableRegionCount = 0;
     let filteredOutCount = 0;
     for (const candidate of regionCandidates) {
@@ -127,6 +142,8 @@ export async function buildStrategyPoiFitSummary(params: {
           sourceType: "FIXTURE",
           operatingHours: null,
           closedDays: null,
+          lclsSystm1: candidate.lclsSystm1,
+          lclsSystm2: candidate.lclsSystm2,
         },
         context,
       );

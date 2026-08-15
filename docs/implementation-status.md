@@ -2271,3 +2271,66 @@ ranking은 여전히 없다(로드맵 17번). (c) `poiFitService.ts`의 "지역 
 있다. (d) 코스 스튜디오 후보 풀(로드맵 5번)·Drag & Drop/실시간 지도(로드맵 7~8번)는 이번에도 손대지
 않았다 — 다만 `poiDedup.ts`를 재사용 가능한 순수 함수로 분리해 그 UI가 나올 때도 같은 로직을 그대로
 쓸 수 있게 준비해뒀다.
+
+## 2026-08-16 갱신(3) — POI 후보 부족 안내 판정 정합성 개선
+
+**배경**: 바로 위(2026-08-16(2)) 한계 (c)에서 남겨둔 문제를 이번에 해결했다. `poiFitService.ts`의
+`buildStrategyPoiFitSummary()`가 "지역 후보 부족" 안내를 만들 때 지역 전체 후보를 다시 평가하는
+부분(`regionCandidates` 순회, filteredOutCount 계산)이 실제 추천 파이프라인(selectPois/
+ensureSelectedPlan)과 서로 다른 기준으로 계산되고 있었다.
+
+**1) 실제 불일치 재현**: 로컬 DB로 직접 재현한 결과, 경주 CULTURE_HISTORY에서 UI가 실제로 보여주는
+문구("전략 적합 기준에 미달한 장소 300곳을 추천에서 제외했습니다")의 300이라는 숫자가 구조 신호를
+전혀 반영하지 못한 값임을 확인했다. 같은 후보 집합에 구조 신호(`lclsSystm1/2`)만 반영해 다시
+계산하면 176(대략 첨성대·대릉원류 124건 차이)으로, 여기에 SHOPPING dedup까지 반영하면 174로
+줄어든다. 강릉 CULTURE_HISTORY도 288→253으로, 제천 NATURE_WELLNESS도 181→179로 확인됐다. 청주
+NATURE_WELLNESS는 이 시나리오에서 filteredOutCount 자체가 0이라 변화가 없었다(구조 신호 문제가
+드러나지 않는 케이스였을 뿐, 코드 결함 자체는 동일하게 존재했다).
+
+**2) 정확한 원인**: 코드를 직접 대조한 결과 두 가지가 확인됐다 — ① `fetchPoisByCategory()`가 이미
+채워주는 `lclsSystm1/lclsSystm2`(TourAPI 공식 구조 분류, `strategy.ts`의 selectPois와 실제 추천이
+이미 쓰고 있는 신호)를 이 재계산의 `computePoiFit()` 호출에는 전혀 넘기지 않아, 이름 키워드로만
+판정했다(구조 신호 우선 원칙이 이 경로에서만 깨져 있었다). ② `4f093ec`(동일 시설 SHOPPING dedup)를
+이 재계산에는 반영하지 않아, 백화점 입점매장 중복이 "적합 기준 미달로 제외"나 "추천 가능" 어느 한쪽에
+그대로 섞여 카운트됐다(중복 억제와 적합도 판정은 서로 다른 개념인데 뒤섞여 있었다). `sourceType`을
+항상 `"FIXTURE"`로 고정해 넘기는 부분도 확인했으나, `computePoiFit()`에서 `sourceType`은 provenance
+표시(`LIVE_API`/`CURATED`)에만 쓰이고 `recommendationStatus` 판정 자체에는 영향을 주지 않아(코드로
+확인) 숫자 불일치의 원인은 아니었다 — 그대로 두었다.
+
+**3) 적용한 정합성 개선 방식**: 새 적합도 로직을 만들지 않고 기존 `computePoiFit()`을 그대로 재사용
+하면서, region candidate에도 `candidate.lclsSystm1`/`candidate.lclsSystm2`(이미 `fetchPoisByCategory`가
+로드해 둔 값)를 함께 전달하도록 한 줄만 고쳤다. 그리고 `regionCandidates`를 만들 때 SHOPPING
+카테고리에만 `dedupeBySameCoordinates()`(`poiDedup.ts`, `4f093ec`에서 이미 만든 순수 함수 그대로
+재사용)를 적용해 동일 시설 그룹을 대표 1건으로 좁힌 뒤 평가한다. 외부 API 호출이나 추가 DB 쿼리는
+전혀 없다 — 이미 로드된 필드만 재사용한다.
+
+**4) dedup과 fit 제외 구분**: `dedupeBySameCoordinates()`로 미리 좁혀진 뒤에 `computePoiFit()`을
+적용하므로, "동일 시설이라 대표만 남기고 나머지는 애초에 후보에서 제외"와 "적합 기준 미달로
+BELOW_MINIMUM_FIT 판정"은 서로 다른 단계에서 분리되어 처리된다 — 중복 제거로 사라진 매장은
+`filteredOutCount`에도 `recommendableRegionCount`에도 집계되지 않는다(둘 다에서 완전히 제외).
+새로운 통계 패널이나 UI 문구는 추가하지 않았다 — 기존 "전략 적합 기준에 미달한 장소 N곳을
+추천에서 제외했습니다" 문구의 N이 정확해진 것뿐이다.
+
+**5) 경주 before/after**: filteredOutCount 300 → 174. 실제 실행안 화면에서 "목표(11곳)보다 5곳
+적게 구성되었습니다. 전략 적합 기준에 미달한 장소 174곳을 추천에서 제외했습니다."로 노출됨을
+브라우저로 직접 확인했다. StrategyResult.poiIds/totalScore/SelectedPlan.course는 재조회로
+완전히 동일함을 확인했다(변경 없음).
+
+**6) 청주/강릉/제천**: 청주는 filteredOutCount 0으로 변화 없음(이 조건에서는 애초에 제외되는
+후보가 없었다), 강릉 288→253, 제천 181→179로 개선됐다. 세 지역 모두 StrategyResult/SelectedPlan은
+재조회로 완전히 동일함을 확인했다(회귀 없음).
+
+**7) 검증**: 신규 유닛 테스트 5개(구조 신호 반영/SHOPPING dedup 반영/preferredThemes 빈 배열/
+키워드 fallback 회귀/deterministic)를 `poiFitService.test.ts`에 추가했다. 핵심 차별 테스트(구조
+신호 미반영 시 오제외되던 사례)는 "수정 전 실패(3 vs 기대값 1), 수정 후 통과"로 직접 확인했다.
+전체 유닛 테스트 1474개, `npx tsc --noEmit`, lint, build 모두 통과했다. UI 문구 형식 자체는 바뀌지
+않아(숫자만 정확해짐) 375px 확인은 필수는 아니었지만, 실제 경주 QA 프로젝트로 개선된 숫자(174)가
+실제 화면에 정상 노출됨을 375px에서도 확인했다.
+
+**아직 남은 위험(투명하게 공개)**: (a) 근접하지만 좌표가 완전히 같지 않은 동일 시설은 이번에도
+dedup 대상 밖이라, 이 재계산에서도 여전히 별도 후보로 집계된다(2026-08-16(2)의 한계와 동일). (b)
+`sourceType`을 여전히 `"FIXTURE"`로 고정해 넘긴다 — `recommendationStatus`에는 영향이 없어 숫자
+정합성 문제는 아니지만, 이 재계산에서 만든 `PoiFitResult`의 `dataSource.provenance`/`sourceLabel`
+자체는 여전히 부정확하다(단, 이 값은 shortage 요약에서 사용하지 않는다). (c) 관광 가치/대표성
+ranking은 여전히 없다(로드맵 17번). (d) 코스 스튜디오 후보 풀·Drag & Drop/실시간 지도는 이번에도
+손대지 않았다.
