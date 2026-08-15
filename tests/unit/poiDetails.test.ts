@@ -161,6 +161,21 @@ function attractionRow(id: string) {
   };
 }
 
+function shoppingRow(id: string, name: string, lat: number, lng: number) {
+  return {
+    id,
+    name,
+    category: "SHOPPING",
+    address: "주소",
+    lat,
+    lng,
+    operatingHours: null,
+    closedDays: null,
+    sourceType: "API",
+    rawPayload: { contenttypeid: "38" },
+  };
+}
+
 describe("fetchAdditionalGeneralPois — 비숙박 밀도 부족 시 일반 방문 후보 보충(강릉 사례 재현)", () => {
   beforeEach(() => {
     poiFindMany.mockReset();
@@ -174,7 +189,9 @@ describe("fetchAdditionalGeneralPois — 비숙박 밀도 부족 시 일반 방�
     expect(calledWith.where.regionId).toBe("region-1");
     expect(calledWith.where.category).toEqual({ in: ["ATTRACTION", "EXPERIENCE", "FESTIVAL", "SHOPPING"] });
     expect(calledWith.where.id.notIn).toEqual(["already-1"]);
-    expect(calledWith.take).toBe(2);
+    // 2026-08-16: SHOPPING 동일 시설 중복을 걸러내고도 limit을 채울 수 있도록 여유 있게(최대 배수/상한
+    // 캡 적용) 가져온다 — limit 그대로가 아니다.
+    expect(calledWith.take).toBe(6);
   });
 
   it("limit이 0 이하면 DB를 조회하지 않는다", async () => {
@@ -187,5 +204,49 @@ describe("fetchAdditionalGeneralPois — 비숙박 밀도 부족 시 일반 방�
     poiFindMany.mockResolvedValue([attractionRow("a1"), attractionRow("a2")]);
     const result = await fetchAdditionalGeneralPois("region-1", [], 5);
     expect(result.map((p) => p.id)).toEqual(["a1", "a2"]);
+  });
+
+  it("2026-08-16: 이번 보충 배치 안에서 동일 좌표 SHOPPING 후보는 대표 1건만 통과시킨다", async () => {
+    poiFindMany.mockResolvedValue([
+      shoppingRow("shop-a", "갤럭시 현대백화점", 36.63, 127.45),
+      shoppingRow("shop-b", "골든듀 현대백화점", 36.63, 127.45),
+      shoppingRow("shop-c", "탑텐 현대백화점", 36.63, 127.45),
+      shoppingRow("shop-independent", "가경 터미널시장", 36.6, 127.4),
+    ]);
+    const result = await fetchAdditionalGeneralPois("region-1", [], 4);
+    const ids = result.map((p) => p.id);
+    expect(ids).toContain("shop-independent");
+    const departmentSelected = ids.filter((id) => id === "shop-a" || id === "shop-b" || id === "shop-c");
+    expect(departmentSelected.length).toBe(1);
+  });
+
+  it("2026-08-16: 이미 선택된 SHOPPING 좌표(alreadySelectedShoppingCoordKeys)와 겹치면 보충 후보에서 제외한다", async () => {
+    poiFindMany.mockResolvedValue([
+      shoppingRow("shop-b", "골든듀 현대백화점", 36.63, 127.45),
+      shoppingRow("shop-independent", "가경 터미널시장", 36.6, 127.4),
+    ]);
+    const alreadySelected = new Set(["36.63|127.45"]); // shop-a가 이미 strategy.poiIds에 있다고 가정
+    const result = await fetchAdditionalGeneralPois("region-1", [], 2, alreadySelected);
+    expect(result.map((p) => p.id)).toEqual(["shop-independent"]);
+  });
+
+  it("2026-08-16: SHOPPING이 아닌 카테고리는 동일 좌표라도 그대로 유지한다(dedup 대상 아님)", async () => {
+    poiFindMany.mockResolvedValue([attractionRow("a1"), attractionRow("a2")]); // 둘 다 동일 좌표(34.8, 128.4)
+    const result = await fetchAdditionalGeneralPois("region-1", [], 2);
+    expect(result.map((p) => p.id)).toEqual(["a1", "a2"]);
+  });
+});
+
+describe("shoppingCoordKeysOf", () => {
+  it("SHOPPING 카테고리 POI의 좌표만 키 집합으로 뽑는다", async () => {
+    const { shoppingCoordKeysOf } = await import("@/lib/services/poiDetails");
+    const pois = [
+      { id: "s1", name: "매장", category: "SHOPPING" as const, address: "", lat: 36.63, lng: 127.45, operatingHours: null, closedDays: null, sourceType: "API" as const },
+      { id: "a1", name: "관광지", category: "ATTRACTION" as const, address: "", lat: 34.8, lng: 128.4, operatingHours: null, closedDays: null, sourceType: "API" as const },
+    ];
+    const keys = shoppingCoordKeysOf(pois);
+    expect(keys.has("36.63|127.45")).toBe(true);
+    expect(keys.has("34.8|128.4")).toBe(false);
+    expect(keys.size).toBe(1);
   });
 });

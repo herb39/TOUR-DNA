@@ -137,21 +137,57 @@ export async function fetchAdditionalMealEligibleFood(
  * 축제·쇼핑)를 지역 DB에서 보충한다. mealEligible 판별이 필요 없으므로 넉넉히 가져올 필요도 없다. */
 const GENERAL_BACKFILL_CATEGORIES: PoiCategory[] = ["ATTRACTION", "EXPERIENCE", "FESTIVAL", "SHOPPING"];
 
+/** SHOPPING 백필 후보를 넉넉히 가져온 뒤, 동일 시설(동일 좌표) 중복을 걸러내고도 limit을 채울 수
+ * 있도록 여유를 둔다(2026-08-16, 동일 시설 입점매장 중복 억제 — strategy.ts의 selectPois와 같은 근거:
+ * SHOPPING만 동일 좌표 그룹이 유독 크다, poiDedup.ts 참고). */
+const SUPPLEMENT_GENERAL_FETCH_MULTIPLIER = 3;
+const SUPPLEMENT_GENERAL_FETCH_CAP = 60;
+
 /** 최초 후보 풀의 비숙박 POI 개수가 이 기간의 원래 목표 밀도에 못 미칠 때(주로 식사 선점이 예산을
  * 나눠 쓴 결과), 같은 지역 DB에서 일반 방문 후보를 보충한다(planService.ts에서 사용 — 서비스 계층에서만
  * DB를 조회하고, planBuilder.ts 등 도메인 계산 함수에는 이미 확보된 PoiDetail[]만 인자로 전달한다).
- * excludeIds에 있는 POI는 이미 후보에 포함돼 있으므로 다시 뽑지 않는다(중복 방지). */
+ * excludeIds에 있는 POI는 이미 후보에 포함돼 있으므로 다시 뽑지 않는다(중복 방지).
+ *
+ * `alreadySelectedShoppingCoordKeys`(2026-08-16 추가): strategy.poiIds 단계(selectPois)에서 이미
+ * 동일 시설 SHOPPING 그룹의 대표 1건이 선택돼 있을 수 있다 — 이 보충 단계가 그 시설의 다른 입점매장을
+ * 다시 추가하면 selectPois의 dedup이 무의미해지므로, 이미 선택된 SHOPPING 좌표는 여기서도 제외한다.
+ * 이번 보충 배치 안에서도 SHOPPING은 좌표당 대표 1건만 통과시킨다(원래 조회 순서는 그대로 유지 — 새
+ * 정렬 기준을 만들지 않는다). SHOPPING이 아닌 카테고리는 이번에도 건드리지 않는다(다른 목적의 콘텐츠일
+ * 수 있어 일괄 dedup 대상이 아님, poiDedup.ts 근거와 동일). */
 export async function fetchAdditionalGeneralPois(
   regionId: string,
   excludeIds: string[],
   limit: number,
+  alreadySelectedShoppingCoordKeys: ReadonlySet<string> = new Set(),
 ): Promise<PoiDetail[]> {
   if (limit <= 0) return [];
   const rows = await prisma.poi.findMany({
     where: { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } },
-    take: limit,
+    take: Math.min(limit * SUPPLEMENT_GENERAL_FETCH_MULTIPLIER, SUPPLEMENT_GENERAL_FETCH_CAP),
   });
-  return rows.map(mapRowToPoiDetail);
+  const candidates = rows.map(mapRowToPoiDetail);
+  const seenShoppingCoordKeys = new Set(alreadySelectedShoppingCoordKeys);
+  const result: PoiDetail[] = [];
+  for (const candidate of candidates) {
+    if (result.length >= limit) break;
+    if (candidate.category === "SHOPPING") {
+      const key = `${candidate.lat}|${candidate.lng}`;
+      if (seenShoppingCoordKeys.has(key)) continue;
+      seenShoppingCoordKeys.add(key);
+    }
+    result.push(candidate);
+  }
+  return result;
+}
+
+/** PoiDetail 목록에서 SHOPPING 카테고리만 "좌표" 키 집합으로 뽑는다(2026-08-16) — planService.ts가
+ * 이미 선택된 POI 중 SHOPPING의 좌표를 fetchAdditionalGeneralPois에 넘길 때 재사용하는 순수 헬퍼. */
+export function shoppingCoordKeysOf(pois: PoiDetail[]): Set<string> {
+  const keys = new Set<string>();
+  for (const p of pois) {
+    if (p.category === "SHOPPING") keys.add(`${p.lat}|${p.lng}`);
+  }
+  return keys;
 }
 
 const POI_SEARCH_LIMIT = 20;

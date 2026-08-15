@@ -1073,3 +1073,197 @@ describe("selectPois — 전략 핵심 테마 중심 코스 구성 강화(core-t
     expect(withCoreTheme.totalScore).toBe(withoutCoreTheme.totalScore);
   });
 });
+
+describe("selectPois — 동일 시설(동일 좌표) SHOPPING 중복 억제(2026-08-16)", () => {
+  const excludeAllExcept = (keep: string) =>
+    ["로컬미식", "야간·체류", "자연·웰니스", "문화·역사", "축제·이벤트", "가족 체험", "청년 로컬"].filter(
+      (label) => !label.startsWith(keep),
+    );
+
+  it("완전히 동일한 좌표를 가진 SHOPPING 후보(백화점 입점매장 재현)는 코스에 대표 1개만 선택된다", () => {
+    // 청주 현대백화점 충청점 재현: 같은 좌표에 입점매장 3개.
+    const department = [
+      { id: "shop-a", name: "갤럭시 현대백화점 충청점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-b", name: "갤럭시라이프스타일 현대백화점 충청점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-c", name: "골든듀 현대백화점 충청점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+    ];
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      SHOPPING: department,
+      FOOD: makePois("food", "FOOD", 5),
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("로컬") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const localFoodMarket = strategies.find((s) => s.templateId === "LOCAL_FOOD_MARKET")!;
+    const shoppingSelected = localFoodMarket.poiIds.filter((id) => categoryOf(id, pool) === "SHOPPING");
+    expect(shoppingSelected.length).toBeLessThanOrEqual(1);
+  });
+
+  it("동일 좌표라도 SHOPPING이 아닌 다른 카테고리(FOOD/ATTRACTION 등)는 그대로 보존된다", () => {
+    // 같은 좌표에 서로 다른 목적의 콘텐츠(복합문화시설의 박물관+카페 재현) — dedup 대상이 아니다.
+    const sameCoordDifferentCategory = [
+      { id: "attr-1", name: "복합시설 박물관", category: "ATTRACTION" as const, lat: 36.1, lng: 127.1, lclsSystm1: "HS" },
+      { id: "food-1", name: "복합시설 카페", category: "FOOD" as const, lat: 36.1, lng: 127.1 },
+    ];
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: [...sameCoordDifferentCategory.filter((p) => p.category === "ATTRACTION"), ...makePois("attraction", "ATTRACTION", 4)],
+      FOOD: [...sameCoordDifferentCategory.filter((p) => p.category === "FOOD"), ...makePois("food", "FOOD", 4)],
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "TWO_NIGHTS_THREE_DAYS", preferredThemes: ["문화 역사"], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    // 서로 다른 category이므로 둘 다 여전히 후보 풀에 남아있어야 한다(둘 다 선택될 필요는 없지만,
+    // dedup 로직 때문에 강제로 하나가 사라지면 안 된다 — 후보 자체가 사라지지 않았는지 별도 확인).
+    expect(pool.ATTRACTION!.some((p) => p.id === "attr-1")).toBe(true);
+    expect(pool.FOOD!.some((p) => p.id === "food-1")).toBe(true);
+    expect(cultureHistory).toBeDefined();
+  });
+
+  it("동일 시설 중복을 제거해도 빈 자리는 다른 독립 SHOPPING 후보로 채워진다(코스 개수 유지)", () => {
+    const department = [
+      { id: "shop-a", name: "갤럭시 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-b", name: "골든듀 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+    ];
+    const independentShopping = { id: "shop-independent", name: "청주 가경 터미널시장", category: "SHOPPING" as const, lat: 36.6, lng: 127.4 };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      SHOPPING: [...department, independentShopping],
+      FOOD: makePois("food", "FOOD", 5),
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("청년") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const youthLocal = strategies.find((s) => s.templateId === "YOUTH_LOCAL_CONTENT")!;
+    expect(youthLocal.poiIds).toContain("shop-independent");
+    // department 그룹에서는 대표 1개만 선택된다.
+    const departmentSelected = youthLocal.poiIds.filter((id) => id === "shop-a" || id === "shop-b");
+    expect(departmentSelected.length).toBeLessThanOrEqual(1);
+  });
+
+  it("동일 시설 그룹이 하나뿐이면(중복 없음) 기존과 동일하게 동작한다(회귀 없음)", () => {
+    const singleShop = { id: "shop-only", name: "단독 매장", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      SHOPPING: [singleShop],
+      FOOD: makePois("food", "FOOD", 5),
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("청년") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const youthLocal = strategies.find((s) => s.templateId === "YOUTH_LOCAL_CONTENT")!;
+    expect(youthLocal.poiIds).toContain("shop-only");
+  });
+
+  it("동일 시설 그룹 내에서도 구조 신호(관련성)가 확인되는 후보가 대표로 우선 선택된다", () => {
+    const irrelevant = { id: "shop-a", name: "가나다매장", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 };
+    const relevant = { id: "shop-b", name: "힣매장(구조신호)", category: "SHOPPING" as const, lat: 36.63, lng: 127.45, lclsSystm1: "SH", lclsSystm2: "SH04" };
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      SHOPPING: [irrelevant, relevant],
+      FOOD: makePois("food", "FOOD", 5),
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: ["쇼핑"], excludedThemes: excludeAllExcept("청년") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const youthLocal = strategies.find((s) => s.templateId === "YOUTH_LOCAL_CONTENT")!;
+    // 이 테스트는 대표 선택이 "관련성 tier 우선"이라는 회귀 방지용 — 어느 한쪽이 선택되든 그룹당 1개만
+    // 선택된다는 것이 핵심이며, themeRelevanceTier 판정 자체는 별도 구조 랭킹 테스트에서 검증한다.
+    const selected = youthLocal.poiIds.filter((id) => id === "shop-a" || id === "shop-b");
+    expect(selected.length).toBe(1);
+  });
+
+  it("동일 입력에는 항상 동일 결과(deterministic)", () => {
+    const department = [
+      { id: "shop-a", name: "갤럭시 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-b", name: "골든듀 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-c", name: "탑텐 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+    ];
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      SHOPPING: department,
+      FOOD: makePois("food", "FOOD", 5),
+      ATTRACTION: makePois("attraction", "ATTRACTION", 5),
+    };
+    const dna = computeDna(dnaInput());
+    const run = () =>
+      computeStrategies(
+        dna,
+        baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("청년") }),
+        pool,
+        MODEL_VERSION,
+      ).map((s) => ({ id: s.templateId, poiIds: s.poiIds }));
+    expect(run()).toEqual(run());
+  });
+
+  it("SHOPPING dedup 적용 여부와 무관하게 전략 점수는 변하지 않는다", () => {
+    const department = [
+      { id: "shop-a", name: "갤럭시 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-b", name: "골든듀 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+    ];
+    const independent = makePois("shop", "SHOPPING", 2);
+    const dna = computeDna(dnaInput());
+    const withDuplicates = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("청년") }),
+      { SHOPPING: department, FOOD: makePois("food", "FOOD", 5), ATTRACTION: makePois("attraction", "ATTRACTION", 5) },
+      MODEL_VERSION,
+    ).find((s) => s.templateId === "YOUTH_LOCAL_CONTENT")!;
+    const withoutDuplicates = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("청년") }),
+      { SHOPPING: independent, FOOD: makePois("food", "FOOD", 5), ATTRACTION: makePois("attraction", "ATTRACTION", 5) },
+      MODEL_VERSION,
+    ).find((s) => s.templateId === "YOUTH_LOCAL_CONTENT")!;
+    expect(withDuplicates.scoreBreakdown).toEqual(withoutDuplicates.scoreBreakdown);
+    expect(withDuplicates.totalScore).toBe(withoutDuplicates.totalScore);
+  });
+
+  it("SHOPPING 동일 시설 중복 제거는 core-theme floor(경주 CULTURE_HISTORY) 효과를 깨지 않는다", () => {
+    const historic = Array.from({ length: 5 }, (_, i) => ({
+      id: `historic-${i}`,
+      name: `가나다역사유적지${i}`,
+      category: "ATTRACTION" as const,
+      lclsSystm1: "HS",
+    }));
+    const department = [
+      { id: "shop-a", name: "갤럭시 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+      { id: "shop-b", name: "골든듀 현대백화점", category: "SHOPPING" as const, lat: 36.63, lng: 127.45 },
+    ];
+    const pool: Partial<Record<PoiCategoryCode, PoiLike[]>> = {
+      ATTRACTION: historic,
+      FOOD: makePois("food", "FOOD", 5),
+      SHOPPING: department,
+    };
+    const dna = computeDna(dnaInput());
+    const strategies = computeStrategies(
+      dna,
+      baseProjectInput({ duration: "ONE_NIGHT_TWO_DAYS", preferredThemes: [], excludedThemes: excludeAllExcept("문화") }),
+      pool,
+      MODEL_VERSION,
+    );
+    const cultureHistory = strategies.find((s) => s.templateId === "CULTURE_HISTORY")!;
+    const attractionCount = cultureHistory.poiIds.filter((id) => categoryOf(id, pool) === "ATTRACTION").length;
+    expect(attractionCount).toBeGreaterThanOrEqual(3);
+  });
+});

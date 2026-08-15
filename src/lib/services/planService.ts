@@ -18,7 +18,7 @@ import { filterRecommendablePois, isRequiredSlotCategory, type PoiFitContext } f
 import { enrichKpis, type AxisScoreLike } from "@/lib/domain/kpiLinking";
 import { DNA_AXES, type AxisStatus } from "@/lib/domain/types";
 import { labelForPrimaryGoal } from "@/lib/validation/codes";
-import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder } from "./poiDetails";
+import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder, shoppingCoordKeysOf } from "./poiDetails";
 import { enrichCourseDaysWithRealRoutes } from "./route/courseRouteEnrichment";
 
 function countMealEligibleFood(pois: PoiDetail[]): number {
@@ -27,6 +27,23 @@ function countMealEligibleFood(pois: PoiDetail[]): number {
 
 function countNonLodging(pois: PoiDetail[]): number {
   return pois.filter((p) => p.category !== "LODGING").length;
+}
+
+/** 동일 시설(동일 좌표) SHOPPING 중복 최종 방어(2026-08-16) — strategy.poiIds는 selectPois 단계에서
+ * 이미 대표 1건으로 좁혀지고 fetchAdditionalGeneralPois 보충도 같은 좌표를 다시 추가하지 않지만,
+ * 이 기능 배포 이전에 계산돼 저장된 StrategyResult(stale)는 여전히 동일 시설 입점매장 여러 개를 poiIds에
+ * 갖고 있을 수 있다. 실행안을 실제로 만드는 이 마지막 지점에서 한 번 더 좁혀, 오래된 전략 결과로 실행안을
+ * 새로 만들 때도 동일 문제가 재현되지 않게 한다(원본 poiIds/DB는 바꾸지 않음, 이 함수의 반환 배열만
+ * 좁힌다). 최초 등장 순서를 그대로 유지한다 — 별도 우선순위 판단을 새로 만들지 않는다. */
+function dedupeShoppingBySameCoordinates(pois: PoiDetail[]): PoiDetail[] {
+  const seenShoppingCoordKeys = new Set<string>();
+  return pois.filter((p) => {
+    if (p.category !== "SHOPPING") return true;
+    const key = `${p.lat}|${p.lng}`;
+    if (seenShoppingCoordKeys.has(key)) return false;
+    seenShoppingCoordKeys.add(key);
+    return true;
+  });
 }
 
 /**
@@ -114,9 +131,15 @@ export async function ensureSelectedPlan(projectId: string) {
       project.regionId,
       pois.map((p) => p.id),
       desiredNonLodgingCount - nonLodgingCount,
+      shoppingCoordKeysOf(pois),
     );
     if (generalSupplement.length > 0) pois = [...pois, ...generalSupplement];
   }
+
+  // 동일 시설(동일 좌표) SHOPPING 중복 최종 방어(2026-08-16) — 위 두 단계가 새로 추가하는 중복은 이미
+  // 막지만, 이 기능 배포 이전에 저장된 stale StrategyResult.poiIds 자체에 중복이 남아있을 수 있어 마지막에
+  // 한 번 더 좁힌다.
+  pois = dedupeShoppingBySameCoordinates(pois);
 
   // 보충까지 끝난 최종 후보에 최소 적합 기준을 적용한다 — 여기서 걸러진 자리는 다시 채우지 않는다
   // ("전략과 무관한 장소로 억지로 채우지 않는다"는 원칙을 필터링 이후에도 그대로 유지). preferredThemes

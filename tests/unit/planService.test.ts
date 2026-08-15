@@ -434,3 +434,63 @@ describe("ensureSelectedPlan — 저적합 POI 추천 제외(2026-07-30, 경주 
     expect(lodgingIds).toContain("lodge1");
   });
 });
+
+describe("ensureSelectedPlan — 동일 시설(동일 좌표) SHOPPING 중복 최종 방어(2026-08-16, stale StrategyResult 재현)", () => {
+  function shoppingRow(id: string, name: string, lat: number, lng: number) {
+    return {
+      id,
+      name,
+      category: "SHOPPING",
+      address: "청주시 흥덕구 어딘가",
+      lat,
+      lng,
+      operatingHours: null,
+      closedDays: null,
+      sourceType: "API",
+      rawPayload: { contenttypeid: "38" },
+    };
+  }
+
+  it("이 기능 배포 이전에 저장된 strategy.poiIds에 동일 시설 SHOPPING 입점매장 3개가 이미 들어있어도, 실행안에는 대표 1개만 배치된다", async () => {
+    const shoppingIds = ["shop-a", "shop-b", "shop-c"];
+    projectFindUniqueOrThrow.mockResolvedValue({
+      id: "project-8",
+      regionId: REGION_ID,
+      selectedStrategyResultId: "strategy-8",
+      selectedPlan: null,
+      input: { duration: "DAY_TRIP", transport: "WALK" },
+      region: { name: "청주시 흥덕구" },
+    });
+    strategyResultFindUniqueOrThrow.mockResolvedValue({
+      id: "strategy-8",
+      templateId: "LOCAL_FOOD_MARKET",
+      name: "로컬미식·시장 연계형",
+      concept: "청주 로컬 상권",
+      totalScore: 70,
+      targetDescription: "쇼핑을 좋아하는 여행객",
+      reasons: ["r1", "r2", "r3"],
+      // stale 재현: 이 기능 배포 이전 selectPois는 동일 좌표 백화점 입점매장 3개를 그대로 poiIds에 담았다.
+      poiIds: [...shoppingIds, "food-1"],
+    });
+    poiFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.id && (where.id as { in: string[] }).in) {
+        return [
+          shoppingRow("shop-a", "갤럭시 현대백화점 충청점", 36.63, 127.45),
+          shoppingRow("shop-b", "갤럭시라이프스타일 현대백화점 충청점", 36.63, 127.45),
+          shoppingRow("shop-c", "골든듀 현대백화점 충청점", 36.63, 127.45),
+          foodRow("food-1", "A05020100"),
+        ];
+      }
+      return [];
+    });
+
+    await ensureSelectedPlan("project-8");
+
+    const savedCourse = selectedPlanUpsert.mock.calls[0][0].create.course as {
+      days: { items: { poiId: string }[] }[];
+    };
+    const allItemIds = savedCourse.days.flatMap((d) => d.items.map((i) => i.poiId));
+    const shoppingSelected = allItemIds.filter((id) => shoppingIds.includes(id));
+    expect(shoppingSelected.length).toBeLessThanOrEqual(1);
+  });
+});

@@ -2,6 +2,7 @@ import { clamp, roundForDisplay } from "./normalize";
 import { haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import type { FoodSubcategory } from "./foodClassification";
+import { dedupeBySameCoordinates } from "./poiDedup";
 import { AXIS_LABEL_KO, METRIC_CODES, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
 import { formatSignedPercent } from "@/lib/format";
 import {
@@ -336,6 +337,27 @@ function selectPois(
   // preferredThemes를 입력하지 않았어도(Production에서 실제로 흔한 경우) 전략 자체가 정체성으로 갖는
   // 테마(예: CULTURE_HISTORY 전략의 CULTURE_HISTORY 테마)가 있으면 그것만으로도 후보 랭킹에 반영된다.
   const rankingThemeCategories = [...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(template.id)])];
+
+  // 동일 시설 중복 억제(2026-08-16): SHOPPING 카테고리에 한해(전국 좌표 분포 조사 근거는 poiDedup.ts
+  // 참고), 완전히 동일한 좌표를 가진 후보 그룹을 대표 1건으로 좁힌다. DB 원본은 바꾸지 않고 이 전략의
+  // 후보 배열만 좁힌다 — 대표 선택은 이 전략의 관련성 tier(구조 신호 우선, 키워드 fallback)를 먼저
+  // 보고, 동률이면 기존 이름 가나다순 tie-break를 그대로 쓴다(새 유명도 점수를 만들지 않는다). SHOPPING
+  // 외 카테고리는 동일 좌표라도 서로 다른 콘텐츠(다른 날짜의 축제, 같은 리조트의 다른 동 등)인 사례가
+  // 있어 건드리지 않는다.
+  if (poisByCategory.SHOPPING && poisByCategory.SHOPPING.length > 0) {
+    poisByCategory = {
+      ...poisByCategory,
+      SHOPPING: dedupeBySameCoordinates(poisByCategory.SHOPPING, (group) => {
+        if (group.length === 1) return group[0];
+        return [...group].sort((a, b) => {
+          const tierA = themeRelevanceTier(a, rankingThemeCategories);
+          const tierB = themeRelevanceTier(b, rankingThemeCategories);
+          if (tierA !== tierB) return tierA - tierB;
+          return a.name.localeCompare(b.name, "ko");
+        })[0];
+      }),
+    };
+  }
 
   // 우선순위 티어: ① 템플릿 핵심 카테고리 → ② 선호 테마 카테고리(2026-08-10) → ③ 지역 소비 접점
   // 보완 카테고리 → ④ 나머지 비숙박 카테고리. 테마 티어를 hard filter가 아니라 우선순위로만 넣어,
