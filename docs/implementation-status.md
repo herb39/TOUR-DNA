@@ -2722,3 +2722,29 @@ Phase B 완료 다음 단계인 Phase C를 작은 단위로 시작했다. 이번
 **4) 테스트/범위**: `classifyThemes`, `classifyStructuralPoiThemes`, `themePreferredPoiCategories`,
 `computeThemeFit` 회귀 테스트를 추가했고 관련 3개 테스트 파일 118개와 typecheck를 통과했다.
 전용 문화예술 전략 템플릿, 공연/전시 운영시간 기반 검증, POI별 권장 체류시간은 다음 작업으로 남겼다.
+
+## 2026-08-17 갱신(3) — Phase C 10번 2차(detailIntro2 운영시간·휴무일 조사 및 파서)
+
+문화예술 POI의 운영 가능성을 실제 데이터로 확인하기 위해 로컬 DB와 상세 API를 조사했다.
+
+**1) 로컬 DB 표본**: API POI 48,268건 중 `lclsSystm2=VE07`은 1,699건이었다
+(`ATTRACTION` 1,698건, `EXPERIENCE` 1건). 현재 `areaBasedList2` 동기화 결과에서 이 POI들의
+`operatingHours`와 `closedDays`는 각각 0건이었고, 저장된 raw payload 키에도 운영시간·휴무일·체류시간
+필드가 없었다. 따라서 기존 데이터만으로 문화예술 운영 가능성을 판정하는 것은 근거가 없다.
+
+**2) 상세 API 확인**: 실제 로컬 VE07 POI 1건(`contentTypeId=14`)에 `KorService2/detailIntro2`를
+읽기 전용 호출한 결과 `usetimeculture`와 `restdateculture`가 제공되는 것을 확인했다. 표본 응답의
+`spendtime`은 빈 값이었다. 운영시간·휴무일은 상세 API 연동 후보로 삼을 수 있지만, 권장 체류시간으로
+곧바로 해석할 수 있는 데이터는 확인하지 못했다.
+
+**3) 구현**: `src/lib/public-data/adapters/tourInfoDetail.ts`를 추가해 `contentTypeId`별 필드명을
+정규화한다.
+
+- 문화시설(14): `usetimeculture` / `restdateculture`
+- 관광지(12): `usetime` / `restdate`
+- 레포츠(28): `usetimeleports` / `restdateleports`
+- 음식점(39): `opentimefood` / `restdatefood`
+
+현재는 어댑터와 15개 테스트만 추가했으며, 전국 대량 호출·`Poi` upsert·실시간 품질검증 연결은
+호출량 상한과 증분 재처리 정책을 정한 뒤 별도 작업으로 진행한다. 권장 체류시간은 `spendtime`의
+실제 커버리지·의미 검증 전까지 기존처럼 사용자가 직접 입력한다.
