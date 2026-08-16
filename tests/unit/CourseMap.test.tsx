@@ -44,9 +44,12 @@ interface MarkerCallArgs {
 function installKakaoMock() {
   const polylineCalls: PolylineCallArgs[] = [];
   const markerCalls: MarkerCallArgs[] = [];
+  const markerInfoContents: string[] = [];
   const boundsExtendCalls: unknown[] = [];
   let mapConstructorCalls = 0;
+  let setBoundsCalls = 0;
   const setMapNullCalls: unknown[] = [];
+  const markerSetMapNullCalls: unknown[] = [];
 
   class FakeLatLng {
     lat: number;
@@ -65,14 +68,24 @@ function installKakaoMock() {
     constructor() {
       mapConstructorCalls++;
     }
-    setBounds() {}
+    setBounds() {
+      setBoundsCalls++;
+    }
   }
   class FakeMarker {
     constructor(opts: MarkerCallArgs) {
       markerCalls.push(opts);
     }
+    setMap(map: unknown) {
+      if (map === null) markerSetMapNullCalls.push(this);
+    }
   }
   class FakeInfoWindow {
+    content: string;
+    constructor(opts: { content: string }) {
+      this.content = opts.content;
+      markerInfoContents.push(opts.content);
+    }
     open() {}
   }
   class FakePolyline {
@@ -100,9 +113,12 @@ function installKakaoMock() {
   return {
     polylineCalls,
     markerCalls,
+    markerInfoContents,
     boundsExtendCalls,
     getMapConstructorCalls: () => mapConstructorCalls,
+    getSetBoundsCalls: () => setBoundsCalls,
     setMapNullCalls,
+    markerSetMapNullCalls,
   };
 }
 
@@ -324,6 +340,141 @@ describe("CourseMap", () => {
       // 2일차로 전환하면 2일차 구간 수(2개)에 해당하는 Polyline만 그려지고, 1일차 것이 남아 누적되지 않는다.
       await waitFor(() => expect(polylineCalls.length).toBe(4));
     });
+  });
+});
+
+describe("CourseMap — 편집 중(days) 지도 실시간 갱신(Phase B, 2026-08-16)", () => {
+  beforeEach(() => {
+    delete (window as { kakao?: unknown }).kakao;
+    vi.mocked(fetchPlanRouteGeometryAction).mockClear();
+  });
+
+  it("같은 날짜 안에서 순서만 바뀌어도(reorder) 지도(kakao.maps.Map)는 다시 만들지 않고 마커만 새로 그린다", async () => {
+    const { getMapConstructorCalls, markerCalls, markerInfoContents } = installKakaoMock();
+    const { rerender } = render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+    expect(getMapConstructorCalls()).toBe(1);
+    // 초기 순서: A(1번), B(2번)
+    expect(markerInfoContents[0]).toContain("1. 10:00 A장소");
+    expect(markerInfoContents[1]).toContain("2. 13:00 B장소");
+
+    const reordered: CourseMapDay[] = [{ dayIndex: 1, items: [daysWithCoords[0].items[1], daysWithCoords[0].items[0]] }];
+    rerender(<CourseMap days={reordered} kakaoKey="test-key" />);
+
+    // 지도는 재사용되고(생성 횟수 그대로 1), 마커는 새 순서로 다시 그려진다(번호도 새 순서 기준).
+    await waitFor(() => expect(markerCalls.length).toBe(4));
+    expect(getMapConstructorCalls()).toBe(1);
+    expect(markerInfoContents[2]).toContain("1. 13:00 B장소");
+    expect(markerInfoContents[3]).toContain("2. 10:00 A장소");
+  });
+
+  it("순서만 바뀐 reorder는 setBounds를 다시 호출하지 않는다(사용자가 조작한 확대/축소 유지)", async () => {
+    const { getSetBoundsCalls, markerCalls } = installKakaoMock();
+    const { rerender } = render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+    const boundsCallsAfterInitialDraw = getSetBoundsCalls();
+    expect(boundsCallsAfterInitialDraw).toBeGreaterThan(0); // 최초 그리기는 항상 fitBounds
+
+    const reordered: CourseMapDay[] = [{ dayIndex: 1, items: [daysWithCoords[0].items[1], daysWithCoords[0].items[0]] }];
+    rerender(<CourseMap days={reordered} kakaoKey="test-key" />);
+    await waitFor(() => expect(markerCalls.length).toBe(4));
+
+    expect(getSetBoundsCalls()).toBe(boundsCallsAfterInitialDraw);
+  });
+
+  it("POI를 추가하면(구성 변경) 지도는 재사용하되 마커가 늘어나고 setBounds를 다시 호출한다", async () => {
+    const { getMapConstructorCalls, getSetBoundsCalls, markerCalls } = installKakaoMock();
+    const { rerender } = render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+    const boundsCallsBefore = getSetBoundsCalls();
+
+    const withAdded: CourseMapDay[] = [
+      {
+        dayIndex: 1,
+        items: [...daysWithCoords[0].items, { poiId: "c", poiName: "C장소", timeSlot: "16:00", lat: 36.42, lng: 127.5 }],
+      },
+    ];
+    rerender(<CourseMap days={withAdded} kakaoKey="test-key" />);
+
+    await waitFor(() => expect(markerCalls.length).toBe(5)); // 기존 2개(setMap(null)로 제거) + 새로 그린 3개
+    expect(getMapConstructorCalls()).toBe(1);
+    expect(getSetBoundsCalls()).toBeGreaterThan(boundsCallsBefore);
+  });
+
+  it("POI를 삭제해도 지도는 다시 만들지 않고 마커만 줄어든다", async () => {
+    const { getMapConstructorCalls, markerCalls, markerSetMapNullCalls } = installKakaoMock();
+    const { rerender } = render(<CourseMap days={daysWithCoords} kakaoKey="test-key" />);
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+
+    const withDeleted: CourseMapDay[] = [{ dayIndex: 1, items: [daysWithCoords[0].items[0]] }];
+    rerender(<CourseMap days={withDeleted} kakaoKey="test-key" />);
+
+    await waitFor(() => expect(markerCalls.length).toBe(3)); // 기존 2개 + 삭제 후 다시 그린 1개
+    expect(markerSetMapNullCalls.length).toBe(2); // 기존 마커 2개는 setMap(null)로 지워짐
+    expect(getMapConstructorCalls()).toBe(1);
+  });
+
+  it("다른 날짜만 바뀌면 지금 보고 있는 날짜의 마커는 다시 그리지 않는다(불필요한 재그리기/깜빡임 방지)", async () => {
+    const { markerCalls } = installKakaoMock();
+    const twoDays: CourseMapDay[] = [
+      ...daysWithCoords,
+      {
+        dayIndex: 2,
+        items: [{ poiId: "c", poiName: "C장소", timeSlot: "10:00", lat: 36.3, lng: 127.3 }],
+      },
+    ];
+    const { rerender } = render(<CourseMap days={twoDays} kakaoKey="test-key" />);
+    // 기본 선택은 1일차이므로 1일차 마커 2개만 그려진다.
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+
+    // 2일차(현재 보고 있지 않은 날짜)만 편집 — 1일차 내용은 그대로.
+    const day2Edited: CourseMapDay[] = [
+      daysWithCoords[0],
+      {
+        dayIndex: 2,
+        items: [
+          { poiId: "c", poiName: "C장소", timeSlot: "10:00", lat: 36.3, lng: 127.3 },
+          { poiId: "d", poiName: "D장소", timeSlot: "13:00", lat: 36.32, lng: 127.33 },
+        ],
+      },
+    ];
+    rerender(<CourseMap days={day2Edited} kakaoKey="test-key" />);
+
+    // 현재 화면(1일차)의 마커는 다시 그려지지 않아 개수가 그대로 2개다(재그리기가 일어났다면 4개가 됨).
+    await waitFor(() => expect(markerCalls.length).toBe(2));
+  });
+
+  it("실제 경로가 뒤늦게 도착해도 순서만 바뀐 것처럼 setBounds를 다시 호출하지 않는다(2026-08-16 보완)", async () => {
+    const { getSetBoundsCalls, polylineCalls } = installKakaoMock();
+    let resolveGeometry: (v: {
+      segments: { dayIndex: number; fromPoiId: string; toPoiId: string; path: { lat: number; lng: number }[]; source: "LIVE_ROUTE" | "FALLBACK" }[];
+    }) => void = () => {};
+    vi.mocked(fetchPlanRouteGeometryAction).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveGeometry = resolve)),
+    );
+
+    render(<CourseMap days={daysWithCoords} kakaoKey="test-key" projectId="proj-1" />);
+    await waitFor(() => expect(polylineCalls.length).toBe(2));
+    const boundsCallsBeforeGeometry = getSetBoundsCalls();
+    expect(boundsCallsBeforeGeometry).toBeGreaterThan(0);
+
+    resolveGeometry({
+      segments: [
+        {
+          dayIndex: 1,
+          fromPoiId: "a",
+          toPoiId: "b",
+          path: [
+            { lat: 36.35, lng: 127.38 },
+            { lat: 36.4, lng: 127.45 },
+          ],
+          source: "LIVE_ROUTE",
+        },
+      ],
+    });
+
+    await waitFor(() => expect(polylineCalls.length).toBe(4));
+    expect(getSetBoundsCalls()).toBe(boundsCallsBeforeGeometry);
   });
 });
 

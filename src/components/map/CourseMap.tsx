@@ -44,6 +44,10 @@ function drawRouteLines(
   positions: unknown[],
   items: CourseMapItem[],
   geometryByEdge: Map<string, LatLng[]> | null,
+  /** 지도를 새로 만든 직후(최초 1회)나 POI 구성이 실제로 바뀐 경우(추가/삭제)에만 true — 순서만
+   * 바뀌거나(reorder) 실제 경로가 뒤늦게 도착한 경우는 false로 넘겨, 사용자가 수동으로 조작한 확대/
+   * 축소·이동이 편집 중 계속 초기화되지 않게 한다(2026-08-16, Phase B 지도 실시간 갱신). */
+  fitBounds: boolean,
 ): { setMap: (map: unknown) => void }[] {
   const overlays: { setMap: (map: unknown) => void }[] = [];
   const bounds = new kakao.LatLngBounds();
@@ -81,8 +85,43 @@ function drawRouteLines(
     overlays.push(halo, main);
   }
 
-  (map as { setBounds: (b: unknown) => void }).setBounds(bounds);
+  if (fitBounds) {
+    (map as { setBounds: (b: unknown) => void }).setBounds(bounds);
+  }
   return overlays;
+}
+
+/** 마커+InfoWindow를 생성한다(2026-08-16, Phase B 지도 실시간 갱신) — 지도 최초 생성 시와, 편집 중
+ * POI 구성/순서가 바뀌어 마커만 다시 그릴 때가 완전히 같은 마커 생성 로직을 공유하도록 분리했다. */
+function createMarkers(
+  kakao: NonNullable<Window["kakao"]>["maps"],
+  map: unknown,
+  items: (CourseMapItem & { lat: number; lng: number })[],
+): { markers: { setMap: (map: unknown) => void }[]; positions: unknown[] } {
+  const markers: { setMap: (map: unknown) => void }[] = [];
+  const positions: unknown[] = [];
+  items.forEach((item, i) => {
+    const position = new kakao.LatLng(item.lat, item.lng);
+    const marker = new kakao.Marker({ position, map, zIndex: 10 });
+    const info = new kakao.InfoWindow({
+      content: `<div style="padding:4px;font-size:12px;">${i + 1}. ${item.timeSlot} ${item.poiName}</div>`,
+    });
+    kakao.event.addListener(marker, "click", () => info.open(map, marker));
+    markers.push(marker as { setMap: (map: unknown) => void });
+    positions.push(position);
+  });
+  return { markers, positions };
+}
+
+/** 이전에 그렸던 POI 구성(id 집합)과 비교해 실제로 추가/삭제가 있었는지 판단한다 — 순서만 바뀐
+ * reorder는 여기서 false가 나와 fitBounds를 건너뛴다. */
+function poiIdSetChanged(prev: Set<string> | null, current: Set<string>): boolean {
+  if (!prev) return true;
+  if (prev.size !== current.size) return true;
+  for (const id of current) {
+    if (!prev.has(id)) return true;
+  }
+  return false;
 }
 
 function FallbackNote({ reason }: { reason: "NO_KEY" | "LOAD_FAILED" | "NO_COORDS" }) {
@@ -121,12 +160,14 @@ export function CourseMap({
   const [mapFailed, setMapFailed] = useState(false);
   const [geometryByEdge, setGeometryByEdge] = useState<Map<string, LatLng[]> | null>(null);
 
-  // 지도 인스턴스·마커 위치·현재 그려진 경로선(halo+본선)을 ref로 들고 있다가, 실제 경로 조회가
-  // 뒤늦게 끝나도 지도 자체를 다시 만들지 않고 경로선만 지우고 새로 그린다(2026-08-08). 이전에는
-  // geometryByEdge가 바뀔 때마다 kakao.maps.Map을 통째로 새로 생성해, 실제 경로가 늦게 도착하면 지도가
-  // 다시 그려지는 순간 이전 지도의 fallback 점선이 잠깐 남아 있다가 확대/축소 시 깜빡여 보였다.
+  // 지도 인스턴스·마커·현재 그려진 경로선(halo+본선)을 ref로 들고 있다가, 실제 경로 조회가 뒤늦게
+  // 끝나거나(2026-08-08) 편집 중(Drag & Drop/추가/삭제)에 `days`가 바뀌어도(2026-08-16, Phase B
+  // 지도 실시간 갱신) 지도 자체를 다시 만들지 않고 마커/경로선만 지우고 새로 그린다. 이전에는
+  // geometryByEdge나 currentDay가 바뀔 때마다 kakao.maps.Map을 통째로 새로 생성해, 실제 경로가 늦게
+  // 도착하거나 편집할 때마다 지도가 다시 그려지는 순간 확대/축소가 초기화되고 깜빡여 보였다.
   const mapInstanceRef = useRef<unknown>(null);
   const positionsRef = useRef<unknown[]>([]);
+  const markersRef = useRef<{ setMap: (map: unknown) => void }[]>([]);
   const routeOverlaysRef = useRef<{ setMap: (map: unknown) => void }[]>([]);
   // SDK 로딩이 비동기로 끝나는 경우(최초 스크립트 로딩) 지도 생성 콜백이 나중에 실행될 수 있어, 그
   // 시점에 최신 geometryByEdge를 읽기 위한 ref다(지도 생성 effect는 geometryByEdge를 의존성으로 두지
@@ -138,6 +179,11 @@ export function CourseMap({
   // React는 마운트 시 의존성 변화 여부와 무관하게 모든 effect를 한 번 실행하므로, 지도 생성 effect가
   // 이미 그린 최초 1회분을 경로선 갱신 effect가 중복으로 다시 그리지 않도록 막는 플래그다.
   const isFirstGeometryRun = useRef(true);
+  // 마지막으로 실제 그렸던 POI 구성(id 집합)/시그니처 — 순서만 바뀐 reorder는 구성이 같으므로
+  // fitBounds를 건너뛰고(사용자가 조작한 확대/축소 유지), 추가/삭제로 구성이 바뀐 경우만 다시 맞춘다.
+  // 다른 날짜만 편집됐을 때(이 날짜의 시그니처는 그대로)는 아래 재그리기 effect 자체를 건너뛴다.
+  const lastPoiIdSetRef = useRef<Set<string> | null>(null);
+  const lastItemsSignatureRef = useRef<string | null>(null);
 
   const selectableDays = useMemo(
     () =>
@@ -155,6 +201,16 @@ export function CourseMap({
   const currentDay =
     (selectedDayIndex !== null ? selectableDays.find((d) => d.dayIndex === selectedDayIndex) : undefined) ??
     selectableDays[0];
+
+  // 현재 날짜의 POI 구성·순서·좌표만 반영하는 원시값 문자열(2026-08-16, Phase B 지도 실시간 갱신) —
+  // `currentDay` 객체 자체는 다른 날짜만 편집돼도(`selectableDays`가 매번 새 배열을 만들므로) 참조가
+  // 매번 바뀌지만, 이 문자열은 실제 내용이 같으면 같은 값을 반환한다. 재그리기 effect의 의존성을 이
+  // 문자열로 두면(객체가 아니라) React가 값 비교로 불필요한 재실행을 막아준다 — 편집 중인 날짜가 아닌
+  // 다른 날짜의 지도까지 매번 다시 그리는 낭비/깜빡임을 피한다.
+  const currentItemsSignature = useMemo(
+    () => (currentDay ? currentDay.items.map((it) => `${it.poiId}:${it.lat}:${it.lng}`).join("|") : null),
+    [currentDay],
+  );
 
   // 이동 경로 조회(2026-08-06, 2026-08-06 2차: 이동수단 무관 전체 적용) — 지도 마운트/일정 변경과
   // 독립적으로 한 번만 시도한다. 실행안 내용은 이 조회와 무관하게 이미 렌더링돼 있으므로, 여기서
@@ -182,13 +238,19 @@ export function CourseMap({
     };
   }, [projectId]);
 
-  // 지도 생성 + 마커 — 날짜(currentDay)나 키가 바뀔 때만 실행되어 지도를 새로 만든다(날짜 탭 전환 시
-  // 이전 날짜의 오버레이가 남지 않도록 컨테이너를 초기화하는 기존 동작 유지). geometryByEdge는 여기서
-  // 다루지 않는다 — 경로 조회가 끝나도 이 effect가 다시 돌아 지도를 재생성하지 않게 한다.
+  // 지도 인스턴스 생성 — kakaoKey나 날짜 탭 자체가 바뀔 때만 실행된다(날짜 전환은 이전 날짜의
+  // 오버레이가 남지 않도록 컨테이너를 초기화하는 기존 동작 유지). 이전에는 `currentDay` 객체 전체를
+  // 의존성으로 둬서, 다른 날짜만 편집돼도(2026-08-16, Phase B 지도 실시간 갱신 — `selectableDays`가
+  // 매번 새 배열/객체를 만들므로) 지도를 통째로 다시 만들었다 — `dayIndex`(원시값)만 비교하도록 좁혀,
+  // 실제 날짜 탭 전환이 아니면 지도 인스턴스를 재사용한다. 마커/경로선은 이 effect가 그리지 않고 아래
+  // 재그리기 effect가 담당한다(시그니처가 초기화돼 있어 최초 1회는 반드시 다시 그려진다).
   useEffect(() => {
     mapInstanceRef.current = null;
     positionsRef.current = [];
+    markersRef.current = [];
     routeOverlaysRef.current = [];
+    lastPoiIdSetRef.current = null;
+    lastItemsSignatureRef.current = null;
     if (!kakaoKey || !currentDay || currentDay.items.length === 0) return;
 
     loadKakaoMapsSdk(
@@ -204,30 +266,59 @@ export function CourseMap({
           center: new kakao.maps.LatLng(items[0].lat, items[0].lng),
           level: 7,
         });
-
-        const positions = items.map((item, i) => {
-          const position = new kakao.maps.LatLng(item.lat, item.lng);
-          const marker = new kakao.maps.Marker({ position, map, zIndex: 10 });
-          const info = new kakao.maps.InfoWindow({
-            content: `<div style="padding:4px;font-size:12px;">${i + 1}. ${item.timeSlot} ${item.poiName}</div>`,
-          });
-          kakao.maps.event.addListener(marker, "click", () => info.open(map, marker));
-          return position;
-        });
-
         mapInstanceRef.current = map;
+
+        const { markers, positions } = createMarkers(kakao.maps, map, items);
+        markersRef.current = markers;
         positionsRef.current = positions;
-        // 지도를 만든 직후 그 시점까지 확보된 경로로 한 번 그린다(geometryRef는 최신값을 항상 반영).
-        routeOverlaysRef.current = drawRouteLines(kakao.maps, map, positions, items, geometryRef.current);
+        lastPoiIdSetRef.current = new Set(items.map((it) => it.poiId));
+        lastItemsSignatureRef.current = currentItemsSignature;
+
+        // 지도를 만든 직후 그 시점까지 확보된 경로로 한 번 그리고, 최초 1회이므로 항상 bounds를 맞춘다
+        // (geometryRef는 최신값을 항상 반영).
+        routeOverlaysRef.current = drawRouteLines(kakao.maps, map, positions, items, geometryRef.current, true);
       },
       () => setMapFailed(true),
     );
-  }, [kakaoKey, currentDay]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kakaoKey, currentDay?.dayIndex]);
+
+  // 편집 중 마커/경로선 다시 그리기(2026-08-16, Phase B 지도 실시간 갱신) — Drag & Drop 재정렬·날짜
+  // 이동·추천 후보 추가·삭제로 `days`(따라서 현재 날짜의 POI 구성/순서)가 바뀔 때마다, 지도 인스턴스는
+  // 그대로 두고 마커와 경로선만 지우고 새로 그린다(위 지도 생성 effect가 매번 재실행되지 않게 분리한
+  // 이유이기도 하다). POI 구성 자체가 바뀐 경우(추가/삭제)만 fitBounds하고, 순서만 바뀐 reorder는
+  // 사용자가 수동으로 조작한 확대/축소·이동을 그대로 유지한다.
+  useEffect(() => {
+    const kakao = window.kakao;
+    const map = mapInstanceRef.current;
+    if (!kakao?.maps || !map || !currentDay) return;
+    // 지도 생성 effect가 이미 처리한 최초 1회, 또는 다른 날짜만 바뀌어 이 날짜 내용은 그대로인 경우
+    // 건너뛴다(불필요한 마커 재생성/깜빡임 방지).
+    if (currentItemsSignature === lastItemsSignatureRef.current) return;
+
+    const items = currentDay.items;
+    markersRef.current.forEach((m) => m.setMap(null));
+    routeOverlaysRef.current.forEach((o) => o.setMap(null));
+
+    const { markers, positions } = createMarkers(kakao.maps, map, items);
+    markersRef.current = markers;
+    positionsRef.current = positions;
+
+    const currentPoiIdSet = new Set(items.map((it) => it.poiId));
+    const shouldFitBounds = poiIdSetChanged(lastPoiIdSetRef.current, currentPoiIdSet);
+    lastPoiIdSetRef.current = currentPoiIdSet;
+    lastItemsSignatureRef.current = currentItemsSignature;
+
+    routeOverlaysRef.current = drawRouteLines(kakao.maps, map, positions, items, geometryRef.current, shouldFitBounds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentItemsSignature]);
 
   // 이동 경로선 다시 그리기 — geometryByEdge(경로 조회 결과)가 바뀌면 지도는 그대로 두고 경로선만
-  // 지운 뒤 새로 그린다(2026-08-08, 지도 재생성으로 인한 확대/축소 시 fallback 점선 깜빡임 수정). 지도
-  // 생성 직후의 첫 그리기는 위 effect가 이미 처리하므로, 여기서는 이후에 오는 갱신만 다룬다 — React는
-  // 마운트 시 deps와 무관하게 모든 effect를 한 번씩 실행하므로, 최초 1회는 isFirstGeometryRun로 건너뛴다.
+  // 지운 뒤 새로 그린다(2026-08-08, 지도 재생성으로 인한 확대/축소 시 fallback 점선 깜빡임 수정). 실제
+  // 경로가 뒤늦게 도착한 것만으로는 사용자가 조작한 확대/축소를 초기화하지 않는다(fitBounds=false,
+  // 2026-08-16 보완). 지도 생성 직후의 첫 그리기는 위 effect가 이미 처리하므로, 여기서는 이후에 오는
+  // 갱신만 다룬다 — React는 마운트 시 deps와 무관하게 모든 effect를 한 번씩 실행하므로, 최초 1회는
+  // isFirstGeometryRun으로 건너뛴다.
   useEffect(() => {
     if (isFirstGeometryRun.current) {
       isFirstGeometryRun.current = false;
@@ -244,6 +335,7 @@ export function CourseMap({
       positionsRef.current,
       currentDay.items,
       geometryByEdge,
+      false,
     );
     // currentDay는 의도적으로 제외한다 — 날짜 전환은 위 지도 생성 effect가 처음부터 다시 그려 처리하고,
     // 여기서 또 반응하면 같은 경로선이 중복으로 그려진다.

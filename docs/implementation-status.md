@@ -2555,3 +2555,97 @@ KeyboardSensor 키 입력 사이 지연 부족(위 5) 참고). 세 가지 모두
 **최종 판정**: **검증 완료** — 같은 날짜 재정렬, 날짜 간 이동, 추천 후보→일정 추가 세 가지 핵심
 Drag를 모두 실제 pointer 이벤트로 재현·성공시켰다. 단, touch drag 자체는 미검증 상태로 남아있다
 (위 6) 참고).
+
+## 2026-08-16 갱신(7) — 코스 편집 지도 실시간 갱신(Phase B 세 번째 단계)
+
+**배경**: 위 갱신들로 Drag & Drop 자체는 완료됐지만, 지도(`CourseMap`)는 편집 중인 `days`를 받고는
+있어도 항목이 하나만 바뀌어도 카카오 지도 인스턴스를 통째로 다시 만들어(이전 `currentDay`를 effect
+의존성 전체로 뒀기 때문) 편집할 때마다 지도가 깜빡이고 사용자가 조작한 확대/축소가 초기화됐다. 이번
+목표는 새 지도 데이터 모델이 아니라, `PlanEditor`의 `days`를 지도 표현의 유일한 source of truth로
+유지하면서 이 재생성 문제만 없애는 것이었다.
+
+**1) 기존 지도 데이터/route 구조 조사**: `CourseMap.tsx`는 이미 `PlanEditor`의 실시간 `days` state를
+그대로 prop으로 받고 있었다(`<CourseMap days={days} .../>` — `plan.course.days`가 아니라 편집 중인
+state). 실제 도로 경로는 `fetchPlanRouteGeometryAction(projectId)`가 **DB에 저장된 `selectedPlan.
+course`** 를 기준으로 한 번만 조회해 `geometryByEdge`(구간별 실제 좌표 Map)에 저장하고, 마운트 시
+`[projectId]`에만 의존해 딱 1회 호출된다 — `days` 편집과는 완전히 분리돼 있어 Drag 중 재호출되지
+않는다(새로 만들 필요 없이 이미 안전했음). 실제 경로가 없거나 조회 전인 구간은 두 지점을 직선(옅은
+점선)으로 대체하는 fallback이 이미 있었다.
+
+**2) `days` state 연결 방식**: 새 지도 전용 state(`mapDays` 등)를 만들지 않고 기존 구조를 그대로
+유지했다 — `CourseMap`은 여전히 `PlanEditor`의 `days`를 직접 받는다. 문제는 받는 쪽이 아니라
+받은 뒤의 처리(아래 3)였다.
+
+**3) 지도 인스턴스 재사용**: `src/components/map/CourseMap.tsx`에서 지도 생성 effect의 의존성을
+`[kakaoKey, currentDay]`(객체 전체)에서 `[kakaoKey, currentDay?.dayIndex]`(원시값)로 좁혔다 —
+카카오 키가 바뀌거나 날짜 탭을 전환할 때만 `kakao.maps.Map`을 새로 만들고, 같은 날짜 안에서
+`days`가 바뀌는 경우(Drag reorder/추가/삭제)는 지도 인스턴스를 재사용한다. 마커/경로선을 별도
+effect로 분리해, 현재 날짜 POI의 id/좌표만 반영한 시그니처 문자열(`currentItemsSignature`, 다른
+날짜가 바뀌어도 값이 그대로면 재실행되지 않음)이 실제로 바뀔 때만 다시 그린다.
+
+**4) marker 실시간 갱신**: 마커 생성 로직을 `createMarkers()`로 분리해 지도 최초 생성 시와 편집 중
+재그리기가 완전히 같은 함수를 공유한다. 재그리기 전 기존 마커는 `marker.setMap(null)`로 지우고 현재
+`days` 순서로 새로 만들어, 순번(`1. `, `2. ` ...)도 항상 최신 순서를 반영한다(오래된 저장 순번을
+쓰지 않음).
+
+**5) polyline/route geometry 처리**: `drawRouteLines()`에 `fitBounds: boolean` 인자를 추가했다.
+편집으로 POI 구성 자체가 바뀐 경우(추가/삭제, `poiIdSetChanged()`로 판정)만 `map.setBounds()`를
+다시 호출하고, 순서만 바뀐 reorder나 실제 경로가 뒤늦게 도착한 경우는 호출하지 않는다 — 사용자가
+수동으로 조작한 확대/축소·이동이 편집 중 계속 초기화되지 않는다. `geometryByEdge`는 여전히 저장된
+adjacency(구간) 기준이라, reorder로 인접 쌍이 바뀌면 그 구간은 자동으로 매치되지 않아 직선(옅은
+점선)으로 대체된다 — 즉 stale한 실제 도로선을 최신인 것처럼 보여주는 경우가 원천적으로 없다(별도
+"편집 중" 배지 없이도 이미 안전).
+
+**6) Kakao Mobility 호출 정책**: 위 1)에서 확인한 대로 편집(Drag/추가/삭제)은 이 조회에 전혀
+영향을 주지 않는다 — 마운트 시 1회만 호출하고, 저장 시에도 이 액션을 다시 부르지 않는다(저장은
+`savePlanAction`이 별도로 처리). Playwright E2E(`e2e/plan-map-live-update.spec.ts`)로 실제 네트워크
+요청 수를 계측해 확인했다(아래 9번).
+
+**7) 같은 날짜 Drag 결과**: 실제 pointer drag로 순서를 바꾸면 지도는 재사용되고(생성 횟수 그대로),
+마커가 새 순서로 다시 그려지며, `setBounds`는 다시 호출되지 않는다(사용자 확대/축소 유지) — 단위
+테스트로 확인.
+
+**8) 날짜 간 이동/추가/삭제 결과**: 날짜 간 이동, 추가, 삭제 모두 지도 인스턴스를 재사용하면서
+마커가 즉시 갱신된다. 추가/삭제처럼 POI 구성이 실제로 바뀐 경우는 `setBounds`가 다시 호출된다(새
+장소가 화면 밖에 있어도 보이도록) — 단위 테스트로 확인.
+
+**9) 경주/청주 E2E(실제 Chromium, 실제 카카오맵 SDK)**: 로컬 QA 프로젝트로 신규
+`e2e/plan-map-live-update.spec.ts` 6개를 작성해 통과시켰다 — (a) 재정렬/후보 추가/삭제를 여러 번
+반복하는 동안 `/projects/{id}/plan`으로의 POST 요청(서버 액션)이 마운트 시 1건(지도 경로 조회)에서
+전혀 늘지 않다가 저장 버튼을 눌렀을 때만 정확히 1건 더 발생함을 실측 확인(요청 카운트 비교), (b)
+재정렬 후에도 지도 관련 콘솔 오류 없이 `course-map-container`가 계속 보임, (c) 날짜 간 이동 후에도
+지도가 정상 렌더링, (d) 저장→새로고침 후 지도/일정 순서 일치, (e) 청주에서 추천 후보 drag 추가→
+지도 유지→삭제→지도 유지→후보 재등장, (f) 375px에서 버튼 편집 후에도 가로 스크롤 없음. 기존
+`e2e/plan-drag-drop.spec.ts` 9개도 회귀 없이 그대로 통과했다.
+
+**10) 모바일/flicker/오류 안전성**: 375px에서 편집 후 가로 스크롤이 생기지 않음을 확인했다(9-f).
+지도 인스턴스 재사용으로 편집 중 flicker 유발 요인(불필요한 `kakao.maps.Map` 재생성)을 제거했다 —
+기존 "실제 경로 지연 도착 시 지도 재생성 없음"(2026-08-08) 불변식은 단위 테스트로 계속 확인된다.
+지도(Kakao SDK/좌표) 관련 오류가 있어도 `FallbackNote`로 대체 문구만 보여줄 뿐 `PlanEditor` 전체가
+깨지지 않는 기존 구조는 그대로다(변경 없음).
+
+**11) 발견한 사실(버그 아님)**: Playwright로 콘솔 오류를 전수 확인하는 과정에서, dnd-kit이 SSR과
+클라이언트 hydration 사이에 내부 `aria-describedby`(`DndDescribedBy-N`) 값을 다르게 생성해 React
+hydration mismatch 경고가 발생하는 것을 확인했다 — 이는 이전 세션(Drag & Drop 도입, 2026-08-16
+갱신(5))부터 있던 것으로 이번 지도 작업과 무관하고, 화면 동작에는 영향이 없어(경고일 뿐 오류 아님)
+이번 세션에서는 수정하지 않았다. 필요하면 별도 세션에서 dnd-kit의 `id` prop을 고정값으로 지정해
+해소할 수 있다(향후 참고용으로 기록만 남긴다).
+
+**12) 검증**: `tests/unit/CourseMap.test.tsx`에 신규 6개(같은 날짜 reorder 시 지도 재사용+마커
+재생성, reorder는 setBounds 재호출 없음, 추가 시 지도 재사용+setBounds 재호출, 삭제 시 지도
+재사용+마커 감소, 다른 날짜 편집 시 현재 날짜 마커 유지, 실제 경로 지연 도착 시 setBounds 재호출
+없음)를 추가했다. `git stash`로 `CourseMap.tsx`만 되돌려 신규 6개가 전부 실패함을 확인한 뒤(fail-
+before) 복원해 통과함을 확인했다(pass-after). 전체 유닛 테스트 1516개, `npx tsc --noEmit`, lint,
+build 모두 통과했다.
+
+**13) 변경 금지 범위 준수 확인**: DNA/Network/similarity/전략 점수/후보 랭킹·개수/POI fit/dedup
+정책/route 추천 알고리즘 자체/실시간 코스 품질검증은 전혀 건드리지 않았다 — 이번 변경은
+`src/components/map/CourseMap.tsx`(마커/경로선 재사용 로직)와 테스트 파일에 한정된다. DB schema
+변경 없음, 새 서버 액션 없음.
+
+**아직 남은 위험(투명하게 공개)**: (a) 실시간 코스 품질 검증(핵심 테마 부족/과밀/동일시설 중복 등을
+편집 중 실시간 경고)은 아직 없다 — 저장된 실행안 기준 "사업 사전검증 리포트"만 있다. (b) 후보
+카드에 예상 이동거리는 여전히 표시하지 않는다. (c) 편집 중 새로 추가한 POI끼리의 구간은 실제 도로
+경로가 저장 전까지 반영되지 않고 항상 직선으로 보인다(저장 후 새로고침해야 실제 경로로 갱신) —
+Kakao Mobility API를 편집마다 호출하지 않기로 한 정책의 의도된 결과다. (d) dnd-kit SSR hydration
+경고(위 11번)는 화면 동작에 영향이 없지만 아직 남아있다.
