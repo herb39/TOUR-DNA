@@ -31,7 +31,8 @@
     "dataset:activate": "tsx --env-file=.env.local scripts/activate-dataset.ts",
     "dataset:status": "tsx --env-file=.env.local scripts/dataset-status.ts",
     "dataset:discover": "tsx --env-file=.env.local scripts/dataset-discover.ts",
-    "dataset:drift": "tsx --env-file=.env.local scripts/dataset-drift.ts"
+    "dataset:drift": "tsx --env-file=.env.local scripts/dataset-drift.ts",
+    "enrich:tour-info-detail": "tsx --env-file=.env.local scripts/enrich-tour-info-detail.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

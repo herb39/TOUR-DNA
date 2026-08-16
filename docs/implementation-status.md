@@ -2748,3 +2748,24 @@ Phase B 완료 다음 단계인 Phase C를 작은 단위로 시작했다. 이번
 현재는 어댑터와 15개 테스트만 추가했으며, 전국 대량 호출·`Poi` upsert·실시간 품질검증 연결은
 호출량 상한과 증분 재처리 정책을 정한 뒤 별도 작업으로 진행한다. 권장 체류시간은 `spendtime`의
 실제 커버리지·의미 검증 전까지 기존처럼 사용자가 직접 입력한다.
+
+## 2026-08-17 갱신(4) — Phase C 10번 3차(detailIntro2 제한 증분 DB 반영)
+
+상세 API를 전국 동기화 경로에 바로 붙이지 않고, 명시적인 지역·호출 상한을 요구하는 별도 CLI로
+증분 반영 경로를 만들었다.
+
+**1) 실행 안전장치**: `npm run enrich:tour-info-detail -- --region-code=SGG_ONGJIN --max-items=1`
+형식으로 두 인자를 모두 요구한다. `max-items`는 1~100건으로 제한하고, DB 대상은 기존
+`checkDataSyncTarget()`을 재사용해 localhost가 아니면 기본 차단한다.
+
+**2) 후보 범위**: `sourceType=API`, `lclsSystm2=VE07`, `contenttypeid=14`, 외부 ID 존재,
+운영시간·휴무일 미확인, 기존 `detailIntro2` 응답 미저장인 POI만 순차 처리한다. 이미 운영시간이
+있거나 상세 API를 확인한 POI를 자동 재호출하지 않는다.
+
+**3) 저장 정책**: `Poi.operatingHours`·`Poi.closedDays`에는 상세 API 정규화 값을 저장하고,
+기존 `areaBasedList2` raw payload는 유지한 채 `rawPayload.detailIntro2` 아래에 원본·정규화 값·조회
+시각을 병합한다. DB schema migration은 없다.
+
+**4) 실제 검증**: 로컬 옹진군 `VE07` POI 1건에 `max-items=1`로 실행해 `updated=1`, `failed=0`을
+확인했다. `operatingHours=10:00~14:00`, `closedDays=매주 월요일, 화요일, 수요일, 목요일`이
+저장됐다. 전국 배치는 실행하지 않았다.

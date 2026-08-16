@@ -1,0 +1,123 @@
+import type { TourInfoDetailItem } from "../public-data/adapters/tourInfoDetail";
+
+export const TOUR_INFO_DETAIL_ENRICHMENT_USAGE =
+  "사용법: npm run enrich:tour-info-detail -- --region-code=SGG_JECHEON --max-items=10\n" +
+  "       --region-code(SIGUNGU)와 --max-items(이번 실행의 최대 상세 API 호출 수)를 반드시 지정합니다.";
+
+export const MAX_DETAIL_ITEMS_PER_RUN = 100;
+
+export interface TourInfoDetailEnrichmentArgs {
+  regionCode: string;
+  maxItems: number;
+}
+
+export function parseTourInfoDetailEnrichmentArgs(argv: string[]):
+  | { ok: true; value: TourInfoDetailEnrichmentArgs }
+  | { ok: false; error: string } {
+  let regionCode: string | null = null;
+  let maxItems: number | null = null;
+
+  for (const token of argv) {
+    if (token.startsWith("--region-code=")) {
+      if (regionCode !== null) return { ok: false, error: "--region-code를 두 번 이상 지정할 수 없습니다." };
+      const value = token.slice("--region-code=".length).trim();
+      if (!value) return { ok: false, error: "--region-code 값이 비어 있습니다." };
+      regionCode = value;
+      continue;
+    }
+    if (token.startsWith("--max-items=")) {
+      if (maxItems !== null) return { ok: false, error: "--max-items를 두 번 이상 지정할 수 없습니다." };
+      const value = token.slice("--max-items=".length);
+      if (!/^[1-9][0-9]*$/.test(value)) return { ok: false, error: "--max-items는 1 이상의 정수여야 합니다." };
+      maxItems = Number(value);
+      if (maxItems > MAX_DETAIL_ITEMS_PER_RUN) {
+        return { ok: false, error: `--max-items는 실행당 최대 ${MAX_DETAIL_ITEMS_PER_RUN}건까지 지정할 수 있습니다.` };
+      }
+      continue;
+    }
+    return { ok: false, error: `알 수 없는 옵션입니다: "${token}"` };
+  }
+
+  if (!regionCode || maxItems === null) {
+    return { ok: false, error: `--region-code와 --max-items를 모두 지정해야 합니다.\n${TOUR_INFO_DETAIL_ENRICHMENT_USAGE}` };
+  }
+  return { ok: true, value: { regionCode, maxItems } };
+}
+
+export interface TourInfoDetailEnrichmentPoi {
+  id: string;
+  externalId: string | null;
+  sourceType: string;
+  operatingHours: string | null;
+  closedDays: string | null;
+  rawPayload: unknown;
+}
+
+export interface TourInfoDetailEnrichmentCandidate extends TourInfoDetailEnrichmentPoi {
+  externalId: string;
+  contentTypeId: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function hasText(value: string | null): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** 문화예술 1차 범위인 VE07만 대상으로 한다. 이미 상세 응답을 저장한 POI는 재호출하지 않는다. */
+export function selectTourInfoDetailCandidates(
+  pois: TourInfoDetailEnrichmentPoi[],
+  maxItems: number,
+): TourInfoDetailEnrichmentCandidate[] {
+  return pois
+    .filter((poi) => {
+      const raw = asRecord(poi.rawPayload);
+      const contentTypeId = typeof raw.contenttypeid === "string" ? raw.contenttypeid : null;
+      return (
+        poi.sourceType === "API" &&
+        poi.externalId !== null &&
+        raw.lclsSystm2 === "VE07" &&
+        contentTypeId === "14" &&
+        !hasText(poi.operatingHours) &&
+        !hasText(poi.closedDays) &&
+        raw.detailIntro2 === undefined
+      );
+    })
+    .map((poi) => ({
+      ...poi,
+      externalId: poi.externalId as string,
+      contentTypeId: String(asRecord(poi.rawPayload).contenttypeid),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(0, maxItems);
+}
+
+export interface MergedTourInfoDetail {
+  operatingHours: string | null;
+  closedDays: string | null;
+  rawPayload: Record<string, unknown>;
+}
+
+/** 기존 areaBasedList2 원본을 보존하면서 detailIntro2 원본과 정규화 결과를 함께 기록한다. */
+export function mergeTourInfoDetail(
+  poi: Pick<TourInfoDetailEnrichmentPoi, "operatingHours" | "closedDays" | "rawPayload">,
+  detail: TourInfoDetailItem | null,
+  fetchedAt: string,
+): MergedTourInfoDetail {
+  const raw = asRecord(poi.rawPayload);
+  return {
+    operatingHours: detail?.operatingHours ?? poi.operatingHours,
+    closedDays: detail?.closedDays ?? poi.closedDays,
+    rawPayload: {
+      ...raw,
+      detailIntro2: {
+        fetchedAt,
+        operatingHours: detail?.operatingHours ?? null,
+        closedDays: detail?.closedDays ?? null,
+        raw: detail?.rawPayload ?? null,
+      },
+    },
+  };
+}
