@@ -255,9 +255,19 @@ describe("reorderCourseItemWithinDay / moveCourseItemToDay / insertPoiIntoDay �
 
   it("새 POI를 날짜의 임의 자리에 삽입한다(추천 후보 Drag 추가와 동일 경로)", () => {
     const days = [makeDay(1, ["a", "b"])];
-    const newPoi = { id: "new", name: "새 장소", category: "ATTRACTION", lat: 36.5, lng: 127.5 };
+    const newPoi = {
+      id: "new",
+      name: "새 장소",
+      category: "ATTRACTION",
+      lat: 36.5,
+      lng: 127.5,
+      operatingHours: "10:00~18:00",
+      closedDays: "매주 월요일",
+    };
     const result = insertPoiIntoDay(days, 1, newPoi, 1, "WALK");
     expect(poiIdsOf(result[0])).toEqual(["a", "new", "b"]);
+    expect(result[0].items[1].operatingHours).toBe("10:00~18:00");
+    expect(result[0].items[1].closedDays).toBe("매주 월요일");
   });
 
   it("삽입 자리가 현재 길이를 넘으면(끝자리 추가와 동일) 맨 끝에 추가된다", () => {
@@ -272,6 +282,20 @@ describe("reorderCourseItemWithinDay / moveCourseItemToDay / insertPoiIntoDay �
     const r1 = reorderCourseItemWithinDay(days, 1, 2, 0, "WALK");
     const r2 = reorderCourseItemWithinDay(days, 1, 2, 0, "WALK");
     expect(poiIdsOf(r1[0])).toEqual(poiIdsOf(r2[0]));
+  });
+});
+
+describe("buildDraftCourse — 운영시간·휴무일 메타데이터 보존", () => {
+  it("자동 코스 생성 시 POI 운영시간·휴무일을 CourseItem까지 전달한다", () => {
+    const source = {
+      ...poi("museum", 36.35, 127.38),
+      operatingHours: "10:00~18:00",
+      closedDays: "매주 월요일",
+    };
+    const days = buildDraftCourse([source], "DAY_TRIP", "WALK");
+
+    expect(days[0].items[0].operatingHours).toBe("10:00~18:00");
+    expect(days[0].items[0].closedDays).toBe("매주 월요일");
   });
 });
 

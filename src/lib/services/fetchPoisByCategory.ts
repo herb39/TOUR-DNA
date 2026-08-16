@@ -27,6 +27,8 @@ export async function fetchPoisByCategory(
       category,
       lat: p.lat,
       lng: p.lng,
+      operatingHours: p.operatingHours,
+      closedDays: p.closedDays,
       mealEligible: category === "FOOD" ? deriveMealEligible(p) : undefined,
       ...(category === "FOOD" ? { foodSubcategory: deriveFoodSubcategory(p) } : {}),
       // 2026-08-15: selectPois의 테마 관련성 랭킹(themeRelevanceTier)이 이름 키워드보다 우선 참고할

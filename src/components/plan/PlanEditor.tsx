@@ -365,7 +365,8 @@ export function PlanEditor({
     poi: Pick<
       PoiDetail,
       "id" | "name" | "category" | "lat" | "lng" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
-    >,
+    > &
+      Partial<Pick<PoiDetail, "operatingHours" | "closedDays">>,
   ) {
     // 버튼 기반 추가는 항상 끝자리에 삽입한다(기존 동작 유지) — Drag & Drop만 드롭 위치에 맞는
     // 자리를 computeDragOutcome을 통해 넘긴다.

@@ -70,6 +70,9 @@ export interface CourseItem {
   timeSlot: string;
   stayMinutes: number;
   travel: string;
+  /** TourAPI/DB의 운영시간·휴무일. 레거시 실행안에는 없을 수 있다. */
+  operatingHours?: string | null;
+  closedDays?: string | null;
   /** 이동 텍스트 재계산용 좌표. 이 필드가 추가되기 전(2026-07-21 이전) 저장된 실행안에는 없을 수 있다. */
   lat?: number;
   lng?: number;
@@ -113,6 +116,8 @@ export interface CourseItemInput {
   poiName: string;
   category: string;
   stayMinutes: number;
+  operatingHours?: string | null;
+  closedDays?: string | null;
   lat?: number;
   lng?: number;
   timeSlot?: string;
@@ -292,6 +297,8 @@ export function recomputeDayItems(
       timeSlot,
       stayMinutes: item.stayMinutes,
       travel: prev ? (travelEstimate as TravelEstimate).label : "숙소/집결지에서 이동",
+      operatingHours: item.operatingHours,
+      closedDays: item.closedDays,
       lat: item.lat,
       lng: item.lng,
       mealPurpose: item.mealPurpose,
@@ -311,6 +318,8 @@ export function courseItemToInput(item: CourseItem): CourseItemInput {
     poiName: item.poiName,
     category: item.category,
     stayMinutes: item.stayMinutes,
+    operatingHours: item.operatingHours,
+    closedDays: item.closedDays,
     lat: item.lat,
     lng: item.lng,
     timeSlot: item.timeSlot,
@@ -398,7 +407,8 @@ export function insertPoiIntoDay(
   poi: Pick<
     PoiDetail,
     "id" | "name" | "category" | "lat" | "lng" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
-  >,
+  > &
+    Partial<Pick<PoiDetail, "operatingHours" | "closedDays">>,
   index: number,
   transport: TransportCode,
 ): CourseDay[] {
@@ -409,6 +419,8 @@ export function insertPoiIntoDay(
       poiName: poi.name,
       category: poi.category,
       stayMinutes: 60,
+      operatingHours: poi.operatingHours,
+      closedDays: poi.closedDays,
       lat: poi.lat,
       lng: poi.lng,
       mealEligible: poi.mealEligible,
@@ -1119,6 +1131,8 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           poiName: poi.name,
           category: poi.category,
           stayMinutes: DEFAULT_ITEM_STAY_MINUTES,
+          operatingHours: poi.operatingHours,
+          closedDays: poi.closedDays,
           lat: poi.lat,
           lng: poi.lng,
           timeSlot,
@@ -1133,6 +1147,8 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           poiName: p.name,
           category: p.category,
           stayMinutes: DEFAULT_ITEM_STAY_MINUTES,
+          operatingHours: p.operatingHours,
+          closedDays: p.closedDays,
           lat: p.lat,
           lng: p.lng,
           mealEligible: p.mealEligible,

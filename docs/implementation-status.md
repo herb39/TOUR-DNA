@@ -2769,3 +2769,22 @@ Phase B 완료 다음 단계인 Phase C를 작은 단위로 시작했다. 이번
 **4) 실제 검증**: 로컬 옹진군 `VE07` POI 1건에 `max-items=1`로 실행해 `updated=1`, `failed=0`을
 확인했다. `operatingHours=10:00~14:00`, `closedDays=매주 월요일, 화요일, 수요일, 목요일`이
 저장됐다. 전국 배치는 실행하지 않았다.
+
+## 2026-08-17 갱신(5) — 운영시간·휴무일 실시간 코스 품질검증 연결
+
+앞선 증분 반영으로 DB에 저장된 운영시간·휴무일이 실행안 편집 화면까지 이어지지 않던 필드 손실을
+해소했다.
+
+**1) 필드 보존 경로**: `PoiLike`·`fetchPoisByCategory`·추천 `CandidatePoi`·검색 POI 추가·
+`CourseItem`/`CourseItemInput`/`buildDraftCourse`에 `operatingHours`와 `closedDays`를 연결했다. 재정렬·
+날짜 이동·Drag & Drop·저장 전 편집 상태에서도 값이 유지된다. DB schema 변경은 없다.
+
+**2) 보수적 판정**: `computeCourseQuality`에 `operating-hours-check` advisory를 추가했다. 단순한
+`HH:MM~HH:MM` 문구만 일정 시작시각+체류시간과 비교해 범위 이탈 가능성을 표시하고, `closedDays`가
+있으면 여행일자·요일 확인을 요청한다. 날짜 정보가 없는 현재 실행안에서는 특정 요일에 닫힌다고 확정하지
+않으며, 계절별·요일별 복합 운영시간 문구도 자동 판정하지 않는다. 숙박 항목은 체크인 규칙이 별도라
+이번 운영시간 비교 대상에서 제외했다.
+
+**3) 검증**: 운영시간 범위 이탈·범위 내 통과·휴무일 advisory·자동 코스 생성/POI 삽입 시 메타데이터
+보존 단위 테스트를 추가했다. 타깃 테스트 2개 파일 110개 통과, typecheck 통과. 전체 테스트·lint·
+production build는 커밋 전 최종 검증에서 다시 실행한다.

@@ -25,6 +25,8 @@ export interface CandidatePoi {
   category: PoiCategoryCode;
   lat: number;
   lng: number;
+  operatingHours?: string | null;
+  closedDays?: string | null;
   mealEligible?: boolean;
   foodSubcategory?: PoiLike["foodSubcategory"];
   lclsSystm1?: string | null;
@@ -78,8 +80,8 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
           name: poi.name,
           category,
           sourceType: "FIXTURE",
-          operatingHours: null,
-          closedDays: null,
+          operatingHours: poi.operatingHours ?? null,
+          closedDays: poi.closedDays ?? null,
           lclsSystm1: poi.lclsSystm1,
           lclsSystm2: poi.lclsSystm2,
         },
@@ -111,6 +113,8 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
       category: item.poi.category,
       lat: item.poi.lat as number,
       lng: item.poi.lng as number,
+      ...(item.poi.operatingHours !== undefined ? { operatingHours: item.poi.operatingHours } : {}),
+      ...(item.poi.closedDays !== undefined ? { closedDays: item.poi.closedDays } : {}),
       ...(item.poi.mealEligible !== undefined ? { mealEligible: item.poi.mealEligible } : {}),
       ...(item.poi.foodSubcategory !== undefined ? { foodSubcategory: item.poi.foodSubcategory } : {}),
       ...(item.poi.lclsSystm1 !== undefined ? { lclsSystm1: item.poi.lclsSystm1 } : {}),

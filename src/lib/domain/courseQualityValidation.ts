@@ -60,6 +60,91 @@ interface ResolvedTravel {
   source: TravelSource;
 }
 
+interface OperatingHoursRange {
+  openMinutes: number;
+  closeMinutes: number;
+}
+
+/** 운영시간 문구에서 단순한 HH:MM~HH:MM 구간만 추출한다. 계절별·요일별 복합 문구는
+ * 자동 판정하지 않고, 확실히 해석 가능한 경우에만 일정 시간과 비교한다. */
+function parseOperatingHoursRanges(value: string | null | undefined): OperatingHoursRange[] {
+  if (!value?.trim()) return [];
+  const ranges: OperatingHoursRange[] = [];
+  const pattern = /(\d{1,2}:\d{2})\s*[~〜–—-]\s*(\d{1,2}:\d{2})/g;
+  for (const match of value.matchAll(pattern)) {
+    const openMinutes = parseTimeSlotToMinutes(match[1]);
+    const closeMinutes = parseTimeSlotToMinutes(match[2]);
+    if (openMinutes === null || closeMinutes === null) continue;
+    ranges.push({ openMinutes, closeMinutes });
+  }
+  return ranges;
+}
+
+function hasMeaningfulClosedDays(value: string | null | undefined): value is string {
+  const normalized = value?.trim();
+  return Boolean(normalized && !/^(없음|연중무휴|무휴|[-–—]+)$/u.test(normalized));
+}
+
+function formatOperatingHoursWarningDetail(dayIndex: number, item: CourseItem, reason: string): string {
+  const source = [
+    item.operatingHours ? `운영시간 ${item.operatingHours}` : null,
+    hasMeaningfulClosedDays(item.closedDays) ? `휴무일 ${item.closedDays}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `${dayIndex}일차 ${item.poiName}: ${reason}${source ? ` (${source})` : ""}`;
+}
+
+function evaluateOperatingHoursWarnings(input: CourseQualityInput): CourseQualityWarning[] {
+  const details: string[] = [];
+
+  for (const day of input.days) {
+    for (const item of day.items) {
+      if (item.category === "LODGING") continue;
+
+      const startMinutes = parseTimeSlotToMinutes(item.timeSlot);
+      const endMinutes = startMinutes === null ? null : startMinutes + Math.max(0, item.stayMinutes);
+      const ranges = parseOperatingHoursRanges(item.operatingHours);
+      if (startMinutes !== null && endMinutes !== null && ranges.length > 0) {
+        const fitsAnyRange = ranges.some(({ openMinutes, closeMinutes }) => {
+          const adjustedClose = closeMinutes <= openMinutes ? closeMinutes + 24 * 60 : closeMinutes;
+          const adjustedEnd = endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes;
+          return startMinutes >= openMinutes && adjustedEnd <= adjustedClose;
+        });
+        if (!fitsAnyRange) {
+          details.push(
+            formatOperatingHoursWarningDetail(
+              day.dayIndex,
+              item,
+              `일정 ${item.timeSlot} 시작·${item.stayMinutes}분 체류가 운영시간 범위를 벗어날 수 있음`,
+            ),
+          );
+        }
+      }
+
+      if (hasMeaningfulClosedDays(item.closedDays)) {
+        details.push(
+          formatOperatingHoursWarningDetail(
+            day.dayIndex,
+            item,
+            "휴무일 문구가 있어 여행일자·요일 기준 확인 필요(날짜 정보가 없어 자동 휴무 판정은 하지 않음)",
+          ),
+        );
+      }
+    }
+  }
+
+  if (details.length === 0) return [];
+  return [
+    {
+      id: "operating-hours-check",
+      title: "운영시간·휴무일 확인",
+      message: "저장된 운영시간과 휴무일을 기준으로 확인이 필요한 장소가 있습니다. 날짜·요일이 없는 상태에서는 자동 확정 판정하지 않으므로 방문 전 공식 안내를 확인해주세요.",
+      details: details.slice(0, 6),
+    },
+  ];
+}
+
 function resolveTravel(prev: CourseItem, current: CourseItem, transport: TransportCode): ResolvedTravel | null {
   const storedMinutes = current.travelMinutes;
   if (Number.isFinite(storedMinutes)) {
@@ -370,6 +455,7 @@ export function computeCourseQuality(input: CourseQualityInput): CourseQualityRe
     ...evaluateMealWarnings(input),
     ...evaluateLodgingWarnings(input),
     ...evaluateTravelWarnings(input),
+    ...evaluateOperatingHoursWarnings(input),
   ];
   return { warnings };
 }

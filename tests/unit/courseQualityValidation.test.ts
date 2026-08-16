@@ -109,4 +109,62 @@ describe("computeCourseQuality", () => {
     expect(warningIds).toContain("travel-burden");
     expect(warningIds).toContain("schedule-feasibility");
   });
+
+  it("단순 운영시간 범위를 벗어난 일정은 확인 필요 advisory로 안내한다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({
+            poiName: "옹진 전시관",
+            timeSlot: "09:00",
+            stayMinutes: 60,
+            operatingHours: "10:00~14:00",
+          }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    const warning = report.warnings.find((candidate) => candidate.id === "operating-hours-check");
+    expect(warning?.details?.[0]).toContain("운영시간 10:00~14:00");
+    expect(warning?.details?.[0]).toContain("벗어날 수 있음");
+  });
+
+  it("운영시간 범위 안의 일정은 운영시간 경고를 만들지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({
+            timeSlot: "10:00",
+            stayMinutes: 60,
+            operatingHours: "10:00~14:00",
+          }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    expect(report.warnings.some((warning) => warning.id === "operating-hours-check")).toBe(false);
+  });
+
+  it("휴무일 문구는 여행일자·요일 확인 advisory로 안내하고 자동 휴무 판정은 하지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({
+            poiName: "옹진 전시관",
+            closedDays: "매주 월요일, 화요일",
+          }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    const warning = report.warnings.find((candidate) => candidate.id === "operating-hours-check");
+    expect(warning?.message).toContain("자동 확정 판정하지 않으므로");
+    expect(warning?.details?.[0]).toContain("자동 휴무 판정은 하지 않음");
+  });
 });

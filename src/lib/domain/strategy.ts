@@ -47,6 +47,9 @@ export interface PoiLike {
   id: string;
   name: string;
   category: PoiCategoryCode;
+  /** TourAPI/DB에서 확인된 운영시간·휴무일. 후보 선정은 이 값을 판정하지 않지만 실행안 품질검증까지 보존한다. */
+  operatingHours?: string | null;
+  closedDays?: string | null;
   /** FOOD 카테고리일 때만 의미가 있다 — 실제 식사가 가능한 장소인지(카페/전통찻집 등은 false, 3단계
    * 보완). planBuilder.ts의 PoiDetail.mealEligible과 같은 규약이다: 값이 없는 호출부(기존 테스트 등)는
    * 하위 호환을 위해 식사 가능으로 취급한다. */
