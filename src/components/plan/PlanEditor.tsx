@@ -524,7 +524,8 @@ export function PlanEditor({
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="space-y-6">
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <details className="rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">상품 기획 요약</summary>
           <label htmlFor="productName" className="block text-sm font-medium text-slate-700">
             상품명
           </label>
@@ -560,21 +561,22 @@ export function PlanEditor({
               <li key={i}>{s}</li>
             ))}
           </ul>
-        </section>
+        </details>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
           <CourseQualityPanel report={courseQuality} />
           {poiShortage ? (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <p>⚠ {poiShortage.message}</p>
+              <p>확인: {poiShortage.message}</p>
               <p className="mt-1 text-amber-700">{poiShortage.suggestion}</p>
             </div>
           ) : null}
           <div className="no-print mt-3">
             <CourseMap days={days} kakaoKey={plan.kakaoKey} projectId={plan.projectId} />
           </div>
-          <div className="mt-3 space-y-4">
+          <p className="mt-3 text-[11px] text-slate-400 xl:hidden">PC에서는 날짜별 열로 배치해 날짜 간 이동을 쉽게 확인할 수 있습니다.</p>
+          <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
             {days.map((day) => (
               <div key={day.dayIndex}>
                 <p className="text-xs font-semibold text-slate-500">{day.dayIndex}일차</p>
@@ -583,7 +585,7 @@ export function PlanEditor({
                 ) : null}
                 {day.notices?.map((notice, i) => (
                   <p key={i} className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
-                    ⚠ {notice}
+                      확인: {notice}
                   </p>
                 ))}
                 <DayDropZone dayIndex={day.dayIndex}>
@@ -702,8 +704,9 @@ export function PlanEditor({
         <section className="no-print rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">추천 후보</h2>
           <p className="mt-1 text-xs text-slate-500">
-            현재 선택한 전략·테마와 관련성이 높은 대체 장소입니다. 자동 생성된 코스를 대체하지 않고,
-            마음에 드는 장소만 골라 원하는 날짜에 추가할 수 있습니다.
+            공식 분류와 선택한 전략·테마의 적합도가 확인된 대체 장소입니다. 공원·가로수길·캠핑장처럼
+            지역 대표성을 자동 확정하기 어려운 보조시설과 숙박은 일반 후보에서 분리했습니다. 마음에 드는
+            장소는 직접 골라 원하는 날짜에 추가할 수 있습니다.
           </p>
           {candidatePois === null ? (
             <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1053,7 +1056,7 @@ function ScheduleItemRow({
             </span>
           ) : null}
           {infeasible ? (
-            <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibilityReason}</p>
+            <p className="mt-0.5 text-xs font-medium text-red-600">일정 조정 필요: {feasibilityReason}</p>
           ) : null}
           {fit ? (
             <details className="mt-1">
@@ -1063,7 +1066,7 @@ function ScheduleItemRow({
                 >
                   {resolveFitBadge(fit).label}
                 </span>
-                <span className="ml-1 text-slate-400">추천 근거 보기</span>
+                <span className="ml-1 text-slate-400">이동·선택 근거</span>
               </summary>
               <div className="mt-1 max-w-md space-y-1 rounded border border-slate-100 bg-white p-2 text-[11px] text-slate-600">
                 {fit.positiveReasons.length > 0 ? (

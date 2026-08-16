@@ -24,13 +24,14 @@ function isProvenanceCautionLevel(provenance: DataProvenance | null | undefined)
   return provenance === "ESTIMATED" || provenance === "MISSING" || provenance === null || provenance === undefined;
 }
 
-export function EvidenceTable({ items }: { items: EvidenceRow[] }) {
+export function EvidenceTable({ items, note }: { items: EvidenceRow[]; note?: string }) {
   if (items.length === 0) {
     return <p className="text-xs text-slate-500">연결된 데이터 근거가 없습니다.</p>;
   }
   const showProvenance = items.some((e) => e.provenance !== undefined);
   return (
     <div className="overflow-x-auto">
+      {note ? <p className="mb-2 text-[11px] text-slate-500">{note}</p> : null}
       <table className="w-full min-w-[720px] text-left text-xs">
         <thead className="text-slate-500">
           <tr>

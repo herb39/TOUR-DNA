@@ -130,9 +130,9 @@ export function StrategyCard({
       </p>
 
       {rationale ? (
-        <div className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-800">추천 근거</p>
-          <dl className="mt-1.5 space-y-1.5 text-xs text-slate-600">
+        <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-800">추천 근거</summary>
+          <dl className="mt-2 space-y-1.5 text-xs text-slate-600">
             <div>
               <dt className="font-medium text-slate-500">① 데이터 진단</dt>
               <dd>{rationale.dataDiagnosis}</dd>
@@ -150,7 +150,7 @@ export function StrategyCard({
               <dd>{rationale.executionDirection}</dd>
             </div>
           </dl>
-        </div>
+        </details>
       ) : (
         <div className="mt-3">
           <p className="text-xs font-medium text-slate-700">차별화 포인트</p>

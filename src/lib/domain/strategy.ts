@@ -2,7 +2,8 @@ import { clamp, roundForDisplay } from "./normalize";
 import { haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import type { FoodSubcategory } from "./foodClassification";
-import { dedupeBySameCoordinates } from "./poiDedup";
+import { dedupeBySameCoordinates, dedupeBySameSite } from "./poiDedup";
+import { isAutoTourismCandidate } from "./poiRecommendation";
 import { AXIS_LABEL_KO, METRIC_CODES, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
 import { formatSignedPercent } from "@/lib/format";
 import {
@@ -302,6 +303,7 @@ function rotatedCategoryPool(template: StrategyTemplate, cat: PoiCategoryCode, p
  * 뿐, 별도로 더 낮은 tier로 떨어뜨리지는 않는다 — 최소 구조로 "관련성 높은 후보가 우선"만 보장한다.
  */
 export function themeRelevanceTier(candidate: PoiLike, themeCategories: ThemeCategory[]): 0 | 1 | 2 {
+  if (!isAutoTourismCandidate(candidate, themeCategories)) return 2;
   if (themeCategories.length === 0) return 2;
   const structural = classifyStructuralPoiThemes(candidate.lclsSystm1, candidate.lclsSystm2);
   if (structural.some((c) => themeCategories.includes(c))) return 0;
@@ -342,6 +344,27 @@ function selectPois(
   // 테마(예: CULTURE_HISTORY 전략의 CULTURE_HISTORY 테마)가 있으면 그것만으로도 후보 랭킹에 반영된다.
   const rankingThemeCategories = [...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(template.id)])];
 
+  // 동일 시설의 대표 장소와 부속 시설을 한 관광 경험으로 취급한다(예: 생태공원·생태공원캠핑장).
+  // 대표 선택은 관광지·체험·식음·쇼핑 순서로 두고, 숙박은 아래에서 별도 슬롯으로만 선택한다.
+  const allNonLodgingPois = Object.entries(poisByCategory)
+    .filter(([category]) => category !== "LODGING")
+    .flatMap(([, pool]) => pool ?? []);
+  const dedupedNonLodgingIds = new Set(
+    dedupeBySameSite(allNonLodgingPois, (group) =>
+      [...group].sort((a, b) => {
+        const rank = (category: PoiCategoryCode) =>
+          category === "ATTRACTION" ? 0 : category === "EXPERIENCE" ? 1 : category === "FOOD" ? 2 : 3;
+        return rank(a.category) - rank(b.category) || a.name.localeCompare(b.name, "ko");
+      })[0],
+    ).map((poi) => poi.id),
+  );
+  poisByCategory = Object.fromEntries(
+    Object.entries(poisByCategory).map(([category, pool]) => [
+      category,
+      category === "LODGING" ? pool : (pool ?? []).filter((poi) => dedupedNonLodgingIds.has(poi.id)),
+    ]),
+  ) as Partial<Record<PoiCategoryCode, PoiLike[]>>;
+
   // 동일 시설 중복 억제(2026-08-16): SHOPPING 카테고리에 한해(전국 좌표 분포 조사 근거는 poiDedup.ts
   // 참고), 완전히 동일한 좌표를 가진 후보 그룹을 대표 1건으로 좁힌다. DB 원본은 바꾸지 않고 이 전략의
   // 후보 배열만 좁힌다 — 대표 선택은 이 전략의 관련성 tier(구조 신호 우선, 키워드 fallback)를 먼저
@@ -380,7 +403,11 @@ function selectPois(
   const poolFor = (cat: PoiCategoryCode): PoiLike[] => {
     let rotated = rotatedPools.get(cat);
     if (!rotated) {
-      rotated = rotatedCategoryPool(template, cat, poisByCategory[cat] ?? []);
+      rotated = rotatedCategoryPool(
+        template,
+        cat,
+        (poisByCategory[cat] ?? []).filter((poi) => isAutoTourismCandidate(poi, rankingThemeCategories)),
+      );
       rotatedPools.set(cat, rotated);
     }
     return rotated;

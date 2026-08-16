@@ -9,6 +9,8 @@ import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemp
 import { classifyThemes, templateCoreThemeCategories } from "@/lib/domain/audienceContext";
 import { themeRelevanceTier, type PoiLike } from "@/lib/domain/strategy";
 import { dedupeBySameCoordinates } from "@/lib/domain/poiDedup";
+import { dedupeBySameSite } from "@/lib/domain/poiDedup";
+import { isAutoTourismCandidate } from "@/lib/domain/poiRecommendation";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 
 /**
@@ -66,11 +68,27 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
   const existingIds = new Set(params.existingPoiIds);
 
   const evaluated: Array<{ poi: PoiLike; fit: PoiFitResult; tier: 0 | 1 | 2 }> = [];
+  const nonLodgingCandidates = dedupeBySameSite(
+    (Object.entries(poisByCategory)
+      .filter(([category]) => category !== "LODGING")
+      .flatMap(([, pool]) => pool ?? [])),
+    (group) =>
+      [...group].sort((a, b) => {
+        const rank = (category: PoiCategoryCode) =>
+          category === "ATTRACTION" ? 0 : category === "EXPERIENCE" ? 1 : category === "FOOD" ? 2 : 3;
+        return rank(a.category) - rank(b.category) || a.name.localeCompare(b.name, "ko");
+      })[0],
+  );
+  const nonLodgingIds = new Set(nonLodgingCandidates.map((poi) => poi.id));
+
   for (const category of Object.keys(poisByCategory) as PoiCategoryCode[]) {
+    if (category === "LODGING") continue;
     const pool = poisByCategory[category] ?? [];
     // SHOPPING만 동일 시설(동일 좌표) 중복을 대표 1건으로 좁힌다(4f093ec와 동일 근거) — 다른 카테고리는
     // 동일 좌표라도 서로 다른 콘텐츠인 사례가 많아 건드리지 않는다.
-    const deduped = category === "SHOPPING" ? dedupeBySameCoordinates(pool, (group) => group[0]) : pool;
+    const deduped = (category === "SHOPPING" ? dedupeBySameCoordinates(pool, (group) => group[0]) : pool).filter((poi) =>
+      nonLodgingIds.has(poi.id) && isAutoTourismCandidate(poi, rankingThemeCategories),
+    );
     for (const poi of deduped) {
       if (existingIds.has(poi.id)) continue;
       if (!Number.isFinite(poi.lat) || !Number.isFinite(poi.lng)) continue;

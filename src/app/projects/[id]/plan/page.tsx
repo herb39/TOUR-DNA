@@ -16,6 +16,7 @@ import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidatio
 import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
+import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +166,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           score: analysisResult[`${axis}Score` as const] as number | null,
         })),
         topStrategyName: selectedStrategy?.name ?? null,
+        displayScores: Object.fromEntries(
+          DNA_AXES.map((axis) => [axis, toDisplayDnaScore(analysisResult[`${axis}Score` as const] as number | null)]),
+        ),
       })
     : null;
 
@@ -197,7 +201,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             {shortRationale ? (
               <p className="mt-1 text-xs text-slate-600">선택 전략 근거: {shortRationale}</p>
             ) : null}
-            <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <details className="mt-2">
+              <summary className="cursor-pointer font-medium text-slate-600">전략 방향 상세 보기</summary>
+              <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
                 <dt className="font-medium text-slate-500">해결하려는 문제</dt>
                 <dd>{selectedStrategy.coreProblem ?? "재분석 필요"}</dd>
@@ -214,12 +220,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 <dt className="font-medium text-slate-500">기대 효과</dt>
                 <dd>{selectedStrategy.expectedEffect ?? "재분석 필요"}</dd>
               </div>
-            </dl>
+              </dl>
+            </details>
           </section>
         ) : null}
         {preLaunchValidation ? (
           <div className="mt-4">
-            <PreLaunchValidationSection report={preLaunchValidation} kpis={planData.kpis} />
+            <PreLaunchValidationSection report={preLaunchValidation} kpis={planData.kpis} compact />
           </div>
         ) : null}
         <div className="mt-6">

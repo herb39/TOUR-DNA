@@ -67,10 +67,13 @@ export function PreLaunchValidationSection({
   report,
   kpis,
   preliminary = false,
+  compact = false,
 }: {
   report: PreLaunchValidationReport;
   kpis?: EnrichedKpi[];
   preliminary?: boolean;
+  /** 분석 화면에서 기본 노출량을 줄이고 권고 결과만 먼저 보여준다. */
+  compact?: boolean;
 }) {
   const dataReliabilityKpis = kpis ? findRelatedKpiNames(kpis, report.dataReliabilityFlaggedAxes) : [];
   const weakAxisKpis = kpis && report.weakestAxis ? findRelatedKpiNames(kpis, [report.weakestAxis]) : [];
@@ -102,7 +105,46 @@ export function PreLaunchValidationSection({
         <p className="mt-1 text-xs font-medium">{report.expectedOutcomeIfImproved}</p>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {compact ? (
+        <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium text-slate-700">세부 검증 신호 보기</summary>
+          <div className="mt-3">
+            <ValidationDetails
+              report={report}
+              unknownHint={unknownHint}
+              dataReliabilityKpis={dataReliabilityKpis}
+              weakAxisKpis={weakAxisKpis}
+            />
+          </div>
+        </details>
+      ) : (
+        <div className="mt-3">
+          <ValidationDetails
+            report={report}
+            unknownHint={unknownHint}
+            dataReliabilityKpis={dataReliabilityKpis}
+            weakAxisKpis={weakAxisKpis}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ValidationDetails({
+  report,
+  unknownHint,
+  dataReliabilityKpis,
+  weakAxisKpis,
+}: {
+  report: PreLaunchValidationReport;
+  unknownHint?: string;
+  dataReliabilityKpis: string[];
+  weakAxisKpis: string[];
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <SignalCard label="데이터 신뢰도" signal={report.dataReliability} unknownHint={unknownHint} />
         <SignalCard label="POI 공급 충분성" signal={report.poiSupplySufficiency} unknownHint={unknownHint} />
         <SignalCard label="이동 현실성" signal={report.travelFeasibility} unknownHint={unknownHint} />
@@ -146,6 +188,6 @@ export function PreLaunchValidationSection({
           {weakAxisKpis.join(", ")}
         </p>
       ) : null}
-    </section>
+    </>
   );
 }

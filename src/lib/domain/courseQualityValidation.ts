@@ -28,6 +28,7 @@ export interface CourseQualityWarning {
   id: string;
   title: string;
   message: string;
+  severity: "BLOCKER" | "REVIEW" | "INFO";
   details?: string[];
 }
 
@@ -176,6 +177,7 @@ function evaluateOperatingHoursWarnings(input: CourseQualityInput): CourseQualit
       id: "operating-hours-check",
       title: "운영시간·휴무일 확인",
       message: "저장된 운영시간과 휴무일을 기준으로 확인이 필요한 장소가 있습니다. 날짜·요일이 없는 상태에서는 자동 확정 판정하지 않으므로 방문 전 공식 안내를 확인해주세요.",
+      severity: "REVIEW",
       details: details.slice(0, 6),
     },
   ];
@@ -236,6 +238,7 @@ function evaluateTravelWarnings(input: CourseQualityInput): CourseQualityWarning
     warnings.push({
       id: "travel-burden",
       title: "이동 부담",
+      severity: "REVIEW",
       message:
         excessiveCount > 0
           ? `60분 이상 이동 구간 ${burdened.length}개가 있으며, 그중 ${excessiveCount}개는 기존 90분 초과 기준입니다.`
@@ -248,6 +251,7 @@ function evaluateTravelWarnings(input: CourseQualityInput): CourseQualityWarning
       id: "schedule-feasibility",
       title: "시간표와 이동시간 불일치",
       message: `이전 일정의 체류시간과 이동시간을 고려하면 시작시각이 맞지 않는 구간 ${infeasible.length}개가 있습니다.`,
+      severity: "BLOCKER",
       details: infeasible.slice(0, 4),
     });
   }
@@ -286,6 +290,7 @@ function evaluateDailyDensityWarnings(input: CourseQualityInput): CourseQualityW
       id: "daily-density",
       title: "하루 일정 과밀",
       message: "자동 생성 기준보다 장소 수가 많거나 기본 종료 시각을 넘긴 날짜가 있습니다. 의도한 일정인지 확인해주세요.",
+      severity: "REVIEW",
       details,
     },
   ];
@@ -328,6 +333,7 @@ function evaluateMealWarnings(input: CourseQualityInput): CourseQualityWarning[]
       id: "meal-composition",
       title: "식사 구성 확인",
       message: "기존 일정 생성 규칙상 도달 가능한 점심·저녁 시간대에 식사 장소가 배치됐는지 확인해주세요.",
+      severity: "REVIEW",
       details,
     },
   ];
@@ -342,6 +348,7 @@ function evaluateLodgingWarnings(input: CourseQualityInput): CourseQualityWarnin
       id: "duration-days",
       title: "기간·날짜 정합성",
       message: `선택 기간의 기본 날짜 수는 ${expectedDayCount}일인데 현재 ${input.days.length}일차 데이터가 있습니다.`,
+      severity: "BLOCKER",
     });
   }
 
@@ -355,6 +362,7 @@ function evaluateLodgingWarnings(input: CourseQualityInput): CourseQualityWarnin
       id: "lodging-missing",
       title: "숙박 구성 확인",
       message: `선택 기간상 숙박이 필요한 날짜 ${missingLodgingDays.length}곳에 숙소가 없습니다.`,
+      severity: "REVIEW",
       details: missingLodgingDays.map((dayIndex) => `${dayIndex}일차 숙박 필요`),
     });
   }
@@ -365,6 +373,7 @@ function evaluateLodgingWarnings(input: CourseQualityInput): CourseQualityWarnin
       id: "lodging-last-day",
       title: "숙박 날짜 확인",
       message: `${expectedDayCount}일차는 기존 기간 규칙상 마지막 날이라 숙박을 별도 일정으로 두지 않습니다.`,
+      severity: "INFO",
       details: [lastDay.lodging.poiName],
     });
   }
@@ -377,6 +386,7 @@ function evaluateLodgingWarnings(input: CourseQualityInput): CourseQualityWarnin
       id: "lodging-category",
       title: "숙박 데이터 확인",
       message: "숙박 영역에 LODGING 카테고리가 아닌 장소가 들어 있습니다.",
+      severity: "BLOCKER",
       details: invalidLodging,
     });
   }
@@ -389,6 +399,7 @@ function evaluateLodgingWarnings(input: CourseQualityInput): CourseQualityWarnin
       id: "day-order",
       title: "날짜 순서 확인",
       message: "일차 번호가 연속되지 않아 저장 전 날짜 구성을 확인해주세요.",
+      severity: "BLOCKER",
       details: invalidDayOrder,
     });
   }
@@ -415,6 +426,7 @@ function evaluateShoppingWarnings(input: CourseQualityInput): CourseQualityWarni
       id: "shopping-duplicate",
       title: "동일시설 쇼핑 중복",
       message: `같은 좌표로 확인되는 SHOPPING 시설 그룹 ${duplicateGroups.length}개가 반복됩니다. 대표 시설 1곳만 남길지 확인해주세요.`,
+      severity: "INFO",
       details: duplicateGroups.slice(0, 4).map((names) => names.join(" · ")),
     },
   ];
@@ -478,6 +490,7 @@ function evaluateThemeWarnings(input: CourseQualityInput): CourseQualityWarning[
       id: "core-theme-composition",
       title: "핵심 테마 구성 부족",
       message: `${themeLabel} 관련 장소가 확인 가능한 ${evidence.length}곳 중 ${matchedCount}곳(${Math.round(ratio * 100)}%)입니다. 기존 자동 생성 권장 기준 ${Math.round(CORE_THEME_FLOOR_SHARE * 100)}%에 미달합니다.`,
+      severity: "REVIEW",
       details: [`판정 근거: ${sourceNote}`],
     },
   ];

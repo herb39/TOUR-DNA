@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { isAutoTourismCandidate } from "@/lib/domain/poiRecommendation";
 import type { PoiCategory } from "@/generated/prisma/enums";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
 import { classifyFoodSubcategory, isMealEligibleFoodSubcategory, type FoodSubcategory } from "@/lib/domain/foodClassification";
@@ -165,7 +166,9 @@ export async function fetchAdditionalGeneralPois(
     where: { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } },
     take: Math.min(limit * SUPPLEMENT_GENERAL_FETCH_MULTIPLIER, SUPPLEMENT_GENERAL_FETCH_CAP),
   });
-  const candidates = rows.map(mapRowToPoiDetail);
+  const candidates = rows
+    .map(mapRowToPoiDetail)
+    .filter((candidate) => isAutoTourismCandidate(candidate, []));
   const seenShoppingCoordKeys = new Set(alreadySelectedShoppingCoordKeys);
   const result: PoiDetail[] = [];
   for (const candidate of candidates) {

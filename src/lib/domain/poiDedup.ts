@@ -36,3 +36,40 @@ export function dedupeBySameCoordinates<T extends { lat?: number; lng?: number }
   const deduped = groupOrder.map((key) => pickRepresentative(groups.get(key)!));
   return [...deduped, ...withoutCoords];
 }
+
+function normalizeSiteName(name: string): string {
+  return name
+    .replace(/\s+/gu, "")
+    .replace(/(오토)?캠핑장|야영장|주차장|체험장$/u, "");
+}
+
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const latKm = (a.lat - b.lat) * 111;
+  const lngKm = (a.lng - b.lng) * 90;
+  return Math.sqrt(latKm * latKm + lngKm * lngKm);
+}
+
+/** 이름의 본체가 같고 가까운 부속 시설(예: 생태공원·생태공원캠핑장)을 한 시설로 묶는다.
+ * 서로 다른 POI를 무리하게 합치지 않도록 좌표가 있고 1km 이내인 경우에만 적용한다. */
+export function dedupeBySameSite<T extends { name: string; lat?: number; lng?: number }>(
+  candidates: T[],
+  pickRepresentative: (group: T[]) => T,
+): T[] {
+  const groups: Array<{ key: string; anchor: T & { lat: number; lng: number }; items: T[] }> = [];
+  const withoutCoords: T[] = [];
+
+  for (const candidate of candidates) {
+    if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) {
+      withoutCoords.push(candidate);
+      continue;
+    }
+    const key = normalizeSiteName(candidate.name);
+    const existing = groups.find(
+      (group) => group.key === key && distanceKm(group.anchor, candidate as T & { lat: number; lng: number }) <= 1,
+    );
+    if (existing) existing.items.push(candidate);
+    else groups.push({ key, anchor: candidate as T & { lat: number; lng: number }, items: [candidate] });
+  }
+
+  return [...groups.map((group) => pickRepresentative(group.items)), ...withoutCoords];
+}

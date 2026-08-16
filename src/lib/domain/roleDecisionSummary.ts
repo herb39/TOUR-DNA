@@ -43,6 +43,8 @@ export interface RoleDecisionSummaryInput {
   axisScores: { axis: DnaAxisKey; score: number | null }[];
   /** 화면에 이미 표시된 1순위 추천 전략명 — 있으면 문장에 함께 인용한다(없으면 생략, 지어내지 않음). */
   topStrategyName: string | null;
+  /** 화면에 숫자를 보여줄 때만 사용하는 표시지수. 없으면 기존 도메인 호출처럼 원점수를 사용한다. */
+  displayScores?: Partial<Record<DnaAxisKey, number | null>>;
 }
 
 /** 역할이 없거나(레거시) DNA 축 데이터가 전부 없으면 null — 근거 없이 요약을 만들지 않는다. */
@@ -57,6 +59,8 @@ export function buildRoleDecisionSummary(input: RoleDecisionSummaryInput): strin
   const weakest = [...available].sort((a, b) => a.score - b.score)[0];
   const direction = AXIS_ROLE_DIRECTION[weakest.axis][role];
   const strategyClause = topStrategyName ? `추천 전략 '${topStrategyName}' 기준으로, ` : "";
+  const displayScore = input.displayScores?.[weakest.axis];
+  const scoreText = displayScore !== null && displayScore !== undefined ? displayScore : weakest.score;
 
-  return `${roleLabel(role)} 관점: ${AXIS_LABEL_KO[weakest.axis]} 축이 상대적 약점(${weakest.score}점)으로 나타나 ${strategyClause}${direction}.`;
+  return `${roleLabel(role)} 관점: ${AXIS_LABEL_KO[weakest.axis]} 축이 상대적 약점(${scoreText}점)으로 나타나 ${strategyClause}${direction}.`;
 }

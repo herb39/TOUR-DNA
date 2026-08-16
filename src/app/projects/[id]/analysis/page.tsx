@@ -185,6 +185,18 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const axisDisplayScoreByAxis = new Map<string, number | null>(
     axisData.map((a) => [a.axisKey, toDisplayDnaScore(a.score)]),
   );
+  const displayAxisText = (axis: DnaAxisChartDatum): string => {
+    const score = axisDisplayScoreByAxis.get(axis.axisKey);
+    return score === null || score === undefined ? `${axis.label} (데이터 부족)` : `${axis.label} (DNA 상대지수 ${score})`;
+  };
+  // 저장 당시 만들어진 요약 문구는 과거 내부점수(예: 7)를 포함할 수 있다. 화면에서는 현재 카드·
+  // 레이더와 같은 표시지수만 사용해 한 화면 안의 숫자 기준을 하나로 맞춘다.
+  const canonicalStrengths = topAxes.map((axis) => `${displayAxisText(axis)}가 비교지역 안에서 상대적으로 높습니다.`);
+  const canonicalOpportunities = bottomAxes.map((axis) => `${displayAxisText(axis)}부터 개선 여지를 확인해보세요.`);
+  const canonicalCautions = [
+    "개별 근거의 정규화값은 축 최종 지수와 다른 값이며, 세부 근거에서 구분해 표시합니다.",
+    ...axisData.filter((axis) => axis.score === null).map((axis) => `${axis.label} 축은 비교 가능한 데이터가 부족합니다.`),
+  ];
 
   // 유사지역 비교(2026-08-02, DNA 5축 바로 다음에 표시) — 이 분석의 근거에 실제로 저장된 기준월과
   // 동일한 baseYm으로 지원 지역 전체의 DNA·POI 구성을 다시 계산한다(같은 baseYm이어야 min-max 코호트가
@@ -302,6 +314,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     role: project.role,
     axisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
     topStrategyName,
+    displayScores: Object.fromEntries(axisData.map((axis) => [axis.axisKey, axisDisplayScoreByAxis.get(axis.axisKey)])),
   });
   // 유사지역 벤치마킹 인사이트(2026-08-13) — 이미 계산된 유사지역 비교(regionComparisonAnalysis)만
   // 재사용한다(새 유사도 계산 없음). 아래에서 계산.
@@ -422,7 +435,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
          * 재사용, 새 로직 없음). 실행안을 선택하면 plan/print 화면에서 네 신호 전부가 채워진 전체
          * 리포트를 다시 볼 수 있다. */}
         <div className="mt-6">
-          <PreLaunchValidationSection report={analysisStagePreLaunchValidation} preliminary />
+          <PreLaunchValidationSection report={analysisStagePreLaunchValidation} preliminary compact />
         </div>
 
         {tourismMetricCards.length > 0 ? (
@@ -442,8 +455,8 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </section>
         )}
 
-        <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">입력 조건 요약</h2>
+        <details className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">입력 조건 보기</summary>
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-600 sm:grid-cols-4">
             <div>
               <dt className="text-xs text-slate-400">내/외국인</dt>
@@ -489,7 +502,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           <p className="mt-3 text-xs text-slate-400">
             ※ 선택한 역할·타깃·여행 시기를 반영해 추천 전략과 실행안을 조정했습니다.
           </p>
-        </section>
+        </details>
 
         <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
           <div className="rounded-lg border border-slate-200 bg-white p-5">
@@ -543,7 +556,10 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
                     <div className="mt-2">
-                      <EvidenceTable items={axisEvidenceByAxis.get(a.axisKey) ?? []} />
+                     <EvidenceTable
+                       items={axisEvidenceByAxis.get(a.axisKey) ?? []}
+                       note="정규화값은 개별 지표 값입니다. 위 카드의 DNA 상대지수는 이 축에 포함된 지표들을 종합한 표시값입니다."
+                     />
                     </div>
                   </details>
                 </div>
@@ -552,8 +568,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </div>
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-base font-semibold text-slate-900">유사지역 비교</h2>
+        <details className="mt-8 rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-base font-semibold text-slate-900">유사지역 비교 보기</summary>
+          <div className="mt-2">
           <p
             className="mt-1 text-xs text-slate-500"
             title="DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교합니다. 전국 전체가 아니라 현재 데이터가 준비된 지원지역 내 비교입니다."
@@ -629,7 +646,8 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               </p>
             </div>
           ) : null}
-        </section>
+          </div>
+        </details>
 
         <details className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
           <summary className="cursor-pointer text-xs font-semibold text-slate-700">
@@ -639,7 +657,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <div>
               <h3 className="text-xs font-semibold text-slate-500">강점</h3>
               <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                {(analysisResult.strengths as string[]).map((s, i) => (
+                {canonicalStrengths.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
@@ -647,7 +665,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <div>
               <h3 className="text-xs font-semibold text-slate-500">기회</h3>
               <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                {(analysisResult.opportunities as string[]).map((s, i) => (
+                {canonicalOpportunities.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
@@ -655,7 +673,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <div>
               <h3 className="text-xs font-semibold text-slate-500">주의</h3>
               <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                {(analysisResult.cautions as string[]).map((s, i) => (
+                {canonicalCautions.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
@@ -663,8 +681,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </div>
         </details>
 
-        <section className="mt-8">
-          <h2 className="text-base font-semibold text-slate-900">관광사업 기회 3안</h2>
+        <details className="mt-8 rounded-lg border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer text-base font-semibold text-slate-900">관광사업 기회 3안 보기</summary>
+          <div className="mt-2">
           <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
           {usingLivePoiFallback ? (
             <p className="mt-1 text-xs text-slate-400">
@@ -686,7 +705,8 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           {opportunityAnalysis.note ? (
             <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
           ) : null}
-        </section>
+          </div>
+        </details>
 
         <section id="strategies" className="mt-8 scroll-mt-6">
           <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
