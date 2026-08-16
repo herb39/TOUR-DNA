@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useMemo, useState, type FormEvent } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
 import {
@@ -9,12 +9,33 @@ import {
   parseTimeSlotToMinutes,
   minutesToTimeSlot,
   describeCourseItemPurpose,
+  courseItemToInput,
+  reorderCourseItemWithinDay,
+  moveCourseItemToDay,
+  insertPoiIntoDay,
   type CourseItem,
   type CourseDay,
-  type CourseItemInput,
   type TransportCode,
   type PoiDetail,
 } from "@/lib/domain/planBuilder";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { CourseMap } from "@/components/map/CourseMap";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
@@ -110,6 +131,76 @@ function resolveFitBadge(fit: PoiFitResult): { label: string; className: string 
   return { label: FIT_GRADE_LABEL.LOW, className: FIT_GRADE_BADGE_CLASS.LOW };
 }
 
+/** Drag & Drop(Phase B 2단계, 2026-08-16) dnd-kit id 접두사 — 일정 항목/날짜 드롭 영역/추천 후보를
+ * 하나의 DndContext 안에서 구분하기 위한 문자열 규약이다. POI id는 코스 전체에서 유일하므로(같은
+ * 장소가 두 날짜에 동시에 있을 수 없음) poiId만으로 항목을 특정할 수 있다. */
+const SCHEDULE_ITEM_DND_PREFIX = "schedule-item:";
+const DAY_CONTAINER_DND_PREFIX = "day-container:";
+const CANDIDATE_DND_PREFIX = "candidate:";
+
+function findScheduleItemLocation(
+  days: CourseDay[],
+  poiId: string,
+): { dayIndex: number; index: number } | null {
+  for (const day of days) {
+    const index = day.items.findIndex((it) => it.poiId === poiId);
+    if (index !== -1) return { dayIndex: day.dayIndex, index };
+  }
+  return null;
+}
+
+function resolveDragDropTarget(
+  days: CourseDay[],
+  overId: string,
+): { dayIndex: number; index: number } | null {
+  if (overId.startsWith(DAY_CONTAINER_DND_PREFIX)) {
+    const dayIndex = Number(overId.slice(DAY_CONTAINER_DND_PREFIX.length));
+    const day = days.find((d) => d.dayIndex === dayIndex);
+    if (!day) return null;
+    return { dayIndex, index: day.items.length };
+  }
+  if (overId.startsWith(SCHEDULE_ITEM_DND_PREFIX)) {
+    return findScheduleItemLocation(days, overId.slice(SCHEDULE_ITEM_DND_PREFIX.length));
+  }
+  return null;
+}
+
+/**
+ * dnd-kit의 (active, over) id만으로 최종 결과를 계산하는 순수 함수(Phase B 2단계, 2026-08-16) —
+ * 실제 포인터/터치 이동 처리는 dnd-kit이 담당하고, 이 함수는 "무엇을 어디에 놓았는지"만 받아 기존
+ * reorderCourseItemWithinDay/moveCourseItemToDay/insertPoiIntoDay(모두 버튼 조작과 동일 경로)로
+ * 위임한다. drop 대상이 없거나(over===null) 해석할 수 없으면 null을 반환해 아무 것도 바꾸지 않는다.
+ */
+export function computeDragOutcome(
+  days: CourseDay[],
+  candidates: CandidatePoi[],
+  transport: TransportCode,
+  activeId: string,
+  overId: string | null,
+): { days: CourseDay[] } | null {
+  if (!overId) return null;
+  const target = resolveDragDropTarget(days, overId);
+  if (!target) return null;
+
+  if (activeId.startsWith(CANDIDATE_DND_PREFIX)) {
+    const candidateId = activeId.slice(CANDIDATE_DND_PREFIX.length);
+    const candidate = candidates.find((c) => c.id === candidateId);
+    if (!candidate) return null;
+    return { days: insertPoiIntoDay(days, target.dayIndex, candidate, target.index, transport) };
+  }
+
+  if (activeId.startsWith(SCHEDULE_ITEM_DND_PREFIX)) {
+    const poiId = activeId.slice(SCHEDULE_ITEM_DND_PREFIX.length);
+    const source = findScheduleItemLocation(days, poiId);
+    if (!source) return null;
+    return {
+      days: moveCourseItemToDay(days, source.dayIndex, source.index, target.dayIndex, target.index, transport),
+    };
+  }
+
+  return null;
+}
+
 export function PlanEditor({
   plan,
   poiFits,
@@ -202,32 +293,12 @@ export function PlanEditor({
   const [poiResults, setPoiResults] = useState<PoiDetail[]>([]);
   const [poiSearchPending, setPoiSearchPending] = useState(false);
 
-  function toInput(item: CourseItem): CourseItemInput {
-    return {
-      poiId: item.poiId,
-      poiName: item.poiName,
-      category: item.category,
-      stayMinutes: item.stayMinutes,
-      lat: item.lat,
-      lng: item.lng,
-      timeSlot: item.timeSlot,
-      mealPurpose: item.mealPurpose,
-    };
-  }
+  // 편집 상태를 다루는 순수 함수(재정렬/날짜 이동/POI 삽입)는 planBuilder.ts로 옮겨졌다(Phase B
+  // 2단계, 2026-08-16) — 버튼 조작과 Drag & Drop이 정확히 같은 재계산 경로를 타도록 하기 위함이다.
+  const toInput = courseItemToInput;
 
   function moveItem(dayIndex: number, itemIndex: number, direction: -1 | 1) {
-    setDays((prev) =>
-      prev.map((d) => {
-        if (d.dayIndex !== dayIndex) return d;
-        const items = [...d.items];
-        const target = itemIndex + direction;
-        if (target < 0 || target >= items.length) return d;
-        // 전체 항목을 자리째 바꾼 뒤 처음부터 다시 계산한다 — timeSlot은 위치(자리) 기준으로,
-        // travel은 새로 이웃한 장소 쌍의 실제 거리 기준으로 다시 나온다.
-        [items[itemIndex], items[target]] = [items[target], items[itemIndex]];
-        return { ...d, items: recomputeDayItems(items.map(toInput), plan.transport) };
-      }),
-    );
+    setDays((prev) => reorderCourseItemWithinDay(prev, dayIndex, itemIndex, itemIndex + direction, plan.transport));
   }
 
   function removeItem(dayIndex: number, itemIndex: number) {
@@ -243,43 +314,38 @@ export function PlanEditor({
   function moveItemToDay(fromDayIndex: number, itemIndex: number, toDayIndex: number) {
     if (fromDayIndex === toDayIndex) return;
     setDays((prev) => {
-      const fromDay = prev.find((d) => d.dayIndex === fromDayIndex);
       const toDay = prev.find((d) => d.dayIndex === toDayIndex);
-      if (!fromDay || !toDay) return prev;
-      const moved = fromDay.items[itemIndex];
-      if (!moved) return prev;
-
-      return prev.map((d) => {
-        if (d.dayIndex === fromDayIndex) {
-          return { ...d, items: recomputeDayItems(d.items.filter((_, i) => i !== itemIndex).map(toInput), plan.transport) };
-        }
-        if (d.dayIndex === toDayIndex) {
-          // 원래 날짜에서 쓰던 시간을 그대로 들고 온다 — 새 날짜에서 다른 일정과 겹치면 아래 실행
-          // 가능성 표시(빨간 경고)로 바로 드러나므로, 사용자가 필요할 때만 시간을 다시 조정하면 된다.
-          return { ...d, items: recomputeDayItems([...d.items.map(toInput), toInput(moved)], plan.transport) };
-        }
-        return d;
-      });
+      if (!toDay) return prev;
+      // 날짜 select는 항상 끝자리에 추가한다(기존 동작 유지) — 원래 날짜에서 쓰던 시간을 그대로
+      // 들고 온다. 새 날짜에서 다른 일정과 겹치면 아래 실행 가능성 표시(빨간 경고)로 바로 드러나므로,
+      // 사용자가 필요할 때만 시간을 다시 조정하면 된다.
+      return moveCourseItemToDay(prev, fromDayIndex, itemIndex, toDayIndex, toDay.items.length, plan.transport);
     });
   }
+
+  /** Drag & Drop 결과 반영(Phase B 2단계, 2026-08-16) — computeDragOutcome이 계산한 새 days를 그대로
+   * 적용한다. 대상을 해석할 수 없으면(빈 공간에 놓임 등) null이 반환되어 아무 것도 바뀌지 않는다. */
+  function handleDragEnd(event: DragEndEvent) {
+    const overId = event.over ? String(event.over.id) : null;
+    const outcome = computeDragOutcome(days, visibleCandidates, plan.transport, String(event.active.id), overId);
+    if (outcome) setDays(outcome.days);
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   // 후보 풀(CandidatePoi)과 검색 결과(PoiDetail)가 공통으로 가진 최소 필드만 요구한다(2026-08-16) —
   // "기존 장소 추가 기능을 그대로 재사용한다"는 원칙에 따라 이 함수 자체는 바꾸지 않고 시그니처만 넓힌다.
   function addPoiToDay(dayIndex: number, poi: Pick<PoiDetail, "id" | "name" | "category" | "lat" | "lng">) {
-    setDays((prev) =>
-      prev.map((d) => {
-        if (d.dayIndex !== dayIndex) return d;
-        const input: CourseItemInput = {
-          poiId: poi.id,
-          poiName: poi.name,
-          category: poi.category,
-          stayMinutes: 60,
-          lat: poi.lat,
-          lng: poi.lng,
-        };
-        return { ...d, items: recomputeDayItems([...d.items.map(toInput), input], plan.transport) };
-      }),
-    );
+    // 버튼 기반 추가는 항상 끝자리에 삽입한다(기존 동작 유지) — Drag & Drop만 드롭 위치에 맞는
+    // 자리를 computeDragOutcome을 통해 넘긴다.
+    setDays((prev) => {
+      const day = prev.find((d) => d.dayIndex === dayIndex);
+      if (!day) return prev;
+      return insertPoiIntoDay(prev, dayIndex, poi, day.items.length, plan.transport);
+    });
     setAddingToDay(null);
     setPoiQuery("");
     setPoiResults([]);
@@ -426,6 +492,7 @@ export function PlanEditor({
       <input type="hidden" name="risksJson" value={JSON.stringify(risks)} />
       <input type="hidden" name="kpisJson" value={JSON.stringify(kpis)} />
 
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="space-y-6">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <label htmlFor="productName" className="block text-sm font-medium text-slate-700">
@@ -488,130 +555,37 @@ export function PlanEditor({
                     ⚠ {notice}
                   </p>
                 ))}
-                <ul className="mt-2 space-y-2">
-                  {day.items.map((item, idx) => {
-                    const feasibility = checkFeasibility(day.items, idx);
-                    const fit = poiFits?.[item.poiId];
-                    return (
-                      <li
-                        key={item.poiId + item.order}
-                        className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
-                          feasibility.infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
-                        }`}
-                      >
-                        <div>
-                          <span className="font-medium text-slate-800">
-                            <input
-                              type="time"
-                              value={item.timeSlot}
-                              onChange={(e) => updateItemTime(day.dayIndex, idx, e.target.value)}
-                              aria-label={`${item.poiName} 시간`}
-                              className="mr-1 rounded border border-slate-300 px-1 py-0.5 text-sm"
-                            />
-                            {item.poiName}
-                          </span>
-                          <span className="ml-2 text-xs text-slate-500">
-                            ({describeCourseItemPurpose(item)}, 체류{" "}
-                            <input
-                              type="number"
-                              min={0}
-                              step={10}
-                              value={item.stayMinutes}
-                              onChange={(e) => updateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
-                              aria-label={`${item.poiName} 체류시간(분)`}
-                              className="w-14 rounded border border-slate-300 px-1 py-0.5 text-xs"
-                            />
-                            분, {item.travel})
-                          </span>
-                          {idx > 0 && plan.transport === "PRIVATE_VEHICLE" ? (
-                            <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
-                              {travelSourceLabel(item.travelSource)}
-                            </span>
-                          ) : null}
-                          {feasibility.infeasible ? (
-                            <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibility.reason}</p>
-                          ) : null}
-                          {fit ? (
-                            <details className="mt-1">
-                              <summary className="cursor-pointer text-xs">
-                                <span
-                                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
-                                >
-                                  {resolveFitBadge(fit).label}
-                                </span>
-                                <span className="ml-1 text-slate-400">추천 근거 보기</span>
-                              </summary>
-                              <div className="mt-1 max-w-md space-y-1 rounded border border-slate-100 bg-white p-2 text-[11px] text-slate-600">
-                                {fit.positiveReasons.length > 0 ? (
-                                  <ul className="list-disc space-y-0.5 pl-4">
-                                    {fit.positiveReasons.map((r, i) => (
-                                      <li key={i}>{r}</li>
-                                    ))}
-                                  </ul>
-                                ) : null}
-                                {fit.cautions.length > 0 ? (
-                                  <ul className="list-disc space-y-0.5 pl-4 text-amber-700">
-                                    {fit.cautions.map((c, i) => (
-                                      <li key={i}>{c}</li>
-                                    ))}
-                                  </ul>
-                                ) : null}
-                                <p className="text-slate-400">
-                                  데이터 출처: {fit.dataSource.sourceLabel}
-                                  {fit.dataSource.operatingHoursConfirmed
-                                    ? ` · 운영시간: ${fit.dataSource.operatingHoursText}`
-                                    : " · 운영시간 확인 필요"}
-                                </p>
-                              </div>
-                            </details>
-                          ) : null}
-                        </div>
-                        <div className="no-print flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => moveItem(day.dayIndex, idx, -1)}
-                            disabled={idx === 0}
-                            className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label={`${item.poiName} 위로 이동`}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveItem(day.dayIndex, idx, 1)}
-                            disabled={idx === day.items.length - 1}
-                            className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label={`${item.poiName} 아래로 이동`}
-                          >
-                            ↓
-                          </button>
-                          {days.length > 1 ? (
-                            <select
-                              aria-label={`${item.poiName} 다른 날짜로 이동`}
-                              value={day.dayIndex}
-                              onChange={(e) => moveItemToDay(day.dayIndex, idx, Number(e.target.value))}
-                              className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
-                            >
-                              {days.map((d) => (
-                                <option key={d.dayIndex} value={d.dayIndex}>
-                                  {d.dayIndex}일차
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => removeItem(day.dayIndex, idx)}
-                            className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                            aria-label={`${item.poiName} 삭제`}
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <DayDropZone dayIndex={day.dayIndex}>
+                  <SortableContext
+                    items={day.items.map((it) => SCHEDULE_ITEM_DND_PREFIX + it.poiId)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <ul className="mt-2 space-y-2">
+                      {day.items.map((item, idx) => {
+                        const feasibility = checkFeasibility(day.items, idx);
+                        const fit = poiFits?.[item.poiId];
+                        return (
+                          <ScheduleItemRow
+                            key={item.poiId + item.order}
+                            item={item}
+                            idx={idx}
+                            day={day}
+                            days={days}
+                            fit={fit}
+                            infeasible={feasibility.infeasible}
+                            feasibilityReason={feasibility.reason}
+                            transport={plan.transport}
+                            onUpdateItemTime={updateItemTime}
+                            onUpdateItemStayMinutes={updateItemStayMinutes}
+                            onMoveItem={moveItem}
+                            onMoveItemToDay={moveItemToDay}
+                            onRemoveItem={removeItem}
+                          />
+                        );
+                      })}
+                    </ul>
+                  </SortableContext>
+                </DayDropZone>
 
                 {day.lodging != null ? (
                   <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
@@ -711,49 +685,18 @@ export function PlanEditor({
           ) : (
             <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {visibleCandidates.map((candidate) => {
-                const badge = resolveFitBadge(candidate.fit);
-                const reason = candidate.fit.positiveReasons[0] ?? candidate.fit.cautions[0] ?? null;
                 const selectedDay = candidateAddDay[candidate.id] ?? days[0]?.dayIndex ?? 1;
                 return (
-                  <li key={candidate.id} className="rounded-md border border-slate-200 p-3 text-xs">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-slate-800">{candidate.name}</p>
-                        <p className="mt-0.5 text-slate-400">{poiCategoryLabel(candidate.category)}</p>
-                      </div>
-                      <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badge.className}`}>
-                        {badge.label}
-                      </span>
-                    </div>
-                    {reason ? <p className="mt-2 text-slate-500">{reason}</p> : null}
-                    <div className="mt-2 flex items-center gap-2">
-                      <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
-                        {candidate.name} 추가할 날짜
-                      </label>
-                      <select
-                        id={`candidate-day-${candidate.id}`}
-                        value={selectedDay}
-                        onChange={(e) =>
-                          setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: Number(e.target.value) }))
-                        }
-                        className="rounded border border-slate-300 px-1.5 py-1 text-xs"
-                      >
-                        {days.map((d) => (
-                          <option key={d.dayIndex} value={d.dayIndex}>
-                            {d.dayIndex}일차
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => addPoiToDay(selectedDay, candidate)}
-                        aria-label={`${candidate.name} ${selectedDay}일차에 추가`}
-                        className="cursor-pointer rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-                      >
-                        이 날짜에 추가
-                      </button>
-                    </div>
-                  </li>
+                  <CandidateCard
+                    key={candidate.id}
+                    candidate={candidate}
+                    days={days}
+                    selectedDay={selectedDay}
+                    onSelectDay={(dayIndex) =>
+                      setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: dayIndex }))
+                    }
+                    onAdd={() => addPoiToDay(selectedDay, candidate)}
+                  />
                 );
               })}
             </ul>
@@ -943,6 +886,7 @@ export function PlanEditor({
           />
         </details>
       </div>
+      </DndContext>
 
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">
         {state.message ? (
@@ -980,5 +924,257 @@ export function PlanEditor({
         </Link>
       </aside>
     </form>
+  );
+}
+
+/** 하루 일정 전체를 감싸는 드롭 영역(Phase B 2단계, 2026-08-16) — 항목 사이가 아니라 빈 공간(마지막
+ * 항목 아래, 또는 항목이 아예 없는 날)에 드롭해도 그 날짜의 끝자리에 추가되도록 항상 존재하는 드롭
+ * 대상이다. 항목 위에 정확히 드롭하면(SortableContext의 개별 item id) 그 자리에 삽입된다. */
+function DayDropZone({ dayIndex, children }: { dayIndex: number; children: ReactNode }) {
+  const { setNodeRef } = useDroppable({ id: DAY_CONTAINER_DND_PREFIX + dayIndex });
+  return <div ref={setNodeRef}>{children}</div>;
+}
+
+/** 일정 항목 한 줄(Phase B 2단계, 2026-08-16) — 기존 UI(시간/체류시간 입력, 적합도 배지, 위/아래
+ * 이동·날짜 이동·삭제 버튼)는 그대로 두고, 맨 앞에 드래그 손잡이(⋮⋮)만 추가한다. 버튼 조작은 이
+ * 컴포넌트 안에서 여전히 동일하게 동작하므로(드래그는 부가 기능) 키보드·스크린리더 사용자도 기존
+ * 방식으로 완전히 같은 작업을 할 수 있다. */
+function ScheduleItemRow({
+  item,
+  idx,
+  day,
+  days,
+  fit,
+  infeasible,
+  feasibilityReason,
+  transport,
+  onUpdateItemTime,
+  onUpdateItemStayMinutes,
+  onMoveItem,
+  onMoveItemToDay,
+  onRemoveItem,
+}: {
+  item: CourseItem;
+  idx: number;
+  day: CourseDay;
+  days: CourseDay[];
+  fit?: PoiFitResult;
+  infeasible: boolean;
+  feasibilityReason: string | null;
+  transport: TransportCode;
+  onUpdateItemTime: (dayIndex: number, itemIndex: number, timeSlot: string) => void;
+  onUpdateItemStayMinutes: (dayIndex: number, itemIndex: number, stayMinutes: number) => void;
+  onMoveItem: (dayIndex: number, itemIndex: number, direction: -1 | 1) => void;
+  onMoveItemToDay: (fromDayIndex: number, itemIndex: number, toDayIndex: number) => void;
+  onRemoveItem: (dayIndex: number, itemIndex: number) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: SCHEDULE_ITEM_DND_PREFIX + item.poiId,
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
+        infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={`${item.poiName} 드래그로 순서·날짜 변경`}
+          className="no-print mt-0.5 cursor-grab touch-none rounded border border-slate-200 bg-white px-1 py-0.5 text-slate-400 active:cursor-grabbing"
+        >
+          ⋮⋮
+        </button>
+        <div>
+          <span className="font-medium text-slate-800">
+            <input
+              type="time"
+              value={item.timeSlot}
+              onChange={(e) => onUpdateItemTime(day.dayIndex, idx, e.target.value)}
+              aria-label={`${item.poiName} 시간`}
+              className="mr-1 rounded border border-slate-300 px-1 py-0.5 text-sm"
+            />
+            {item.poiName}
+          </span>
+          <span className="ml-2 text-xs text-slate-500">
+            ({describeCourseItemPurpose(item)}, 체류{" "}
+            <input
+              type="number"
+              min={0}
+              step={10}
+              value={item.stayMinutes}
+              onChange={(e) => onUpdateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
+              aria-label={`${item.poiName} 체류시간(분)`}
+              className="w-14 rounded border border-slate-300 px-1 py-0.5 text-xs"
+            />
+            분, {item.travel})
+          </span>
+          {idx > 0 && transport === "PRIVATE_VEHICLE" ? (
+            <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
+              {travelSourceLabel(item.travelSource)}
+            </span>
+          ) : null}
+          {infeasible ? (
+            <p className="mt-0.5 text-xs font-medium text-red-600">⚠ {feasibilityReason}</p>
+          ) : null}
+          {fit ? (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-xs">
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
+                >
+                  {resolveFitBadge(fit).label}
+                </span>
+                <span className="ml-1 text-slate-400">추천 근거 보기</span>
+              </summary>
+              <div className="mt-1 max-w-md space-y-1 rounded border border-slate-100 bg-white p-2 text-[11px] text-slate-600">
+                {fit.positiveReasons.length > 0 ? (
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {fit.positiveReasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {fit.cautions.length > 0 ? (
+                  <ul className="list-disc space-y-0.5 pl-4 text-amber-700">
+                    {fit.cautions.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="text-slate-400">
+                  데이터 출처: {fit.dataSource.sourceLabel}
+                  {fit.dataSource.operatingHoursConfirmed
+                    ? ` · 운영시간: ${fit.dataSource.operatingHoursText}`
+                    : " · 운영시간 확인 필요"}
+                </p>
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </div>
+      <div className="no-print flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onMoveItem(day.dayIndex, idx, -1)}
+          disabled={idx === 0}
+          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={`${item.poiName} 위로 이동`}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          onClick={() => onMoveItem(day.dayIndex, idx, 1)}
+          disabled={idx === day.items.length - 1}
+          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={`${item.poiName} 아래로 이동`}
+        >
+          ↓
+        </button>
+        {days.length > 1 ? (
+          <select
+            aria-label={`${item.poiName} 다른 날짜로 이동`}
+            value={day.dayIndex}
+            onChange={(e) => onMoveItemToDay(day.dayIndex, idx, Number(e.target.value))}
+            className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+          >
+            {days.map((d) => (
+              <option key={d.dayIndex} value={d.dayIndex}>
+                {d.dayIndex}일차
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onRemoveItem(day.dayIndex, idx)}
+          className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+          aria-label={`${item.poiName} 삭제`}
+        >
+          삭제
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/** 추천 후보 카드(Phase B 2단계, 2026-08-16) — 기존 날짜 select + "이 날짜에 추가" 버튼은 그대로
+ * 두고, 드래그 손잡이만 추가해 원하는 일정 위치로 직접 끌어다 놓을 수 있게 한다. */
+function CandidateCard({
+  candidate,
+  days,
+  selectedDay,
+  onSelectDay,
+  onAdd,
+}: {
+  candidate: CandidatePoi;
+  days: CourseDay[];
+  selectedDay: number;
+  onSelectDay: (dayIndex: number) => void;
+  onAdd: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: CANDIDATE_DND_PREFIX + candidate.id,
+  });
+  const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.5 : 1 };
+  const badge = resolveFitBadge(candidate.fit);
+  const reason = candidate.fit.positiveReasons[0] ?? candidate.fit.cautions[0] ?? null;
+
+  return (
+    <li ref={setNodeRef} style={style} className="rounded-md border border-slate-200 p-3 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`${candidate.name} 드래그로 일정에 놓기`}
+            className="no-print mt-0.5 cursor-grab touch-none rounded border border-slate-200 bg-white px-1 py-0.5 text-slate-400 active:cursor-grabbing"
+          >
+            ⋮⋮
+          </button>
+          <div>
+            <p className="font-medium text-slate-800">{candidate.name}</p>
+            <p className="mt-0.5 text-slate-400">{poiCategoryLabel(candidate.category)}</p>
+          </div>
+        </div>
+        <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badge.className}`}>
+          {badge.label}
+        </span>
+      </div>
+      {reason ? <p className="mt-2 text-slate-500">{reason}</p> : null}
+      <div className="mt-2 flex items-center gap-2">
+        <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
+          {candidate.name} 추가할 날짜
+        </label>
+        <select
+          id={`candidate-day-${candidate.id}`}
+          value={selectedDay}
+          onChange={(e) => onSelectDay(Number(e.target.value))}
+          className="rounded border border-slate-300 px-1.5 py-1 text-xs"
+        >
+          {days.map((d) => (
+            <option key={d.dayIndex} value={d.dayIndex}>
+              {d.dayIndex}일차
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label={`${candidate.name} ${selectedDay}일차에 추가`}
+          className="cursor-pointer rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+        >
+          이 날짜에 추가
+        </button>
+      </div>
+    </li>
   );
 }

@@ -2397,10 +2397,101 @@ build 모두 통과했다. 375px 모바일에서 실제 경주 실행안 화면�
 StrategyResult/SelectedPlan.course를 변경하지 않는다(코드 경로상 이 함수를 호출하는 곳은 화면
 표시뿐이다).
 
-**아직 남은 위험(투명하게 공개)**: (a) Drag & Drop은 이번에도 없다 — 후보 추가는 날짜 select + 버튼
-클릭 방식이다. (b) 후보를 추가해도 저장 전에는 지도가 실시간으로 갱신되지 않는다(기존과 동일하게
-저장 후에만 지도가 최신 course를 반영). (c) 실시간 코스 품질 검증(추가 직후 "핵심 테마 POI 부족"
-같은 경고)은 없다 — 저장된 실행안 기준의 "사업 사전검증 리포트"만 있다. (d) 후보 카드에 예상 이동
-거리는 표시하지 않는다(이번 범위에서 저비용 근사조차 넣지 않음 — 필요성이 확인되면 후속 검토). (e)
-카테고리별 최대 4개·전체 12개라는 상한은 이번 세션의 판단이며, 실제 사용자 피드백에 따라 조정될 수
-있다.
+**아직 남은 위험(투명하게 공개)**: (a) Drag & Drop은 2026-08-16 갱신(5)에서 추가됐다(아래 참고) —
+날짜 select + 버튼 클릭 방식도 그대로 남아있다. (b) 후보를 추가해도 저장 전에는 지도가 실시간으로
+갱신되지 않는다(기존과 동일하게 저장 후에만 지도가 최신 course를 반영). (c) 실시간 코스 품질 검증
+(추가 직후 "핵심 테마 POI 부족" 같은 경고)은 없다 — 저장된 실행안 기준의 "사업 사전검증 리포트"만
+있다. (d) 후보 카드에 예상 이동 거리는 표시하지 않는다(이번 범위에서 저비용 근사조차 넣지 않음 —
+필요성이 확인되면 후속 검토). (e) 카테고리별 최대 4개·전체 12개라는 상한은 이번 세션의 판단이며,
+실제 사용자 피드백에 따라 조정될 수 있다.
+
+## 2026-08-16 갱신(5) — 코스 Drag & Drop 편집(Phase B 두 번째 단계)
+
+**배경**: 위(2026-08-16(4))에서 남긴 "Drag & Drop은 이번에도 없다"는 한계를 이번에 해소했다. 실행안
+편집기에 같은 날짜 순서 변경·다른 날짜 이동·추천 후보→일정 Drag & Drop 3가지를 추가하되, 기존 위/
+아래 이동 버튼·날짜 이동 select·검색/후보 추가 버튼은 전부 그대로 남긴다(모바일·키보드·스크린리더
+fallback).
+
+**1) 기존 편집 state/함수 조사**: `PlanEditor.tsx`는 클라이언트 `days` state(`useState<CourseDay[]>`)
+하나를 유일한 source of truth로 쓰고 있었고, `moveItem`(인접 자리 swap)/`moveItemToDay`(항상 끝자리로
+이동)/`addPoiToDay`(항상 끝자리에 추가)가 각각 `recomputeDayItems`(시간·이동 재계산)를 호출해
+`setDays`로 반영하는 구조였다. Drag & Drop을 위해 새 편집 state를 만들 필요가 없었다 — 기존 함수를
+"임의 위치"를 받을 수 있도록 일반화하기만 하면 됐다.
+
+**2) 재정렬 로직 일반화**: `src/lib/domain/planBuilder.ts`에 순수 함수 3개를 추가했다 —
+`reorderCourseItemWithinDay(days, dayIndex, fromIndex, toIndex, transport)`(같은 날짜 안 임의 위치
+이동, 경계를 벗어나면 버튼과 동일하게 변경 없이 반환), `moveCourseItemToDay(days, fromDayIndex,
+itemIndex, toDayIndex, toIndex, transport)`(다른 날짜의 임의 위치로 이동, 같은 날짜면
+`reorderCourseItemWithinDay`로 위임), `insertPoiIntoDay(days, dayIndex, poi, index, transport)`(검색
+결과/추천 후보를 임의 위치에 삽입). 세 함수 모두 내부적으로 기존 `recomputeDayItems`만 호출하므로,
+버튼 조작(인접 자리 교환·끝자리 추가)과 Drag & Drop(임의 위치)이 최종적으로 완전히 같은 재계산
+경로를 탄다. `PlanEditor.tsx`의 `moveItem`/`moveItemToDay`/`addPoiToDay`는 이 함수들을 호출하는
+얇은 래퍼로 바뀌었을 뿐, 버튼에서 보이는 동작은 전혀 바뀌지 않았다(회귀 테스트로 확인).
+
+**3) 라이브러리 선택**: `package.json`에 새 dependency가 없어 처음부터 검토했다. 네이티브 HTML5
+Drag & Drop(`draggable` 속성)은 터치 디바이스를 전혀 지원하지 않아(모바일 375px가 필수 요구사항) 바로
+제외했다. `@dnd-kit/core`+`@dnd-kit/sortable`+`@dnd-kit/utilities`(각 6.3.1/10.0.0/3.2.2)를 도입했다 —
+포인터(마우스+터치 통합)·키보드 센서를 기본 제공하고, React state와 직접 통합되며(내부적으로 DOM을
+직접 조작하지 않고 매 렌더마다 우리 state를 그대로 반영), bundle 영향이 상대적으로 작고(3개 패키지
+합쳐 수십 KB대), 접근성(`role="button"`, `aria-roledescription`, 키보드 화살표 이동)을 라이브러리가
+기본 제공해 직접 구현할 범위를 크게 줄여준다.
+
+**4) Drag 결과 계산**: `PlanEditor.tsx`에 순수 함수 `computeDragOutcome(days, candidates, transport,
+activeId, overId)`를 추가했다 — dnd-kit의 `DragEndEvent`가 넘겨주는 `active.id`/`over.id`(문자열
+접두사로 "일정 항목"/"추천 후보"/"날짜 드롭 영역"을 구분: `schedule-item:`/`candidate:`/
+`day-container:`)만으로 무엇을 어디에 놓았는지 해석해 위 2)의 함수 중 하나로 위임한다. dnd-kit
+자체의 포인터 이동·충돌 감지는 라이브러리 책임으로 남기고, 우리 코드의 책임은 "이 id 조합이면 이런
+결과"라는 순수 계산 하나로 좁혔다 — 그 덕에 실제 포인터/터치 이벤트를 흉내내지 않고도 이 함수 자체를
+완전히 단위 테스트할 수 있었다. drop 대상을 해석할 수 없거나(`over===null`, 알 수 없는 id, 존재하지
+않는 후보 id) 유효하지 않으면 `null`을 반환해 아무 것도 바꾸지 않는다(DnD 실패가 기존 편집을 막지
+않는다).
+
+**5) UI 구성**: 일정 항목 `<li>`와 추천 후보 `<li>` 맨 앞에 드래그 손잡이(`⋮⋮`) 버튼을 추가했다 —
+`aria-label`은 각각 "{이름} 드래그로 순서·날짜 변경"/"{이름} 드래그로 일정에 놓기"다. 각 날짜는
+`useDroppable`로 감싼 드롭 영역(`day-container:{dayIndex}`)이라 빈 공간에 놓아도 그 날짜 끝자리에
+추가된다. 일정 항목은 `useSortable`(날짜별 `SortableContext`), 추천 후보는 `useDraggable`을 쓴다.
+기존 시간/체류시간 입력, 적합도 배지, 위/아래/날짜 이동/삭제 버튼, 날짜 select+추가 버튼은 모두
+그대로 남아 있다.
+
+**6) 기존 버튼/모바일/접근성 fallback**: 컴포넌트 테스트로 위/아래 이동 버튼·날짜 이동 select·삭제
+버튼·후보 날짜 select·추가 버튼이 드래그 손잡이 추가 후에도 여전히 존재함을 확인했다(회귀 없음).
+`PointerSensor`(마우스+터치 통합, `activationConstraint: {distance: 8}`로 실수 클릭과 구분)와
+`KeyboardSensor`(`sortableKeyboardCoordinates`)를 함께 등록해 터치·키보드 사용자도 드래그를 쓸 수
+있게 했지만, 두 경우 모두 기존 버튼이 여전히 완전히 동등한 대체 수단으로 남아있다.
+
+**7) 저장/새로고침 정합성**: Drag 결과도 다른 편집(버튼 조작)과 동일하게 클라이언트 `days` state만
+바꾸고, 저장은 기존 `savePlanAction` 제출 시에만 일어난다 — Drag 전용 자동 저장/서버 호출은 없다.
+
+**8) 검증**: `planBuilder.test.ts`에 재정렬 함수 순수 로직 테스트 10개(같은 날짜 임의 위치 이동/
+인접 이동=버튼과 동일/경계 이탈 시 무변경/존재하지 않는 날짜로 이동 시 무변경·데이터 유실 방지/
+다른 날짜 임의 위치 이동/후보 삽입/삽입 위치 초과 시 끝자리/deterministic)를 추가했다. 이 중
+"존재하지 않는 날짜로 이동을 시도하면 변경 없이 그대로 반환한다" 테스트가 실제 버그를 잡았다 —
+`moveCourseItemToDay`가 원래 대상 날짜(`toDayIndex`) 존재 여부를 검증하지 않아, 잘못된 날짜로
+이동을 시도하면 원본 날짜에서만 항목이 삭제되고 어디에도 들어가지 않는 데이터 유실이 있었다(대상
+날짜 존재 검증을 추가해 수정). `PlanEditor.test.tsx`에 `computeDragOutcome` 순수 함수 테스트 11개
+(같은 날짜 재정렬/다른 날짜 이동/빈 날짜 드롭/후보 삽입/빈 날짜에 후보 추가/over===null 시 무변경/
+알 수 없는 id 무변경/존재하지 않는 후보 id 무변경/deterministic)와 드래그 손잡이 존재 확인 테스트
+2개를 추가했다. 신규 21개 테스트를 `git stash`로 구현 파일만 되돌려 전부 실패함을 확인한 뒤(fail-
+before) 복원해 통과함을 확인했다(pass-after). 전체 유닛 테스트 1510개, `npx tsc --noEmit`, lint,
+build 모두 통과했다.
+
+**9) 브라우저 QA(제한적)**: 로컬 DB에 경주 CULTURE_HISTORY·청주 NATURE_WELLNESS QA 프로젝트를 만들어
+실제 서버 렌더링 결과를 확인했다 — 두 페이지 모두 일정 항목·추천 후보 카드에 드래그 손잡이(`⋮⋮`,
+정확한 `aria-label`)가 실제로 렌더링되고, 후보 추천 데이터(경주: 감은사지·경덕왕릉 등 실제 문화유적,
+청주: 뉴베라관광호텔 등 core-theme 후보)에 회귀가 없음을 `get_page_text`/DOM 질의로 확인했다. 375px
+에서 `document.documentElement.scrollWidth===clientWidth===375`(가로 스크롤 없음)를 확인했다. **다만
+이번 세션에서는 Browser pane이 실제로 화면에 표시되지 않아(백그라운드 tab, `document.hidden===true`
+로 실제 레이아웃이 계산되지 않음 — `getBoundingClientRect()`가 모든 요소에서 0을 반환) 마우스로 직접
+끌어다 놓는 실제 드래그 동작 자체는 시각적으로 재현하지 못했다.** 이 부분은 (1) `computeDragOutcome`
+순수 함수 테스트로 "무엇을 어디에 놓으면 어떤 결과가 나오는지"를, (2) dnd-kit 자체의 포인터 이벤트
+처리는 널리 쓰이는 서드파티 라이브러리의 책임으로 검증을 대체했다 — 다음 세션에서 Browser pane이
+정상 표시되면 실제 마우스 드래그 재현을 추가로 확인하는 것을 권장한다.
+
+**10) 변경 금지 범위 준수 확인**: DNA/Network/similarity/전략 점수/전략 선택/후보 랭킹·개수/POI fit/
+dedup 정책/route algorithm/저장 전 지도 갱신/실시간 품질검증은 전혀 건드리지 않았다 — 이번 변경은
+전부 클라이언트 편집 state를 다루는 `planBuilder.ts`/`PlanEditor.tsx`에 한정된다.
+
+**아직 남은 위험(투명하게 공개)**: (a) 저장 전 지도 실시간 갱신은 아직 없다. (b) 실시간 코스 품질
+검증(추가/이동 직후 "핵심 테마 POI 부족" 경고 등)은 아직 없다. (c) 실제 마우스/터치 드래그의 시각적
+동작은 이번 세션에서 Browser pane 표시 문제로 직접 재현하지 못했다 — 다음 세션에서 재확인 권장.
+(d) 후보 카드에 예상 이동거리는 여전히 표시하지 않는다.

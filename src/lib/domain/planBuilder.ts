@@ -290,6 +290,115 @@ export function recomputeDayItems(
   });
 }
 
+/** CourseItem → recomputeDayItems 입력으로 되돌린다(장소 하나를 이미 배치된 상태에서 다시 재계산에
+ * 넣을 때 공용으로 쓴다 — 편집기의 재정렬/날짜 이동/추천 후보 추가가 모두 이 매핑 하나만 공유한다). */
+export function courseItemToInput(item: CourseItem): CourseItemInput {
+  return {
+    poiId: item.poiId,
+    poiName: item.poiName,
+    category: item.category,
+    stayMinutes: item.stayMinutes,
+    lat: item.lat,
+    lng: item.lng,
+    timeSlot: item.timeSlot,
+    mealPurpose: item.mealPurpose,
+  };
+}
+
+/**
+ * 같은 날짜 안에서 한 항목을 임의의 자리로 옮긴다(Phase B 2단계, 2026-08-16) — 위/아래 버튼(인접
+ * 자리만 교환)과 Drag & Drop(임의 자리로 이동)이 최종 결과가 같아야 하므로 이 함수 하나만 공유한다.
+ * fromIndex가 범위를 벗어나거나 toIndex가 같은 자리로 clamp되면(버튼이 이미 비활성화하는 경계와 동일)
+ * 변경 없이 그대로 반환한다.
+ */
+export function reorderCourseItemWithinDay(
+  days: CourseDay[],
+  dayIndex: number,
+  fromIndex: number,
+  toIndex: number,
+  transport: TransportCode,
+): CourseDay[] {
+  return days.map((d) => {
+    if (d.dayIndex !== dayIndex) return d;
+    if (fromIndex < 0 || fromIndex >= d.items.length) return d;
+    const clampedTo = Math.max(0, Math.min(toIndex, d.items.length - 1));
+    if (clampedTo === fromIndex) return d;
+    const items = [...d.items];
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(clampedTo, 0, moved);
+    return { ...d, items: recomputeDayItems(items.map(courseItemToInput), transport) };
+  });
+}
+
+/**
+ * 한 항목을 다른 날짜의 임의 자리로 옮긴다(Phase B 2단계, 2026-08-16) — 날짜 select(항상 끝자리에
+ * 추가)와 Drag & Drop(원하는 자리에 삽입)이 최종 결과가 같은 재계산 경로를 타도록 이 함수 하나만
+ * 공유한다. 같은 날짜로 "이동"하면 reorderCourseItemWithinDay로 위임한다.
+ */
+export function moveCourseItemToDay(
+  days: CourseDay[],
+  fromDayIndex: number,
+  itemIndex: number,
+  toDayIndex: number,
+  toIndex: number,
+  transport: TransportCode,
+): CourseDay[] {
+  if (fromDayIndex === toDayIndex) {
+    return reorderCourseItemWithinDay(days, fromDayIndex, itemIndex, toIndex, transport);
+  }
+  const fromDay = days.find((d) => d.dayIndex === fromDayIndex);
+  const toDay = days.find((d) => d.dayIndex === toDayIndex);
+  const moved = fromDay?.items[itemIndex];
+  // 대상 날짜가 존재하지 않으면(예: drop 대상 id 파싱 오류) 아무 것도 바꾸지 않는다 — 잘못하면 원본
+  // 날짜에서만 항목이 사라지고 어디에도 들어가지 않는 데이터 유실이 생길 수 있다.
+  if (!fromDay || !toDay || !moved) return days;
+
+  return days.map((d) => {
+    if (d.dayIndex === fromDayIndex) {
+      return {
+        ...d,
+        items: recomputeDayItems(d.items.filter((_, i) => i !== itemIndex).map(courseItemToInput), transport),
+      };
+    }
+    if (d.dayIndex === toDayIndex) {
+      const items = d.items.map(courseItemToInput);
+      const insertAt = Math.max(0, Math.min(toIndex, items.length));
+      items.splice(insertAt, 0, courseItemToInput(moved));
+      return { ...d, items: recomputeDayItems(items, transport) };
+    }
+    return d;
+  });
+}
+
+/**
+ * 아직 코스에 없는 POI(검색 결과 또는 추천 후보)를 특정 날짜의 임의 자리에 삽입한다(Phase B 2단계,
+ * 2026-08-16) — "+ 장소 추가"/"이 날짜에 추가" 버튼은 항상 끝자리(index=현재 길이)를 넘겨 기존 동작을
+ * 그대로 유지하고, Drag & Drop만 드롭 위치에 맞는 자리를 넘긴다.
+ */
+export function insertPoiIntoDay(
+  days: CourseDay[],
+  dayIndex: number,
+  poi: Pick<PoiDetail, "id" | "name" | "category" | "lat" | "lng">,
+  index: number,
+  transport: TransportCode,
+): CourseDay[] {
+  return days.map((d) => {
+    if (d.dayIndex !== dayIndex) return d;
+    const input: CourseItemInput = {
+      poiId: poi.id,
+      poiName: poi.name,
+      category: poi.category,
+      stayMinutes: 60,
+      lat: poi.lat,
+      lng: poi.lng,
+    };
+    const items = d.items.map(courseItemToInput);
+    const insertAt = Math.max(0, Math.min(index, items.length));
+    items.splice(insertAt, 0, input);
+    return { ...d, items: recomputeDayItems(items, transport) };
+  });
+}
+
 /** 3번째 인자(timeSlots)를 생략한 기존 호출(편집기의 추가/삭제/재정렬)은 계속 DEFAULT_TIME_SLOTS를
  * 써서 동작이 바뀌지 않는다. buildDraftCourse만 날짜별 슬롯을 명시적으로 넘긴다. */
 

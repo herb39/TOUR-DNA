@@ -9,9 +9,11 @@ vi.mock("@/app/projects/[id]/plan/actions", () => ({
   fetchPlanRouteGeometryAction: vi.fn(async () => ({ segments: [] })),
 }));
 
-import { PlanEditor, type PlanEditorData } from "@/components/plan/PlanEditor";
+import { PlanEditor, computeDragOutcome, type PlanEditorData } from "@/components/plan/PlanEditor";
 import { savePlanAction, searchAvailablePoisAction } from "@/app/projects/[id]/plan/actions";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
+import type { CourseDay } from "@/lib/domain/planBuilder";
+import type { CandidatePoi } from "@/lib/services/candidatePoolService";
 
 function makePlan(): PlanEditorData {
   return {
@@ -795,5 +797,162 @@ describe("PlanEditor — 추천 후보 풀(Phase B 첫 단계, 2026-08-16)", () 
     fireEvent.click(screen.getAllByRole("button", { name: "A장소 삭제" })[0]);
 
     expect(screen.getByRole("button", { name: /A장소.*에 추가/ })).toBeInTheDocument();
+  });
+});
+
+describe("computeDragOutcome — Drag & Drop 결과 계산(Phase B 2단계, 2026-08-16)", () => {
+  function makeDay(dayIndex: number, poiIds: string[]): CourseDay {
+    return {
+      dayIndex,
+      items: poiIds.map((id, i) => ({
+        order: i + 1,
+        poiId: id,
+        poiName: `POI-${id}`,
+        category: "ATTRACTION",
+        timeSlot: `${10 + i}:00`,
+        stayMinutes: 60,
+        travel: i === 0 ? "숙소/집결지에서 이동" : "이동 10분",
+        lat: 36 + i * 0.01,
+        lng: 127 + i * 0.01,
+      })),
+    };
+  }
+
+  function makeCandidate(id: string): CandidatePoi {
+    return {
+      id,
+      name: `후보-${id}`,
+      category: "ATTRACTION",
+      lat: 36.5,
+      lng: 127.5,
+      fit: {
+        totalScore: 90,
+        grade: "HIGH",
+        recommendationStatus: "RECOMMENDED",
+        breakdown: {
+          categoryFit: { score: 30, tier: "CORE" },
+          themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+          seasonFit: { score: 20, isIdealMonth: true },
+        },
+        positiveReasons: [],
+        cautions: [],
+        dataSource: {
+          provenance: "LIVE_API",
+          sourceLabel: "실제 공공데이터 동기화 결과",
+          operatingHoursConfirmed: false,
+          operatingHoursText: null,
+          closedDaysText: null,
+        },
+      },
+    };
+  }
+
+  function poiIdsOf(day: CourseDay): string[] {
+    return day.items.map((it) => it.poiId);
+  }
+
+  it("일정 항목을 같은 날짜의 다른 항목 위에 놓으면 그 자리로 재정렬된다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const outcome = computeDragOutcome(days, [], "WALK", "schedule-item:c", "schedule-item:a");
+    expect(outcome).not.toBeNull();
+    expect(poiIdsOf(outcome!.days[0])).toEqual(["c", "a", "b"]);
+  });
+
+  it("일정 항목을 다른 날짜의 항목 위에 놓으면 그 날짜로 이동한다", () => {
+    const days = [makeDay(1, ["a", "b"]), makeDay(2, ["x"])];
+    const outcome = computeDragOutcome(days, [], "WALK", "schedule-item:b", "schedule-item:x");
+    expect(outcome).not.toBeNull();
+    expect(poiIdsOf(outcome!.days[0])).toEqual(["a"]);
+    expect(poiIdsOf(outcome!.days[1])).toEqual(["b", "x"]);
+  });
+
+  it("일정 항목을 날짜 빈 공간(day-container)에 놓으면 그 날짜의 끝자리에 추가된다", () => {
+    const days = [makeDay(1, ["a", "b"]), makeDay(2, ["x"])];
+    const outcome = computeDragOutcome(days, [], "WALK", "schedule-item:a", "day-container:2");
+    expect(outcome).not.toBeNull();
+    expect(poiIdsOf(outcome!.days[0])).toEqual(["b"]);
+    expect(poiIdsOf(outcome!.days[1])).toEqual(["x", "a"]);
+  });
+
+  it("추천 후보를 일정 항목 위에 놓으면 그 자리에 삽입되고(기존 addPoiToDay와 동일 경로) 후보 정보를 그대로 반영한다", () => {
+    const days = [makeDay(1, ["a", "b"])];
+    const candidate = makeCandidate("cand-1");
+    const outcome = computeDragOutcome(days, [candidate], "WALK", "candidate:cand-1", "schedule-item:b");
+    expect(outcome).not.toBeNull();
+    expect(poiIdsOf(outcome!.days[0])).toEqual(["a", "cand-1", "b"]);
+  });
+
+  it("추천 후보를 빈 날짜(day-container)에 놓으면 그 날짜에 추가된다", () => {
+    const days = [makeDay(1, []), makeDay(2, [])];
+    const candidate = makeCandidate("cand-1");
+    const outcome = computeDragOutcome(days, [candidate], "WALK", "candidate:cand-1", "day-container:1");
+    expect(outcome).not.toBeNull();
+    expect(poiIdsOf(outcome!.days[0])).toEqual(["cand-1"]);
+  });
+
+  it("drop 대상이 없으면(over===null) 변경 없이 null을 반환한다 — DnD 실패가 기존 기능을 막지 않는다", () => {
+    const days = [makeDay(1, ["a"])];
+    expect(computeDragOutcome(days, [], "WALK", "schedule-item:a", null)).toBeNull();
+  });
+
+  it("해석할 수 없는 over id면 null을 반환한다", () => {
+    const days = [makeDay(1, ["a"])];
+    expect(computeDragOutcome(days, [], "WALK", "schedule-item:a", "unknown:xyz")).toBeNull();
+  });
+
+  it("존재하지 않는 후보 id면 null을 반환한다", () => {
+    const days = [makeDay(1, ["a"])];
+    expect(computeDragOutcome(days, [], "WALK", "candidate:missing", "schedule-item:a")).toBeNull();
+  });
+
+  it("결정론적이다 — 같은 (active, over) 입력은 같은 결과를 낸다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const r1 = computeDragOutcome(days, [], "WALK", "schedule-item:c", "schedule-item:a");
+    const r2 = computeDragOutcome(days, [], "WALK", "schedule-item:c", "schedule-item:a");
+    expect(poiIdsOf(r1!.days[0])).toEqual(poiIdsOf(r2!.days[0]));
+  });
+});
+
+describe("PlanEditor — Drag & Drop UI 요소(Phase B 2단계, 2026-08-16)", () => {
+  it("일정 항목마다 드래그 손잡이가 있고, 기존 위/아래/날짜 이동/삭제 버튼도 함께 존재한다(버튼 fallback 유지)", () => {
+    render(<PlanEditor plan={makePlan()} />);
+    expect(screen.getByRole("button", { name: "A장소 드래그로 순서·날짜 변경" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "A장소 위로 이동" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "A장소 아래로 이동" })).toBeInTheDocument();
+    expect(screen.getByLabelText("A장소 다른 날짜로 이동")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "A장소 삭제" })).toBeInTheDocument();
+  });
+
+  it("추천 후보 카드에도 드래그 손잡이가 있고, 기존 날짜 select·추가 버튼도 함께 존재한다(버튼 fallback 유지)", () => {
+    const candidate: CandidatePoi = {
+      id: "cand-1",
+      name: "첨성대",
+      category: "ATTRACTION",
+      lat: 35.8,
+      lng: 129.2,
+      fit: {
+        totalScore: 90,
+        grade: "HIGH",
+        recommendationStatus: "RECOMMENDED",
+        breakdown: {
+          categoryFit: { score: 30, tier: "CORE" },
+          themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+          seasonFit: { score: 20, isIdealMonth: true },
+        },
+        positiveReasons: ["테마 일치"],
+        cautions: [],
+        dataSource: {
+          provenance: "LIVE_API",
+          sourceLabel: "실제 공공데이터 동기화 결과",
+          operatingHoursConfirmed: false,
+          operatingHoursText: null,
+          closedDaysText: null,
+        },
+      },
+    };
+    render(<PlanEditor plan={makePlan()} candidatePois={[candidate]} />);
+    expect(screen.getByRole("button", { name: "첨성대 드래그로 일정에 놓기" })).toBeInTheDocument();
+    expect(screen.getByLabelText("첨성대 추가할 날짜")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "첨성대 1일차에 추가" })).toBeInTheDocument();
   });
 });

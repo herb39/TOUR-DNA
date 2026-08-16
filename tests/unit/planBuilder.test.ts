@@ -10,8 +10,12 @@ import {
   minutesToTimeSlot,
   describeCourseItemPurpose,
   ceilToNext30Minutes,
+  reorderCourseItemWithinDay,
+  moveCourseItemToDay,
+  insertPoiIntoDay,
   type PoiDetail,
   type CourseItemInput,
+  type CourseDay,
 } from "@/lib/domain/planBuilder";
 
 function poi(id: string, lat: number, lng: number, category = "ATTRACTION"): PoiDetail {
@@ -179,6 +183,95 @@ describe("recomputeDayItems", () => {
     ];
     const result = recomputeDayItems(items, "WALK", ["10:00", "11:00"]);
     expect(result[1].timeSlot).toBe("11:00");
+  });
+});
+
+describe("reorderCourseItemWithinDay / moveCourseItemToDay / insertPoiIntoDay — Drag & Drop 재정렬(Phase B 2단계, 2026-08-16)", () => {
+  function makeDay(dayIndex: number, poiIds: string[]): CourseDay {
+    return {
+      dayIndex,
+      items: poiIds.map((id, i) => ({
+        order: i + 1,
+        poiId: id,
+        poiName: `POI-${id}`,
+        category: "ATTRACTION",
+        timeSlot: `${10 + i}:00`,
+        stayMinutes: 60,
+        travel: i === 0 ? "숙소/집결지에서 이동" : "이동 10분",
+        lat: 36 + i * 0.01,
+        lng: 127 + i * 0.01,
+      })),
+    };
+  }
+
+  function poiIdsOf(day: CourseDay): string[] {
+    return day.items.map((it) => it.poiId);
+  }
+
+  it("같은 날짜 안에서 임의 자리로 옮긴다(A-B-C에서 C를 맨 앞으로 → C-A-B)", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const result = reorderCourseItemWithinDay(days, 1, 2, 0, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["c", "a", "b"]);
+  });
+
+  it("인접 자리 이동은 위/아래 버튼(swap)과 동일한 결과를 낸다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    // moveItem(dayIndex, 0, 1)과 동일한 호출(0번째를 1번째 자리로)
+    const result = reorderCourseItemWithinDay(days, 1, 0, 1, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["b", "a", "c"]);
+  });
+
+  it("경계를 벗어나는 이동(첫 항목을 더 위로)은 버튼과 동일하게 변경 없이 그대로 반환한다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const result = reorderCourseItemWithinDay(days, 1, 0, -1, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["a", "b", "c"]);
+  });
+
+  it("존재하지 않는 fromIndex는 변경 없이 그대로 반환한다", () => {
+    const days = [makeDay(1, ["a", "b"])];
+    const result = reorderCourseItemWithinDay(days, 1, 5, 0, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["a", "b"]);
+  });
+
+  it("다른 날짜의 임의 자리로 옮긴다(1일차 B를 2일차 X·Y 사이로)", () => {
+    const days = [makeDay(1, ["a", "b"]), makeDay(2, ["x", "y"])];
+    // day1의 index1("b")을 day2의 index1(= x와 y 사이)로 이동
+    const result = moveCourseItemToDay(days, 1, 1, 2, 1, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["a"]);
+    expect(poiIdsOf(result[1])).toEqual(["x", "b", "y"]);
+  });
+
+  it("같은 날짜로 moveCourseItemToDay를 호출하면 reorderCourseItemWithinDay로 위임된다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const result = moveCourseItemToDay(days, 1, 2, 1, 0, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["c", "a", "b"]);
+  });
+
+  it("존재하지 않는 날짜로 이동을 시도하면 변경 없이 그대로 반환한다", () => {
+    const days = [makeDay(1, ["a"])];
+    const result = moveCourseItemToDay(days, 1, 0, 99, 0, "WALK");
+    expect(result).toBe(days);
+  });
+
+  it("새 POI를 날짜의 임의 자리에 삽입한다(추천 후보 Drag 추가와 동일 경로)", () => {
+    const days = [makeDay(1, ["a", "b"])];
+    const newPoi = { id: "new", name: "새 장소", category: "ATTRACTION", lat: 36.5, lng: 127.5 };
+    const result = insertPoiIntoDay(days, 1, newPoi, 1, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["a", "new", "b"]);
+  });
+
+  it("삽입 자리가 현재 길이를 넘으면(끝자리 추가와 동일) 맨 끝에 추가된다", () => {
+    const days = [makeDay(1, ["a", "b"])];
+    const newPoi = { id: "new", name: "새 장소", category: "ATTRACTION", lat: 36.5, lng: 127.5 };
+    const result = insertPoiIntoDay(days, 1, newPoi, 999, "WALK");
+    expect(poiIdsOf(result[0])).toEqual(["a", "b", "new"]);
+  });
+
+  it("결정론적이다 — 같은 입력을 여러 번 호출해도 같은 결과를 낸다", () => {
+    const days = [makeDay(1, ["a", "b", "c"])];
+    const r1 = reorderCourseItemWithinDay(days, 1, 2, 0, "WALK");
+    const r2 = reorderCourseItemWithinDay(days, 1, 2, 0, "WALK");
+    expect(poiIdsOf(r1[0])).toEqual(poiIdsOf(r2[0]));
   });
 });
 
