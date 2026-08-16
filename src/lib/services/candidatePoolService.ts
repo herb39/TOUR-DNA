@@ -25,6 +25,10 @@ export interface CandidatePoi {
   category: PoiCategoryCode;
   lat: number;
   lng: number;
+  mealEligible?: boolean;
+  foodSubcategory?: PoiLike["foodSubcategory"];
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
   fit: PoiFitResult;
 }
 
@@ -107,6 +111,10 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
       category: item.poi.category,
       lat: item.poi.lat as number,
       lng: item.poi.lng as number,
+      ...(item.poi.mealEligible !== undefined ? { mealEligible: item.poi.mealEligible } : {}),
+      ...(item.poi.foodSubcategory !== undefined ? { foodSubcategory: item.poi.foodSubcategory } : {}),
+      ...(item.poi.lclsSystm1 !== undefined ? { lclsSystm1: item.poi.lclsSystm1 } : {}),
+      ...(item.poi.lclsSystm2 !== undefined ? { lclsSystm2: item.poi.lclsSystm2 } : {}),
       fit: item.fit,
     });
   }

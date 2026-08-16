@@ -74,6 +74,11 @@ export interface CourseItem {
   lat?: number;
   lng?: number;
   mealPurpose?: MealPurpose;
+  /** 실시간 품질검증이 FOOD의 실제 식사 가능 여부와 TourAPI 구조 분류를 재사용할 수 있도록 보존한다. */
+  mealEligible?: boolean;
+  foodSubcategory?: FoodSubcategory;
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
   /** 실제 경로 API 연동(Phase 12, 2026-08-05) 이후에만 채워지는 구조화된 이동 결과 — travel(문자열
    * 라벨)은 그대로 화면에 쓰지만, 이 필드들로 그 라벨이 실제 도로/캐시/추정 중 무엇인지 구분해 보여줄
    * 수 있다. courseRouteEnrichment.ts(서비스 계층)만 채우고, planBuilder.ts의 haversine 계산
@@ -112,16 +117,20 @@ export interface CourseItemInput {
   lng?: number;
   timeSlot?: string;
   mealPurpose?: MealPurpose;
+  mealEligible?: boolean;
+  foodSubcategory?: FoodSubcategory;
+  lclsSystm1?: string | null;
+  lclsSystm2?: string | null;
 }
 
-const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
+export const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
   DAY_TRIP: 1,
   ONE_NIGHT_TWO_DAYS: 2,
   TWO_NIGHTS_THREE_DAYS: 3,
 };
 
 /** 숙박을 제외한 하루 목표 일정 개수(1단계에서 선택된 비숙박 POI를 이 분배대로 배치, 개선 2단계). */
-const DAILY_ITEM_TARGETS_BY_DURATION: Record<DurationCode, number[]> = {
+export const DAILY_ITEM_TARGETS_BY_DURATION: Record<DurationCode, number[]> = {
   DAY_TRIP: [4],
   ONE_NIGHT_TWO_DAYS: [4, 3],
   TWO_NIGHTS_THREE_DAYS: [3, 5, 3],
@@ -129,7 +138,7 @@ const DAILY_ITEM_TARGETS_BY_DURATION: Record<DurationCode, number[]> = {
 
 /** 날짜(역할)별 기본 시간대 — 첫날은 도착을 고려해 늦게 시작, 중간 날은 가장 촘촘하게, 마지막 날은
  * 귀가를 고려해 일찍 끝난다. 숙박은 이 슬롯을 소비하지 않는다(별도 체크인 시각으로 처리). */
-const DAY_TIME_SLOTS_BY_DURATION: Record<DurationCode, string[][]> = {
+export const DAY_TIME_SLOTS_BY_DURATION: Record<DurationCode, string[][]> = {
   DAY_TRIP: [["10:00", "12:30", "15:00", "17:30"]],
   ONE_NIGHT_TWO_DAYS: [
     ["11:00", "13:30", "16:00", "18:30"],
@@ -152,11 +161,11 @@ const DEFAULT_LODGING_CHECKIN = "20:00";
 
 export const FOOD_CATEGORY = "FOOD";
 /** 새로 생성하는 일반 일정의 기본 체류시간(분). buildDraftCourse 전체에서 공용으로 쓴다(3단계에서 상수화). */
-const DEFAULT_ITEM_STAY_MINUTES = 60;
+export const DEFAULT_ITEM_STAY_MINUTES = 60;
 
 /** 식사 선호 시간대 정책(3단계) — FOOD 일정의 "시작 시각" 기준으로 판단한다. 영업시간·휴무일은
  * 이번 단계에서 다루지 않는다. */
-const MEAL_WINDOWS = {
+export const MEAL_WINDOWS = {
   lunch: { start: "11:30", end: "13:30" },
   dinner: { start: "17:30", end: "19:30" },
 } as const;
@@ -286,6 +295,10 @@ export function recomputeDayItems(
       lat: item.lat,
       lng: item.lng,
       mealPurpose: item.mealPurpose,
+      ...(item.mealEligible !== undefined ? { mealEligible: item.mealEligible } : {}),
+      ...(item.foodSubcategory !== undefined ? { foodSubcategory: item.foodSubcategory } : {}),
+      ...(item.lclsSystm1 !== undefined ? { lclsSystm1: item.lclsSystm1 } : {}),
+      ...(item.lclsSystm2 !== undefined ? { lclsSystm2: item.lclsSystm2 } : {}),
     };
   });
 }
@@ -302,6 +315,10 @@ export function courseItemToInput(item: CourseItem): CourseItemInput {
     lng: item.lng,
     timeSlot: item.timeSlot,
     mealPurpose: item.mealPurpose,
+    mealEligible: item.mealEligible,
+    foodSubcategory: item.foodSubcategory,
+    lclsSystm1: item.lclsSystm1,
+    lclsSystm2: item.lclsSystm2,
   };
 }
 
@@ -378,7 +395,10 @@ export function moveCourseItemToDay(
 export function insertPoiIntoDay(
   days: CourseDay[],
   dayIndex: number,
-  poi: Pick<PoiDetail, "id" | "name" | "category" | "lat" | "lng">,
+  poi: Pick<
+    PoiDetail,
+    "id" | "name" | "category" | "lat" | "lng" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
+  >,
   index: number,
   transport: TransportCode,
 ): CourseDay[] {
@@ -391,6 +411,10 @@ export function insertPoiIntoDay(
       stayMinutes: 60,
       lat: poi.lat,
       lng: poi.lng,
+      mealEligible: poi.mealEligible,
+      foodSubcategory: poi.foodSubcategory,
+      lclsSystm1: poi.lclsSystm1,
+      lclsSystm2: poi.lclsSystm2,
     };
     const items = d.items.map(courseItemToInput);
     const insertAt = Math.max(0, Math.min(index, items.length));
@@ -1099,6 +1123,10 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           lng: poi.lng,
           timeSlot,
           mealPurpose: purpose,
+          mealEligible: poi.mealEligible,
+          foodSubcategory: poi.foodSubcategory,
+          lclsSystm1: poi.lclsSystm1,
+          lclsSystm2: poi.lclsSystm2,
         }))
       : dayPois.map((p) => ({
           poiId: p.id,
@@ -1107,6 +1135,10 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           stayMinutes: DEFAULT_ITEM_STAY_MINUTES,
           lat: p.lat,
           lng: p.lng,
+          mealEligible: p.mealEligible,
+          foodSubcategory: p.foodSubcategory,
+          lclsSystm1: p.lclsSystm1,
+          lclsSystm2: p.lclsSystm2,
         }));
 
     const items = recomputeDayItems(itemInputs, transport, daySlotsForDay);
@@ -1133,6 +1165,10 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           travel,
           lat: lodgingPoi.lat,
           lng: lodgingPoi.lng,
+          mealEligible: lodgingPoi.mealEligible,
+          foodSubcategory: lodgingPoi.foodSubcategory,
+          lclsSystm1: lodgingPoi.lclsSystm1,
+          lclsSystm2: lodgingPoi.lclsSystm2,
         };
       }
     }

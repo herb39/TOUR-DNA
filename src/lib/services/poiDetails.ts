@@ -210,6 +210,10 @@ export async function searchPoisInRegion(regionId: string, query: string): Promi
     lng: r.lng,
     operatingHours: r.operatingHours,
     closedDays: r.closedDays,
+    mealEligible: r.category === "FOOD" ? deriveMealEligible(r) : undefined,
+    foodSubcategory: r.category === "FOOD" ? deriveFoodSubcategory(r) : undefined,
     sourceType: r.sourceType,
+    lclsSystm1: extractLclsSystm1FromRawPayload(r.rawPayload),
+    lclsSystm2: extractLclsSystm2FromRawPayload(r.rawPayload),
   }));
 }

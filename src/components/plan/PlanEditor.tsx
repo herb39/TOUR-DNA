@@ -37,11 +37,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { CourseMap } from "@/components/map/CourseMap";
+import { CourseQualityPanel } from "@/components/plan/CourseQualityPanel";
+import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
 import type { CandidatePoi } from "@/lib/services/candidatePoolService";
 import { enrichKpis, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
+import type { DurationCode } from "@/lib/domain/strategy";
 import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
@@ -51,6 +54,10 @@ export interface PlanEditorData {
   projectId: string;
   regionId: string;
   transport: TransportCode;
+  /** 실시간 품질검증에 쓰는 기존 프로젝트 조건. 레거시 테스트/저장 데이터는 아래 기본값으로 안전하게 추정한다. */
+  duration?: DurationCode;
+  templateId?: string | null;
+  preferredThemes?: string[];
   kakaoKey?: string;
   productName: string;
   conceptText: string;
@@ -293,6 +300,21 @@ export function PlanEditor({
   const [poiResults, setPoiResults] = useState<PoiDetail[]>([]);
   const [poiSearchPending, setPoiSearchPending] = useState(false);
 
+  const qualityDuration: DurationCode =
+    plan.duration ??
+    (days.length >= 3 ? "TWO_NIGHTS_THREE_DAYS" : days.length === 2 ? "ONE_NIGHT_TWO_DAYS" : "DAY_TRIP");
+  const courseQuality = useMemo(
+    () =>
+      computeCourseQuality({
+        days,
+        duration: qualityDuration,
+        transport: plan.transport,
+        templateId: plan.templateId,
+        preferredThemes: plan.preferredThemes ?? [],
+      }),
+    [days, plan.preferredThemes, plan.templateId, plan.transport, qualityDuration],
+  );
+
   // 편집 상태를 다루는 순수 함수(재정렬/날짜 이동/POI 삽입)는 planBuilder.ts로 옮겨졌다(Phase B
   // 2단계, 2026-08-16) — 버튼 조작과 Drag & Drop이 정확히 같은 재계산 경로를 타도록 하기 위함이다.
   const toInput = courseItemToInput;
@@ -338,7 +360,13 @@ export function PlanEditor({
 
   // 후보 풀(CandidatePoi)과 검색 결과(PoiDetail)가 공통으로 가진 최소 필드만 요구한다(2026-08-16) —
   // "기존 장소 추가 기능을 그대로 재사용한다"는 원칙에 따라 이 함수 자체는 바꾸지 않고 시그니처만 넓힌다.
-  function addPoiToDay(dayIndex: number, poi: Pick<PoiDetail, "id" | "name" | "category" | "lat" | "lng">) {
+  function addPoiToDay(
+    dayIndex: number,
+    poi: Pick<
+      PoiDetail,
+      "id" | "name" | "category" | "lat" | "lng" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
+    >,
+  ) {
     // 버튼 기반 추가는 항상 끝자리에 삽입한다(기존 동작 유지) — Drag & Drop만 드롭 위치에 맞는
     // 자리를 computeDragOutcome을 통해 넘긴다.
     setDays((prev) => {
@@ -534,6 +562,7 @@ export function PlanEditor({
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
+          <CourseQualityPanel report={courseQuality} />
           {poiShortage ? (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <p>⚠ {poiShortage.message}</p>

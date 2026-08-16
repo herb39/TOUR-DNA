@@ -2649,3 +2649,53 @@ build 모두 통과했다.
 경로가 저장 전까지 반영되지 않고 항상 직선으로 보인다(저장 후 새로고침해야 실제 경로로 갱신) —
 Kakao Mobility API를 편집마다 호출하지 않기로 한 정책의 의도된 결과다. (d) dnd-kit SSR hydration
 경고(위 11번)는 화면 동작에 영향이 없지만 아직 남아있다.
+
+## 2026-08-17 갱신 — 편집 중 실시간 코스 품질검증 v1(Phase B 9번)
+
+**배경**: 후보 추가·삭제·Drag & Drop·날짜 이동으로 `PlanEditor.days`를 자유롭게 편집할 수 있게 됐지만,
+저장 전에는 사용자가 수정한 코스가 테마·시간·이동·식사·숙박 측면에서 어떤 상태인지 한눈에 확인할 수
+없었다. 이번 변경은 저장을 막는 validation이 아니라, 기획자가 의도적으로 경고를 무시하고 저장할 수
+있는 advisory 안내를 추가하는 작업이다.
+
+**1) 단일 source of truth와 서버 호출 정책**: 새 course state나 서버 검증 액션을 만들지 않고 현재
+`PlanEditor`의 `days`를 `computeCourseQuality()`에 직접 전달한다. `useMemo`로 현재 편집 상태가 바뀔
+때만 다시 계산하며, 경고가 생겨도 기존 `savePlanAction`의 저장 흐름은 차단하지 않는다.
+
+**2) 기존 기준 재사용**:
+
+- 핵심 테마: `strategy.ts`의 `CORE_THEME_FLOOR_SHARE=0.3`, `templateCoreThemeCategories()`를 사용한다.
+  POI의 `lclsSystm1/2` 구조 신호를 먼저 보고, 없으면 기존 `classifyThemes()` 이름 키워드로 fallback한다.
+- SHOPPING 중복: 기존 자동 추천과 같은 완전 동일 좌표 그룹을 사용하되, 편집 결과에서는 제거하지 않고
+  경고만 표시한다.
+- 하루 과밀: `planBuilder.ts`의 `DAILY_ITEM_TARGETS_BY_DURATION`와 `DAY_TIME_SLOTS_BY_DURATION`를
+  사용한다. 장소 수가 기본 목표를 넘거나 기본 종료 기준을 넘긴 경우 안내한다.
+- 식사: `MEAL_WINDOWS`와 `mealEligible`을 사용해 실제 점심·저녁 시간대의 FOOD 배치를 확인한다.
+  `mealEligible`이 없는 legacy 데이터는 기존 `planBuilder.ts` 규칙처럼 식사 가능으로 취급한다.
+- 숙박·날짜: `DAY_COUNT_BY_DURATION`와 기존 lodging 분리 정책을 재사용해 날짜 수, 일차 순서, 숙박 필요일,
+  마지막 날 숙박, lodging 카테고리를 확인한다.
+- 이동: `geo.ts`의 `CAUTION_TRAVEL_MINUTES=60`, `EXCESSIVE_TRAVEL_MINUTES=90`을 사용한다. 저장된
+  `LIVE_API/CACHED_API` 이동시간이 있으면 그것을 쓰고, 편집으로 새로 생긴 구간은 좌표 기반 추정으로
+  표시한다. 시간표의 여유가 이동시간보다 짧은 구간도 함께 안내한다.
+
+**3) 편집 중 metadata 보존**: `CourseItem`/`CourseItemInput`에 `mealEligible`, `foodSubcategory`,
+`lclsSystm1`, `lclsSystm2`를 optional로 보존했다. `buildDraftCourse`, `recomputeDayItems`, 추천 후보
+풀, 지역 검색 추가 경로가 이 필드를 전달하므로 자동 생성 POI·추천 후보·검색 추가 POI가 동일한 구조
+분류/식사 판정 근거를 사용할 수 있다. 기존 저장 데이터는 필드가 없어도 안전하게 동작한다.
+
+**4) UI**: `CourseQualityPanel`을 `PlanEditor`의 일자별 코스 영역 상단에 추가했다. 경고별 제목·근거·세부
+구간을 보여주고, 현재 확인된 경고가 없을 때도 상태를 표시한다. 패널 문구로 “경고가 있어도 저장은
+계속할 수 있습니다”를 명시해 hard constraint가 아님을 분명히 했다.
+
+**5) 테스트**: `tests/unit/courseQualityValidation.test.ts`에 구조 분류 기반 핵심 테마 부족, SHOPPING
+동일 좌표, 과밀, 식사·숙박 누락, 60/90분 이동 부담·시간표 불일치 검사를 추가했다. `PlanEditor.test.tsx`
+에는 advisory 패널 노출과 저장 비차단 문구 검사를 추가했다. 검증 결과는 전체 Vitest 104개 파일
+1522개 통과, `npm run typecheck`, `npm run lint`, `npm run build` 통과다.
+
+**변경 범위**: `src/lib/domain/courseQualityValidation.ts`,
+`src/components/plan/CourseQualityPanel.tsx`, `PlanEditor.tsx`, `planBuilder.ts`, `candidatePoolService.ts`,
+`poiDetails.ts`, 실행안 page의 검증 입력 전달, 관련 unit tests 및 문서. DB schema·새 서버 액션·기존
+전략 점수·후보 ranking·저장 차단 정책은 변경하지 않았다.
+
+**남은 범위**: v1은 현재 데이터로 정확히 판단할 수 있는 advisory만 다룬다. 실제 운영시간 기반 영업
+가능 여부, POI 유형별 체류시간, 관광 대표성, 축제 anchor 시간표, 저장 후 새 도로 경로 재계산은 별도
+후속 과제로 남아 있다. dnd-kit의 기존 SSR hydration 경고도 이번 작업의 범위 밖이다.

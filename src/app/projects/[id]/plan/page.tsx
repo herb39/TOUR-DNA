@@ -53,11 +53,19 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // course의 poiId 목록(poiFitSummary용)이 이 결과에서 나오므로 아래 병렬 조회보다 먼저 완료돼야 한다.
   const planRow = await ensureSelectedPlan(id);
 
+  const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
+  const templateId = selectedStrategy?.templateId;
+  const duration = project.input?.duration as DurationCode;
+  const preferredThemes = project.input?.preferredThemes as string[];
+
   const planData: PlanEditorData = {
     id: planRow.id,
     projectId: id,
     regionId: project.regionId,
     transport: project.input?.transport as PlanEditorData["transport"],
+    duration,
+    templateId,
+    preferredThemes,
     kakaoKey: process.env.NEXT_PUBLIC_KAKAO_MAP_KEY,
     productName: planRow.productName,
     conceptText: planRow.conceptText,
@@ -77,8 +85,6 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 2026-07-30(P0-1): 전략별 POI 적합도·후보 부족 안내를 이 코스에 담긴 poiId 기준으로 매번 새로
   // 계산한다(저장하지 않음) — 사용자가 장소를 추가·삭제해도 다음 렌더링에서 항상 최신 상태로 반영되고,
   // 선택 로직(selectPois)이나 전략 점수·순위는 전혀 건드리지 않는다.
-  const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
-  const templateId = selectedStrategy?.templateId;
   const poiIds =
     templateId && project.input
       ? planData.course.days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])

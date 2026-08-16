@@ -74,6 +74,15 @@ function timeInputValue(poiName: string): string {
   return (screen.getByLabelText(`${poiName} 시간`) as HTMLInputElement).value;
 }
 
+describe("PlanEditor 실시간 코스 품질검증", () => {
+  it("현재 days 편집 상태를 기준으로 advisory 패널을 보여주고 저장 차단이 아님을 안내한다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    expect(screen.getByRole("region", { name: "실시간 코스 품질검증" })).toBeInTheDocument();
+    expect(screen.getByText(/경고가 있어도 저장은 계속할 수 있습니다/)).toBeInTheDocument();
+  });
+});
+
 describe("PlanEditor 코스 순서 변경", () => {
   it("위/아래로 이동하면 목록 순서만 바뀌고 각 장소가 가진 시간은 그대로 유지된다", () => {
     render(<PlanEditor plan={plan} />);

@@ -273,7 +273,8 @@ const THEME_TIER_MAX_SHARE = 0.5;
  * 기존 THEME_TIER_MAX_SHARE(50%)보다는 작게, FALLBACK_TIER_MAX_SHARE(40%)보다도 작게 잡아 이 floor가
  * 다양성(FOOD/EXPERIENCE 등 다른 필수 카테고리) 자체를 밀어내지 않도록 한다.
  */
-const CORE_THEME_FLOOR_SHARE = 0.3;
+/** 코스 편집 중에도 자동 생성과 같은 핵심 테마 권장 비중을 advisory 기준으로 재사용한다. */
+export const CORE_THEME_FLOOR_SHARE = 0.3;
 
 /** 카테고리 하나를 이름순 정렬 후, 템플릿+카테고리 조합 해시로 정한 위치부터 시작하도록 순환시킨다.
  * 입력 pool을 복사만 하고 원본은 건드리지 않는다. */
