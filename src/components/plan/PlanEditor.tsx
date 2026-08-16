@@ -46,6 +46,7 @@ import { enrichKpis, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
 import type { DurationCode } from "@/lib/domain/strategy";
 import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
+import { classifyLeisureActivity } from "@/lib/domain/leisureClassification";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -1002,6 +1003,7 @@ function ScheduleItemRow({
     id: SCHEDULE_ITEM_DND_PREFIX + item.poiId,
   });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  const leisureType = classifyLeisureActivity(item.lclsSystm1, item.lclsSystm2);
 
   return (
     <li
@@ -1084,6 +1086,7 @@ function ScheduleItemRow({
                     ? ` · 운영시간: ${fit.dataSource.operatingHoursText}`
                     : " · 운영시간 확인 필요"}
                 </p>
+                {leisureType ? <p className="text-slate-400">공식 레저 분류: {leisureType.label}</p> : null}
               </div>
             </details>
           ) : null}
@@ -1156,6 +1159,7 @@ function CandidateCard({
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.5 : 1 };
   const badge = resolveFitBadge(candidate.fit);
   const reason = candidate.fit.positiveReasons[0] ?? candidate.fit.cautions[0] ?? null;
+  const leisureType = classifyLeisureActivity(candidate.lclsSystm1, candidate.lclsSystm2);
 
   return (
     <li ref={setNodeRef} style={style} className="rounded-md border border-slate-200 p-3 text-xs">
@@ -1173,6 +1177,7 @@ function CandidateCard({
           <div>
             <p className="font-medium text-slate-800">{candidate.name}</p>
             <p className="mt-0.5 text-slate-400">{poiCategoryLabel(candidate.category)}</p>
+            {leisureType ? <p className="mt-0.5 text-slate-500">공식 분류: {leisureType.label}</p> : null}
           </div>
         </div>
         <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badge.className}`}>

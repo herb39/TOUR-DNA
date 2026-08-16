@@ -756,6 +756,18 @@ describe("PlanEditor — 추천 후보 풀(Phase B 첫 단계, 2026-08-16)", () 
     expect(screen.getByText("한국관광공사 공식 분류상 문화·역사 테마와 일치합니다.")).toBeInTheDocument();
   });
 
+  it("LS 중분류 후보는 공식 레저 분류를 함께 보여준다", () => {
+    const candidate = {
+      ...makeCandidate("cand-leisure", "선재낚시공원"),
+      category: "EXPERIENCE" as const,
+      lclsSystm1: "LS",
+      lclsSystm2: "LS02",
+    };
+    render(<PlanEditor plan={makePlan()} candidatePois={[candidate]} />);
+
+    expect(screen.getByText("공식 분류: 수상레저스포츠")).toBeInTheDocument();
+  });
+
   it("현재 course에 이미 포함된 POI는 후보 목록에 나타나지 않는다", () => {
     render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("poi-a", "A장소(이미 코스에 있음)")]} />);
     expect(screen.queryByText("A장소(이미 코스에 있음)")).not.toBeInTheDocument();

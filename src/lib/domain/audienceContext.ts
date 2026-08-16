@@ -225,8 +225,9 @@ export function templateCoreThemeCategories(templateId: string): ThemeCategory[]
  *   대분류 자체로 CULTURE_HISTORY와 정확히 대응된다.
  * - NA(대분류 "자연관광", 확인됨): NA01~05 전부 자연경관(산/하천·해양)·자연생태·자연공원·기타자연관광 —
  *   NATURE와 정확히 대응된다.
- * - LS(대분류 "레포츠", 확인됨): LS01~04 전부 육상/수상/항공/복합 레저스포츠 — LEISURE_ACTIVITY와
- *   정확히 대응된다.
+ * - LS(대분류 "레포츠", 확인됨): LS01 육상레저스포츠/LS02 수상레저스포츠/LS03 항공레저스포츠/
+ *   LS04 복합레저스포츠 — 대분류 전체는 LEISURE_ACTIVITY와 정확히 대응되고, 중분류 표시는
+ *   leisureClassification.ts가 공식 코드 그대로 담당한다.
  * - FD(대분류 "음식", 이미 foodClassification.ts에서 세부분류 용도로 검증됨): FOOD와 정확히 대응된다.
  * - lclsSystm2="EX05"(대분류 EX "체험관광"의 중분류 "웰니스관광"): 온천/사우나/스파/찜질방/한방체험/
  *   힐링명상/뷰티스파/기타웰니스/자연치유/기타의료관광 — WELLNESS와 정확히 대응된다. EX 대분류의 나머지

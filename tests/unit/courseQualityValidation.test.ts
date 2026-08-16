@@ -156,6 +156,8 @@ describe("computeCourseQuality", () => {
           item({
             poiName: "옹진 전시관",
             closedDays: "매주 월요일, 화요일",
+            lclsSystm1: "LS",
+            lclsSystm2: "LS02",
           }),
         ]),
       ],
@@ -166,5 +168,6 @@ describe("computeCourseQuality", () => {
     const warning = report.warnings.find((candidate) => candidate.id === "operating-hours-check");
     expect(warning?.message).toContain("자동 확정 판정하지 않으므로");
     expect(warning?.details?.[0]).toContain("자동 휴무 판정은 하지 않음");
+    expect(warning?.details?.[0]).toContain("공식 레저 분류 수상레저스포츠");
   });
 });

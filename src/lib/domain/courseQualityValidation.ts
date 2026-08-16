@@ -21,6 +21,7 @@ import {
   templateCoreThemeCategories,
   type ThemeCategory,
 } from "./audienceContext";
+import { classifyLeisureActivity } from "./leisureClassification";
 import { CORE_THEME_FLOOR_SHARE, type DurationCode } from "./strategy";
 
 export interface CourseQualityWarning {
@@ -86,9 +87,11 @@ function hasMeaningfulClosedDays(value: string | null | undefined): value is str
 }
 
 function formatOperatingHoursWarningDetail(dayIndex: number, item: CourseItem, reason: string): string {
+  const leisureType = classifyLeisureActivity(item.lclsSystm1, item.lclsSystm2);
   const source = [
     item.operatingHours ? `운영시간 ${item.operatingHours}` : null,
     hasMeaningfulClosedDays(item.closedDays) ? `휴무일 ${item.closedDays}` : null,
+    leisureType ? `공식 레저 분류 ${leisureType.label}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
