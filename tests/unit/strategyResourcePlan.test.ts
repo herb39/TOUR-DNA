@@ -96,7 +96,7 @@ describe("strategyResourcePlan", () => {
   describe("buildStrategyPartners", () => {
     it("모든 템플릿·역할 조합에서 6개 협력 대상 카테고리를 중복·누락 없이 정확히 한 번씩 생성한다", () => {
       const roles = ["LOCAL_GOV", "TRAVEL_AGENCY", "FESTIVAL_PLANNER", undefined] as const;
-      const templateIds = ["LOCAL_FOOD_MARKET", "FESTIVAL_EVENT", "CULTURE_HISTORY", "NATURE_WELLNESS"];
+      const templateIds = ["LOCAL_FOOD_MARKET", "FESTIVAL_EVENT", "CULTURE_HISTORY", "CULTURE_ARTS", "NATURE_WELLNESS"];
       for (const templateId of templateIds) {
         for (const role of roles) {
           const partners = buildStrategyPartners(templateId, role);
@@ -119,9 +119,11 @@ describe("strategyResourcePlan", () => {
     it("축제·문화 전용 템플릿만 실제 문화·축제 기관을 연결하고 나머지는 해당 없음으로 표시한다", () => {
       const festival = buildStrategyPartners("FESTIVAL_EVENT", undefined);
       const culture = buildStrategyPartners("CULTURE_HISTORY", undefined);
+      const arts = buildStrategyPartners("CULTURE_ARTS", undefined);
       const nature = buildStrategyPartners("NATURE_WELLNESS", undefined);
       expect(festival.find((p) => p.category === "문화·축제 기관")!.name).toBe("축제 운영위원회");
       expect(culture.find((p) => p.category === "문화·축제 기관")!.name).toBe("지역 문화원·문화재 관리기관");
+      expect(arts.find((p) => p.category === "문화·축제 기관")!.name).toBe("미술관·공연장·문화예술기관");
       expect(nature.find((p) => p.category === "문화·축제 기관")!.name).toBe("해당 없음");
     });
 

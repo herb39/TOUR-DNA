@@ -24,6 +24,13 @@ describe("tourInfoDetailEnrichment — 제한적 VE07·LS 증분 반영", () => 
     expect(parseTourInfoDetailEnrichmentArgs(["--region-code=SGG_JECHEON"])).toMatchObject({ ok: false });
     expect(parseTourInfoDetailEnrichmentArgs(["--region-code=SGG_JECHEON", "--max-items=0"])).toMatchObject({ ok: false });
     expect(parseTourInfoDetailEnrichmentArgs(["--region-code=SGG_JECHEON", "--max-items=101"])).toMatchObject({ ok: false });
+    expect(parseTourInfoDetailEnrichmentArgs(["--all-regions", "--max-items=10"])).toEqual({
+      ok: true,
+      value: { allRegions: true, maxItems: 10 },
+    });
+    expect(parseTourInfoDetailEnrichmentArgs(["--all-regions", "--region-code=SGG_JECHEON", "--max-items=1"])).toMatchObject({
+      ok: false,
+    });
   });
 
   it("VE07 문화시설만 고르고, 기존 값·상세 응답이 있는 POI는 재호출 후보에서 제외한다", () => {

@@ -158,10 +158,12 @@ describe("computeThemeFit — 테마 카테고리 기반 가산점", () => {
     expect(withoutMatch.bonus).toBe(0);
   });
 
-  it("문화예술은 기존 문화·역사 체험형 전략을 재사용하되 별도 세부 테마로 가산된다", () => {
-    const result = computeThemeFit(getTemplateById("CULTURE_HISTORY"), ["CULTURE_ARTS"], 0);
-    expect(result.bonus).toBe(8);
-    expect(result.adjustments[0]).toMatchObject({ basis: "CURATED", delta: 8 });
+  it("문화예술은 전용 전략을 우선하고 기존 문화·역사 전략도 보조 후보로 남긴다", () => {
+    const arts = computeThemeFit(getTemplateById("CULTURE_ARTS"), ["CULTURE_ARTS"], 0);
+    const history = computeThemeFit(getTemplateById("CULTURE_HISTORY"), ["CULTURE_ARTS"], 0);
+    expect(arts.bonus).toBe(12);
+    expect(history.bonus).toBe(5);
+    expect(arts.adjustments[0]).toMatchObject({ basis: "CURATED", delta: 12 });
   });
 
   it("기존 substring 가산점과 합산 후 상한(15점)으로 clamp한다", () => {

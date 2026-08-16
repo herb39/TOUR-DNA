@@ -2,22 +2,38 @@ import type { TourInfoDetailItem } from "../public-data/adapters/tourInfoDetail"
 
 export const TOUR_INFO_DETAIL_ENRICHMENT_USAGE =
   "사용법: npm run enrich:tour-info-detail -- --region-code=SGG_JECHEON --max-items=10\n" +
-  "       --region-code(SIGUNGU)와 --max-items(이번 실행의 최대 상세 API 호출 수)를 반드시 지정합니다.";
+  "       --region-code(SIGUNGU)와 --max-items(이번 실행의 최대 상세 API 호출 수)를 반드시 지정합니다.\n" +
+  "       전국 증분은 npm run enrich:tour-info-detail -- --all-regions --max-items=100 형식으로 실행합니다.";
 
 export const MAX_DETAIL_ITEMS_PER_RUN = 100;
 
-export interface TourInfoDetailEnrichmentArgs {
+export interface TourInfoDetailEnrichmentRegionArgs {
   regionCode: string;
   maxItems: number;
 }
+
+export interface TourInfoDetailEnrichmentAllRegionsArgs {
+  allRegions: true;
+  maxItems: number;
+}
+
+export type TourInfoDetailEnrichmentArgs =
+  | TourInfoDetailEnrichmentRegionArgs
+  | TourInfoDetailEnrichmentAllRegionsArgs;
 
 export function parseTourInfoDetailEnrichmentArgs(argv: string[]):
   | { ok: true; value: TourInfoDetailEnrichmentArgs }
   | { ok: false; error: string } {
   let regionCode: string | null = null;
   let maxItems: number | null = null;
+  let allRegions = false;
 
   for (const token of argv) {
+    if (token === "--all-regions") {
+      if (allRegions) return { ok: false, error: "--all-regions를 두 번 이상 지정할 수 없습니다." };
+      allRegions = true;
+      continue;
+    }
     if (token.startsWith("--region-code=")) {
       if (regionCode !== null) return { ok: false, error: "--region-code를 두 번 이상 지정할 수 없습니다." };
       const value = token.slice("--region-code=".length).trim();
@@ -38,10 +54,14 @@ export function parseTourInfoDetailEnrichmentArgs(argv: string[]):
     return { ok: false, error: `알 수 없는 옵션입니다: "${token}"` };
   }
 
-  if (!regionCode || maxItems === null) {
-    return { ok: false, error: `--region-code와 --max-items를 모두 지정해야 합니다.\n${TOUR_INFO_DETAIL_ENRICHMENT_USAGE}` };
+  if (allRegions && regionCode) {
+    return { ok: false, error: "--all-regions와 --region-code는 함께 지정할 수 없습니다." };
   }
-  return { ok: true, value: { regionCode, maxItems } };
+  if (maxItems === null || (!allRegions && !regionCode)) {
+    return { ok: false, error: `--region-code 또는 --all-regions와 --max-items를 지정해야 합니다.\n${TOUR_INFO_DETAIL_ENRICHMENT_USAGE}` };
+  }
+  if (allRegions) return { ok: true, value: { allRegions: true, maxItems } };
+  return { ok: true, value: { regionCode: regionCode as string, maxItems } };
 }
 
 export interface TourInfoDetailEnrichmentPoi {

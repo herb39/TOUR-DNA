@@ -255,6 +255,13 @@ function buildCultureFestivalPartner(templateId: string): StrategyPartnerLink {
       reason: "해설사 파견 및 전시 콘텐츠 협조",
     };
   }
+  if (templateId === "CULTURE_ARTS") {
+    return {
+      category: "문화·축제 기관",
+      name: "미술관·공연장·문화예술기관",
+      reason: "전시·공연 일정, 예약·티켓, 해설 콘텐츠 연계 협의",
+    };
+  }
   return {
     category: "문화·축제 기관",
     name: "해당 없음",

@@ -305,6 +305,17 @@ describe("computeStrategies — Phase 4: 역할·국적·테마·월 조건별 �
     expect(foodThemeMarket!.scoreBreakdown.targetFit).toBeGreaterThan(noThemeMarket!.scoreBreakdown.targetFit);
   });
 
+  it("문화예술을 명시하면 전용 문화예술 전략이 상위 전략 후보로 평가된다", () => {
+    const result = computeStrategies(
+      computeDna(dnaInput()),
+      baseProjectInput({ preferredThemes: ["문화예술 전시"] }),
+      poisByCategory,
+      MODEL_VERSION,
+    );
+
+    expect(result.some((strategy) => strategy.templateId === "CULTURE_ARTS")).toBe(true);
+  });
+
   it("역할·국적·테마·월 서로 다른 조합 3개는 서로 다른 결과를 내고, 각각 재실행해도 동일하다", () => {
     const dna = computeDna(dnaInput());
     const combinations: ProjectInputForScoring[] = [

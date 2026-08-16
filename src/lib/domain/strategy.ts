@@ -655,10 +655,17 @@ export function computeStrategies(
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
   modelVersion: string,
 ): StrategyComputationResult[] {
-  const candidates = STRATEGY_TEMPLATES.filter((t) => !isExcludedByTheme(t, input.excludedThemes));
   // computeTargetFit도 템플릿마다 classifyThemes를 다시 호출하지만(순수 함수라 결과는 항상 같음),
   // POI 선택 단계(selectPois)는 템플릿과 무관하게 동일한 값을 쓰므로 루프 밖에서 한 번만 계산한다.
   const preferredThemeCategories = classifyThemes(input.preferredThemes);
+  // 문화예술 전용 템플릿은 해당 테마를 명시한 경우에만 전략 3안 경쟁에 참여시킨다. 기존 테마를
+  // 고르지 않은 분석 결과의 상위 3안 구성을 불필요하게 바꾸지 않으면서, 문화예술을 선택한 경우에는
+  // CULTURE_HISTORY 재사용 전략보다 전용 전략이 실제로 평가되도록 하는 호환 정책이다.
+  const candidates = STRATEGY_TEMPLATES.filter(
+    (t) =>
+      !isExcludedByTheme(t, input.excludedThemes) &&
+      (t.id !== "CULTURE_ARTS" || preferredThemeCategories.includes("CULTURE_ARTS")),
+  );
 
   const scored = candidates.map((template) => {
     const demandFit = weightedAxisFit(template.demandAxisWeights, dna);

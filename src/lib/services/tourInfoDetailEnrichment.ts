@@ -12,6 +12,7 @@ import { ALLOW_REMOTE_DATA_SYNC_ENV, checkDataSyncTarget } from "@/lib/services/
 export interface TourInfoDetailEnrichmentResult {
   status: "COMPLETED" | "BLOCKED" | "FAILED";
   regionCode: string;
+  regionCount: number;
   candidates: number;
   attempted: number;
   updated: number;
@@ -23,13 +24,16 @@ export interface TourInfoDetailEnrichmentResult {
 /** 공식 구조 분류가 확인된 VE07 문화시설·LS 레포츠에 상세 API를 maxItems 이내 순차 호출하고,
  * 기존 rawPayload를 보존하며 병합한다. */
 export async function enrichTourInfoDetail(params: {
-  regionCode: string;
+  regionCode?: string;
+  allRegions?: boolean;
   maxItems: number;
 }): Promise<TourInfoDetailEnrichmentResult> {
+  const scopeLabel = params.allRegions ? "ALL_SIGUNGU" : params.regionCode ?? "";
   if (params.maxItems < 1 || params.maxItems > MAX_DETAIL_ITEMS_PER_RUN) {
     return {
       status: "FAILED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: 0,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -42,7 +46,8 @@ export async function enrichTourInfoDetail(params: {
   if (!target.allowed) {
     return {
       status: "BLOCKED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: 0,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -56,7 +61,8 @@ export async function enrichTourInfoDetail(params: {
   if (!serviceKey) {
     return {
       status: "FAILED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: 0,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -66,11 +72,22 @@ export async function enrichTourInfoDetail(params: {
     };
   }
 
-  const region = await prisma.region.findUnique({ where: { code: params.regionCode }, select: { id: true, code: true, level: true } });
-  if (!region) {
+  const regions = params.allRegions
+    ? await prisma.region.findMany({
+        where: { level: "SIGUNGU" },
+        select: { id: true, code: true, level: true },
+        orderBy: { code: "asc" },
+      })
+    : await prisma.region.findUnique({
+        where: { code: params.regionCode },
+        select: { id: true, code: true, level: true },
+      }).then((region) => (region ? [region] : []));
+  const region = regions[0];
+  if (!region && !params.allRegions) {
     return {
       status: "FAILED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: 0,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -79,10 +96,11 @@ export async function enrichTourInfoDetail(params: {
       messages: [`지역 코드를 찾을 수 없습니다: ${params.regionCode}`],
     };
   }
-  if (region.level !== "SIGUNGU") {
+  if (!params.allRegions && region?.level !== "SIGUNGU") {
     return {
       status: "FAILED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: 0,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -91,12 +109,26 @@ export async function enrichTourInfoDetail(params: {
       messages: [`${params.regionCode}는 SIGUNGU 지역 코드가 아닙니다.`],
     };
   }
+  if (params.allRegions && regions.length === 0) {
+    return {
+      status: "FAILED",
+      regionCode: scopeLabel,
+      regionCount: 0,
+      candidates: 0,
+      attempted: 0,
+      updated: 0,
+      noData: 0,
+      failed: 0,
+      messages: ["SIGUNGU 지역 코드가 없습니다."],
+    };
+  }
 
   const source = await prisma.dataSource.findUnique({ where: { code: "TOUR_INFO" }, select: { baseUrl: true } });
   if (!source) {
     return {
       status: "FAILED",
-      regionCode: params.regionCode,
+      regionCode: scopeLabel,
+      regionCount: regions.length,
       candidates: 0,
       attempted: 0,
       updated: 0,
@@ -107,7 +139,10 @@ export async function enrichTourInfoDetail(params: {
   }
 
   const rows = await prisma.poi.findMany({
-    where: { regionId: region.id, sourceType: "API" },
+    where: {
+      regionId: params.allRegions ? { in: regions.map((candidate) => candidate.id) } : region!.id,
+      sourceType: "API",
+    },
     select: { id: true, externalId: true, sourceType: true, operatingHours: true, closedDays: true, rawPayload: true },
   });
   const candidates = selectTourInfoDetailCandidates(rows as TourInfoDetailEnrichmentPoi[], params.maxItems);
@@ -147,7 +182,8 @@ export async function enrichTourInfoDetail(params: {
 
   return {
     status: failed > 0 && updated === 0 ? "FAILED" : "COMPLETED",
-    regionCode: params.regionCode,
+    regionCode: scopeLabel,
+    regionCount: regions.length,
     candidates: candidates.length,
     attempted,
     updated,

@@ -163,9 +163,7 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
   FOOD: { LOCAL_FOOD_MARKET: 12, FESTIVAL_EVENT: 5, YOUTH_LOCAL_CONTENT: 4 },
   NATURE: { NATURE_WELLNESS: 12, FAMILY_EXPERIENCE: 3 },
   CULTURE_HISTORY: { CULTURE_HISTORY: 12, FAMILY_EXPERIENCE: 3 },
-  // 별도 전략 템플릿을 만들기 전까지는 기존 문화·역사 체험형을 재사용한다.
-  // 10점 미만으로 두어 CULTURE_HISTORY 템플릿의 핵심 테마 판정은 바꾸지 않는다.
-  CULTURE_ARTS: { CULTURE_HISTORY: 8, FAMILY_EXPERIENCE: 2 },
+  CULTURE_ARTS: { CULTURE_ARTS: 12, CULTURE_HISTORY: 5, FAMILY_EXPERIENCE: 2 },
   WELLNESS: { NATURE_WELLNESS: 10 },
   FESTIVAL: { FESTIVAL_EVENT: 12 },
   LEISURE_ACTIVITY: { NATURE_WELLNESS: 6, YOUTH_LOCAL_CONTENT: 6, NIGHT_STAY_EXTENSION: 4 },
@@ -208,7 +206,7 @@ function computeTemplateCoreThemes(): Partial<Record<string, ThemeCategory[]>> {
 const TEMPLATE_CORE_THEMES = computeTemplateCoreThemes();
 
 /** templateId가 정체성으로 갖는 ThemeCategory 목록(위 TEMPLATE_CORE_THEMES 참고). 없으면 빈 배열 —
- * 사용자가 preferredThemes를 입력하지 않아도(THEME_TEMPLATE_BONUS 근거가 있는 4개 템플릿에 한해)
+ * 사용자가 preferredThemes를 입력하지 않아도(THEME_TEMPLATE_BONUS 근거가 있는 핵심 템플릿에 한해)
  * 전략 자체의 테마가 POI 후보 랭킹에 반영되도록 strategy.ts의 selectPois가 이 함수를 사용한다. */
 export function templateCoreThemeCategories(templateId: string): ThemeCategory[] {
   return TEMPLATE_CORE_THEMES[templateId] ?? [];

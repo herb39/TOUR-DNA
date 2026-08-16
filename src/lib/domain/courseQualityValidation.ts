@@ -66,8 +66,8 @@ interface OperatingHoursRange {
   closeMinutes: number;
 }
 
-/** 운영시간 문구에서 단순한 HH:MM~HH:MM 구간만 추출한다. 계절별·요일별 복합 문구는
- * 자동 판정하지 않고, 확실히 해석 가능한 경우에만 일정 시간과 비교한다. */
+/** 운영시간 문구에서 HH:MM~HH:MM 구간을 추출한다. 여러 구간이거나 요일·시즌·회차 조건이
+ * 섞인 경우는 별도 복합 문구로 취급해 자동 범위 판정을 하지 않는다. */
 function parseOperatingHoursRanges(value: string | null | undefined): OperatingHoursRange[] {
   if (!value?.trim()) return [];
   const ranges: OperatingHoursRange[] = [];
@@ -79,6 +79,14 @@ function parseOperatingHoursRanges(value: string | null | undefined): OperatingH
     ranges.push({ openMinutes, closeMinutes });
   }
   return ranges;
+}
+
+function hasComplexOperatingHours(value: string | null | undefined, ranges: OperatingHoursRange[]): boolean {
+  if (!value?.trim()) return false;
+  if (ranges.length > 1) return true;
+  return /(평일|주말|공휴일|월요일|화요일|수요일|목요일|금요일|토요일|일요일|요일|성수기|비수기|하절기|동절기|시즌|회차|입장마감|공연시간)/u.test(
+    value,
+  );
 }
 
 function hasReservationNotice(value: string | null | undefined): value is string {
@@ -116,7 +124,16 @@ function evaluateOperatingHoursWarnings(input: CourseQualityInput): CourseQualit
       const startMinutes = parseTimeSlotToMinutes(item.timeSlot);
       const endMinutes = startMinutes === null ? null : startMinutes + Math.max(0, item.stayMinutes);
       const ranges = parseOperatingHoursRanges(item.operatingHours);
-      if (startMinutes !== null && endMinutes !== null && ranges.length > 0) {
+      const complexOperatingHours = hasComplexOperatingHours(item.operatingHours, ranges);
+      if (complexOperatingHours) {
+        details.push(
+          formatOperatingHoursWarningDetail(
+            day.dayIndex,
+            item,
+            "요일·시즌·회차 또는 복수 시간대가 포함된 복합 운영시간은 자동 판정하지 않음",
+          ),
+        );
+      } else if (startMinutes !== null && endMinutes !== null && ranges.length > 0) {
         const fitsAnyRange = ranges.some(({ openMinutes, closeMinutes }) => {
           const adjustedClose = closeMinutes <= openMinutes ? closeMinutes + 24 * 60 : closeMinutes;
           const adjustedEnd = endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes;

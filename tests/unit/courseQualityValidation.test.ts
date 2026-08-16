@@ -149,6 +149,32 @@ describe("computeCourseQuality", () => {
     expect(report.warnings.some((warning) => warning.id === "operating-hours-check")).toBe(false);
   });
 
+  it("요일별·복수 시간대 운영시간은 자동 판정하지 않고 확인 advisory로 안내한다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({
+            poiName: "문화예술회관",
+            timeSlot: "10:00",
+            stayMinutes: 60,
+            operatingHours: "평일 10:00~18:00, 주말 10:00~20:00",
+          }),
+          item({
+            poiName: "분할 운영 전시관",
+            timeSlot: "12:30",
+            stayMinutes: 60,
+            operatingHours: "09:00~12:00, 13:00~18:00",
+          }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    const warning = report.warnings.find((candidate) => candidate.id === "operating-hours-check");
+    expect(warning?.details?.filter((detail) => detail.includes("자동 판정하지 않음"))).toHaveLength(2);
+  });
+
   it("휴무일 문구는 여행일자·요일 확인 advisory로 안내하고 자동 휴무 판정은 하지 않는다", () => {
     const report = computeCourseQuality({
       days: [
