@@ -66,30 +66,46 @@ function hasText(value: string | null): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-/** 문화예술 1차 범위인 VE07만 대상으로 한다. 이미 상세 응답을 저장한 POI는 재호출하지 않는다. */
+interface TourInfoDetailTarget {
+  contentTypeId: string;
+  matches: (raw: Record<string, unknown>) => boolean;
+}
+
+/** 운영시간·휴무일을 상세 API로 확인할 안전한 공식 분류만 대상으로 한다.
+ * VE07은 문화시설(14), LS는 레포츠(28)로 contentTypeId와 구조 분류를 함께 확인한다. */
+const TOUR_INFO_DETAIL_TARGETS: TourInfoDetailTarget[] = [
+  { contentTypeId: "14", matches: (raw) => raw.lclsSystm2 === "VE07" },
+  { contentTypeId: "28", matches: (raw) => raw.lclsSystm1 === "LS" },
+];
+
+function findTourInfoDetailTarget(raw: Record<string, unknown>): TourInfoDetailTarget | null {
+  const contentTypeId = typeof raw.contenttypeid === "string" ? raw.contenttypeid : null;
+  return TOUR_INFO_DETAIL_TARGETS.find((target) => target.contentTypeId === contentTypeId && target.matches(raw)) ?? null;
+}
+
+/** 공식 구조 분류(VE07 문화시설·LS 레포츠)만 대상으로 한다. 이미 상세 응답을 저장한 POI는 재호출하지 않는다. */
 export function selectTourInfoDetailCandidates(
   pois: TourInfoDetailEnrichmentPoi[],
   maxItems: number,
 ): TourInfoDetailEnrichmentCandidate[] {
   return pois
-    .filter((poi) => {
+    .map((poi) => {
       const raw = asRecord(poi.rawPayload);
-      const contentTypeId = typeof raw.contenttypeid === "string" ? raw.contenttypeid : null;
-      return (
+      const target = findTourInfoDetailTarget(raw);
+      if (
         poi.sourceType === "API" &&
         poi.externalId !== null &&
-        raw.lclsSystm2 === "VE07" &&
-        contentTypeId === "14" &&
+        target !== null &&
         !hasText(poi.operatingHours) &&
         !hasText(poi.closedDays) &&
         raw.detailIntro2 === undefined
-      );
+      ) {
+        return { poi, target };
+      }
+      return null;
     })
-    .map((poi) => ({
-      ...poi,
-      externalId: poi.externalId as string,
-      contentTypeId: String(asRecord(poi.rawPayload).contenttypeid),
-    }))
+    .filter((value): value is { poi: TourInfoDetailEnrichmentPoi; target: TourInfoDetailTarget } => value !== null)
+    .map(({ poi, target }) => ({ ...poi, externalId: poi.externalId as string, contentTypeId: target.contentTypeId }))
     .sort((a, b) => a.id.localeCompare(b.id))
     .slice(0, maxItems);
 }

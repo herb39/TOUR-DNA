@@ -170,4 +170,24 @@ describe("computeCourseQuality", () => {
     expect(warning?.details?.[0]).toContain("자동 휴무 판정은 하지 않음");
     expect(warning?.details?.[0]).toContain("공식 레저 분류 수상레저스포츠");
   });
+
+  it("예약시 운영 문구는 휴무일이 아니라 예약 운영 advisory로 안내한다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({
+            operatingHours: "예약시 운영",
+            closedDays: "예약시 운영",
+          }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    const warning = report.warnings.find((candidate) => candidate.id === "operating-hours-check");
+    expect(warning?.details?.[0]).toContain("예약 운영 문구");
+    expect(warning?.details?.[0]).toContain("운영 안내 예약시 운영");
+    expect(warning?.details?.[0]).not.toContain("휴무일 예약시 운영");
+  });
 });

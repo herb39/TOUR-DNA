@@ -2815,3 +2815,24 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 
 **4) 검증**: 공식 4개 코드·미확인 코드 fallback, 추천 후보 표시, 운영시간 advisory의 공식 분류
 표시 테스트를 추가했다. 다음 단위에서 전체 테스트·lint·production build를 재검증한다.
+
+## 2026-08-17 갱신(7) — VE07·LS 상세 운영정보 증분 배치 통합
+
+문화예술과 레저를 별도 배치로 쪼개지 않고, 기존 제한 증분 CLI를 공식 분류·contentTypeId 조합별 공통
+경로로 확장했다.
+
+**1) 후보 정책**: `VE07 + contentTypeId=14` 또는 `lclsSystm1=LS + contentTypeId=28`이면서
+운영시간·휴무일·`rawPayload.detailIntro2`가 모두 비어 있는 API POI만 후보로 고른다. 지역별 실행 상한
+1~100건과 localhost DB 가드는 그대로 유지한다.
+
+**2) 파싱·저장**: 기존 `usetimeculture/restdateculture`에 더해 `usetimeleports/restdateleports`를
+같은 `detailIntro2` 어댑터로 사용한다. `areaBasedList2` 원본은 유지하고, 상세 원본·정규화 값·조회
+시각을 `rawPayload.detailIntro2`에 병합한다.
+
+**3) 실제 검증**: 로컬 DB 후보 3,265건(통합 대상)을 확인하고 `SGG_GANGNEUNG --max-items=1`을
+실행해 `candidates=1`, `attempted=1`, `updated=1`, `noData=0`, `failed=0`을 확인했다. 대상 POI
+`갈골한과체험전시관`에 `operatingHours=예약시 운영`, `closedDays=예약시 운영`, 상세 raw payload가
+저장됐다.
+
+**4) 품질검증 보완**: `예약시 운영`은 휴무일로 오인하지 않고 예약 운영 advisory로 표시한다. 실제
+휴무일 문구와 운영시간 범위 이탈 판정은 기존 보수적 정책을 유지한다.

@@ -682,8 +682,8 @@ contentTypeId별 운영시간·휴무일 정규화 파서를 추가했다. 이 �
 
 Phase C 10번 3차(`detailIntro2` 제한 증분 DB 반영, 2026-08-17): `npm run enrich:tour-info-detail --
 --region-code=SGG_ONGJIN --max-items=1`처럼 SIGUNGU와 호출 상한을 모두 명시해야 실행되는 CLI를
-추가했다. 한 번에 최대 100건까지만 허용하고, API POI·VE07·contentTypeId 14·운영시간/휴무일 미확인·
-기존 상세 응답 미저장 조건을 모두 만족하는 후보만 순차 호출한다. 기존 `areaBasedList2` raw payload는
+추가했다. 한 번에 최대 100건까지만 허용하고, API POI·VE07/LS·각 contentTypeId(14/28)·운영시간/
+휴무일 미확인·기존 상세 응답 미저장 조건을 모두 만족하는 후보만 순차 호출한다. 기존 `areaBasedList2` raw payload는
 보존하면서 `detailIntro2` 원본과 정규화된 `operatingHours`/`closedDays`를 병합하고, 원격 DB 대상은
 기존 데이터 동기화 가드로 차단한다. 로컬 옹진군 POI 1건에서 실제 API 호출→DB 저장→재조회까지
 확인했다. 전국 대량 실행은 하지 않았다.
@@ -700,6 +700,10 @@ Phase C 11번 1차(레저·액티비티 공식 중분류, 2026-08-17): TourAPI `
 공식 분류를 함께 보여준다. 로컬 EXPERIENCE 3,774건에서는 LS01 1,035건·LS02 468건·LS03 36건·
 LS04 43건이 확인됐으며, AC05/VE10/VE12 등은 레포츠로 단정하지 않는다. 겨울스포츠·골프·익스트림
 등은 현재 공식 중분류에서 별도 근거가 확인되지 않아 장소명 추정을 하지 않는다.
+
+이번 증분 배치 확장으로 `detailIntro2` 운영시간·휴무일 반영 대상도 VE07 문화시설과 LS 레포츠를
+같은 지역·호출 상한 정책으로 처리한다. 실제 응답의 `예약시 운영`처럼 휴무일이 아닌 예약 운영 문구는
+품질검증에서 별도 advisory로 표시한다.
 
 ### 공모전 전 우선순위
 

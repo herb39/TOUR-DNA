@@ -68,6 +68,30 @@ describe("fetchTourInfoDetail — detailIntro2 운영시간·휴무일 파싱", 
     expect(food.items[0]).toMatchObject({ operatingHours: "11:00~21:00", closedDays: null });
   });
 
+  it("레포츠(28)는 usetimeleports/restdateleports를 정규화한다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        envelope([
+          {
+            contentid: "28",
+            contenttypeid: "28",
+            usetimeleports: "09:00~18:00",
+            restdateleports: "매주 화요일",
+          },
+        ]),
+      ),
+    );
+
+    const result = await fetchTourInfoDetail({
+      serviceKey: "key",
+      baseUrl: "https://example.test",
+      contentId: "28",
+      contentTypeId: "28",
+    });
+
+    expect(result.items[0]).toMatchObject({ operatingHours: "09:00~18:00", closedDays: "매주 화요일" });
+  });
+
   it("상세 API가 빈 응답이면 성공 데이터로 가장하지 않고 EMPTY를 반환한다", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(envelope([])));
 

@@ -5,7 +5,6 @@ import {
   mergeTourInfoDetail,
   MAX_DETAIL_ITEMS_PER_RUN,
   selectTourInfoDetailCandidates,
-  type TourInfoDetailEnrichmentCandidate,
   type TourInfoDetailEnrichmentPoi,
 } from "@/lib/domain/tourInfoDetailEnrichment";
 import { ALLOW_REMOTE_DATA_SYNC_ENV, checkDataSyncTarget } from "@/lib/services/dataSyncTargetGuard";
@@ -21,11 +20,8 @@ export interface TourInfoDetailEnrichmentResult {
   messages: string[];
 }
 
-function contentTypeIdFor(candidate: TourInfoDetailEnrichmentCandidate): string {
-  return candidate.contentTypeId;
-}
-
-/** VE07 문화시설에 한해 상세 API를 maxItems 이내 순차 호출하고, 기존 rawPayload를 보존하며 병합한다. */
+/** 공식 구조 분류가 확인된 VE07 문화시설·LS 레포츠에 상세 API를 maxItems 이내 순차 호출하고,
+ * 기존 rawPayload를 보존하며 병합한다. */
 export async function enrichTourInfoDetail(params: {
   regionCode: string;
   maxItems: number;
@@ -127,7 +123,7 @@ export async function enrichTourInfoDetail(params: {
       serviceKey,
       baseUrl: source.baseUrl,
       contentId: candidate.externalId,
-      contentTypeId: contentTypeIdFor(candidate),
+      contentTypeId: candidate.contentTypeId,
     });
     if (result.status === "ERROR") {
       failed++;

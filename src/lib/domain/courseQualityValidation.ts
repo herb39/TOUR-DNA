@@ -81,16 +81,24 @@ function parseOperatingHoursRanges(value: string | null | undefined): OperatingH
   return ranges;
 }
 
+function hasReservationNotice(value: string | null | undefined): value is string {
+  return Boolean(value?.trim() && /예약/u.test(value));
+}
+
 function hasMeaningfulClosedDays(value: string | null | undefined): value is string {
   const normalized = value?.trim();
-  return Boolean(normalized && !/^(없음|연중무휴|무휴|[-–—]+)$/u.test(normalized));
+  return Boolean(normalized && !hasReservationNotice(normalized) && !/^(없음|연중무휴|무휴|[-–—]+)$/u.test(normalized));
 }
 
 function formatOperatingHoursWarningDetail(dayIndex: number, item: CourseItem, reason: string): string {
   const leisureType = classifyLeisureActivity(item.lclsSystm1, item.lclsSystm2);
   const source = [
     item.operatingHours ? `운영시간 ${item.operatingHours}` : null,
-    hasMeaningfulClosedDays(item.closedDays) ? `휴무일 ${item.closedDays}` : null,
+    hasReservationNotice(item.closedDays)
+      ? `운영 안내 ${item.closedDays}`
+      : hasMeaningfulClosedDays(item.closedDays)
+        ? `휴무일 ${item.closedDays}`
+        : null,
     leisureType ? `공식 레저 분류 ${leisureType.label}` : null,
   ]
     .filter(Boolean)
@@ -125,7 +133,15 @@ function evaluateOperatingHoursWarnings(input: CourseQualityInput): CourseQualit
         }
       }
 
-      if (hasMeaningfulClosedDays(item.closedDays)) {
+      if (hasReservationNotice(item.closedDays)) {
+        details.push(
+          formatOperatingHoursWarningDetail(
+            day.dayIndex,
+            item,
+            "예약 운영 문구가 있어 방문 전 운영 방식 확인 필요",
+          ),
+        );
+      } else if (hasMeaningfulClosedDays(item.closedDays)) {
         details.push(
           formatOperatingHoursWarningDetail(
             day.dayIndex,
