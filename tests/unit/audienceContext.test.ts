@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyThemes,
+  classifyStructuralPoiThemes,
   computeNationalityChecklistNotes,
   computeNationalityFeasibilityDelta,
   computeRoleChecklistNotes,
@@ -98,6 +99,7 @@ describe("classifyThemes — 자유 텍스트 테마를 내부 카테고리로 �
     expect(classifyThemes(["미식 여행"])).toContain("FOOD");
     expect(classifyThemes(["자연 힐링"])).toContain("NATURE");
     expect(classifyThemes(["문화유산 탐방"])).toContain("CULTURE_HISTORY");
+    expect(classifyThemes(["문화예술 전시"])).toContain("CULTURE_ARTS");
     expect(classifyThemes(["웰니스 스파"])).toContain("WELLNESS");
     expect(classifyThemes(["지역 축제"])).toContain("FESTIVAL");
     expect(classifyThemes(["반려동물 동반"])).toContain("PET_FRIENDLY");
@@ -114,12 +116,17 @@ describe("classifyThemes — 자유 텍스트 테마를 내부 카테고리로 �
     expect(categories).toContain("FOOD");
     expect(categories).toContain("FESTIVAL");
   });
+
+  it("전시시설(VE07)은 기존 문화·역사와 문화예술 신호를 함께 제공한다", () => {
+    expect(classifyStructuralPoiThemes("VE", "VE07")).toEqual(["CULTURE_HISTORY", "CULTURE_ARTS"]);
+  });
 });
 
 describe("themePreferredPoiCategories — 테마 카테고리 → POI 카테고리 우선순위(2026-08-11)", () => {
   it("명확하게 연관된 카테고리만 매핑한다(FOOD→FOOD, FESTIVAL→FESTIVAL)", () => {
     expect(themePreferredPoiCategories(["FOOD"])).toEqual(["FOOD"]);
     expect(themePreferredPoiCategories(["FESTIVAL"])).toEqual(["FESTIVAL"]);
+    expect(themePreferredPoiCategories(["CULTURE_ARTS"])).toEqual(["ATTRACTION"]);
   });
 
   it("여러 테마 카테고리를 합치되 중복 없이 순서대로 반환한다", () => {
@@ -149,6 +156,12 @@ describe("computeThemeFit — 테마 카테고리 기반 가산점", () => {
     const withoutMatch = computeThemeFit(template, ["WELLNESS"], 0);
     expect(withFood.bonus).toBeGreaterThan(0);
     expect(withoutMatch.bonus).toBe(0);
+  });
+
+  it("문화예술은 기존 문화·역사 체험형 전략을 재사용하되 별도 세부 테마로 가산된다", () => {
+    const result = computeThemeFit(getTemplateById("CULTURE_HISTORY"), ["CULTURE_ARTS"], 0);
+    expect(result.bonus).toBe(8);
+    expect(result.adjustments[0]).toMatchObject({ basis: "CURATED", delta: 8 });
   });
 
   it("기존 substring 가산점과 합산 후 상한(15점)으로 clamp한다", () => {

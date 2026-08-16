@@ -20,6 +20,7 @@ export type ThemeCategory =
   | "FOOD"
   | "NATURE"
   | "CULTURE_HISTORY"
+  | "CULTURE_ARTS"
   | "WELLNESS"
   | "FESTIVAL"
   | "PET_FRIENDLY"
@@ -138,6 +139,7 @@ const THEME_KEYWORDS: Record<ThemeCategory, string[]> = {
   FOOD: ["미식", "맛집", "먹거리", "시장", "음식"],
   NATURE: ["자연", "힐링", "휴양", "숲", "산", "바다", "경관"],
   CULTURE_HISTORY: ["문화", "역사", "유적", "전통", "고궁", "박물관"],
+  CULTURE_ARTS: ["문화예술", "문화 예술", "예술", "미술", "전시", "공연", "갤러리", "아트"],
   WELLNESS: ["웰니스", "의료", "스파", "온천", "건강"],
   FESTIVAL: ["축제", "이벤트", "행사", "페스티벌"],
   PET_FRIENDLY: ["반려동물", "반려견", "펫", "강아지", "고양이"],
@@ -161,6 +163,9 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
   FOOD: { LOCAL_FOOD_MARKET: 12, FESTIVAL_EVENT: 5, YOUTH_LOCAL_CONTENT: 4 },
   NATURE: { NATURE_WELLNESS: 12, FAMILY_EXPERIENCE: 3 },
   CULTURE_HISTORY: { CULTURE_HISTORY: 12, FAMILY_EXPERIENCE: 3 },
+  // 별도 전략 템플릿을 만들기 전까지는 기존 문화·역사 체험형을 재사용한다.
+  // 10점 미만으로 두어 CULTURE_HISTORY 템플릿의 핵심 테마 판정은 바꾸지 않는다.
+  CULTURE_ARTS: { CULTURE_HISTORY: 8, FAMILY_EXPERIENCE: 2 },
   WELLNESS: { NATURE_WELLNESS: 10 },
   FESTIVAL: { FESTIVAL_EVENT: 12 },
   LEISURE_ACTIVITY: { NATURE_WELLNESS: 6, YOUTH_LOCAL_CONTENT: 6, NIGHT_STAY_EXTENSION: 4 },
@@ -227,7 +232,7 @@ export function templateCoreThemeCategories(templateId: string): ThemeCategory[]
  *   힐링명상/뷰티스파/기타웰니스/자연치유/기타의료관광 — WELLNESS와 정확히 대응된다. EX 대분류의 나머지
  *   중분류(전통체험/공예체험/농산어촌체험/산사체험/산업관광 등)는 WELLNESS와 무관해 EX05만 쓴다.
  * - lclsSystm2="VE07"(대분류 VE "문화관광"의 중분류 "전시시설"): 박물관/기념관/전시관/컨벤션센터/
- *   과학관/미술관 — CULTURE_HISTORY와 대응된다. VE 대분류 전체는 테마공원(VE02)·도시공원(VE03)·
+ *   과학관/미술관 — CULTURE_HISTORY와 CULTURE_ARTS에 함께 대응된다. VE 대분류 전체는 테마공원(VE02)·도시공원(VE03)·
  *   레저스포츠시설(VE10)·교통시설(VE11) 등과 뒤섞여 있어(경주 "강동 워터파크"=VE02가 실제 사례) 신호로
  *   쓰지 않고, 명확히 전시·박물관류인 VE07 중분류만 쓴다.
  * 매핑에 없는 코드(값이 없는 경우 포함 — FIXTURE 큐레이션 데이터나 구형 저장 데이터)는 빈 배열을
@@ -241,21 +246,21 @@ const STRUCTURAL_LCLS_SYSTM1_THEME: Partial<Record<string, ThemeCategory>> = {
   FD: "FOOD",
 };
 
-const STRUCTURAL_LCLS_SYSTM2_THEME: Partial<Record<string, ThemeCategory>> = {
-  VE07: "CULTURE_HISTORY",
-  EX05: "WELLNESS",
+const STRUCTURAL_LCLS_SYSTM2_THEME: Partial<Record<string, ThemeCategory[]>> = {
+  VE07: ["CULTURE_HISTORY", "CULTURE_ARTS"],
+  EX05: ["WELLNESS"],
 };
 
 /** POI의 TourAPI 신 분류체계 코드로부터 확인 가능한 ThemeCategory를 반환한다(위 매핑 참고). 중분류가
- * 대분류보다 더 구체적인 신호이므로 중분류 매핑을 먼저 확인한다 — 실제로는 두 매핑이 겹치는 대분류가
- * 없어 결과에 차이는 없지만, 향후 매핑이 늘어났을 때 구체적인 신호를 우선한다는 원칙을 코드로 남긴다. */
+ * 대분류보다 더 구체적인 신호이므로 중분류 매핑을 먼저 확인한다. 하나의 중분류가 여러 테마에
+ * 동시에 해당할 수 있어(예: 전시시설은 문화·역사와 문화예술 모두에 해당) 배열로 반환한다. */
 export function classifyStructuralPoiThemes(
   lclsSystm1: string | null | undefined,
   lclsSystm2: string | null | undefined,
 ): ThemeCategory[] {
   const categories = new Set<ThemeCategory>();
   const byLevel2 = lclsSystm2 ? STRUCTURAL_LCLS_SYSTM2_THEME[lclsSystm2] : undefined;
-  if (byLevel2) categories.add(byLevel2);
+  for (const category of byLevel2 ?? []) categories.add(category);
   const byLevel1 = lclsSystm1 ? STRUCTURAL_LCLS_SYSTM1_THEME[lclsSystm1] : undefined;
   if (byLevel1) categories.add(byLevel1);
   return [...categories];
@@ -271,6 +276,7 @@ const THEME_POI_CATEGORY_MAP: Partial<Record<ThemeCategory, PoiCategoryCode[]>> 
   FOOD: ["FOOD"],
   NATURE: ["ATTRACTION", "EXPERIENCE"],
   CULTURE_HISTORY: ["ATTRACTION"],
+  CULTURE_ARTS: ["ATTRACTION"],
   WELLNESS: ["EXPERIENCE", "LODGING"],
   FESTIVAL: ["FESTIVAL"],
   LEISURE_ACTIVITY: ["EXPERIENCE"],

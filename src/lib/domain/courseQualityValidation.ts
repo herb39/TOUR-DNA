@@ -46,6 +46,7 @@ const THEME_LABEL_KO: Record<ThemeCategory, string> = {
   FOOD: "미식",
   NATURE: "자연",
   CULTURE_HISTORY: "문화·역사",
+  CULTURE_ARTS: "문화예술",
   WELLNESS: "웰니스",
   FESTIVAL: "축제·이벤트",
   PET_FRIENDLY: "반려동물",

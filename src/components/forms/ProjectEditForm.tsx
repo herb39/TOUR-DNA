@@ -463,7 +463,7 @@ export function ProjectEditForm({
                 id="preferredThemes"
                 name="preferredThemes"
                 type="text"
-                placeholder="예: 미식, 야경"
+                placeholder="예: 미식, 문화예술, 야경"
                 value={preferredThemesText}
                 onChange={(e) => setPreferredThemesText(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
