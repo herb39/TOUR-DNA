@@ -2475,17 +2475,15 @@ activeId, overId)`를 추가했다 — dnd-kit의 `DragEndEvent`가 넘겨주는
 before) 복원해 통과함을 확인했다(pass-after). 전체 유닛 테스트 1510개, `npx tsc --noEmit`, lint,
 build 모두 통과했다.
 
-**9) 브라우저 QA(제한적)**: 로컬 DB에 경주 CULTURE_HISTORY·청주 NATURE_WELLNESS QA 프로젝트를 만들어
-실제 서버 렌더링 결과를 확인했다 — 두 페이지 모두 일정 항목·추천 후보 카드에 드래그 손잡이(`⋮⋮`,
-정확한 `aria-label`)가 실제로 렌더링되고, 후보 추천 데이터(경주: 감은사지·경덕왕릉 등 실제 문화유적,
-청주: 뉴베라관광호텔 등 core-theme 후보)에 회귀가 없음을 `get_page_text`/DOM 질의로 확인했다. 375px
-에서 `document.documentElement.scrollWidth===clientWidth===375`(가로 스크롤 없음)를 확인했다. **다만
-이번 세션에서는 Browser pane이 실제로 화면에 표시되지 않아(백그라운드 tab, `document.hidden===true`
-로 실제 레이아웃이 계산되지 않음 — `getBoundingClientRect()`가 모든 요소에서 0을 반환) 마우스로 직접
-끌어다 놓는 실제 드래그 동작 자체는 시각적으로 재현하지 못했다.** 이 부분은 (1) `computeDragOutcome`
-순수 함수 테스트로 "무엇을 어디에 놓으면 어떤 결과가 나오는지"를, (2) dnd-kit 자체의 포인터 이벤트
-처리는 널리 쓰이는 서드파티 라이브러리의 책임으로 검증을 대체했다 — 다음 세션에서 Browser pane이
-정상 표시되면 실제 마우스 드래그 재현을 추가로 확인하는 것을 권장한다.
+**9) 브라우저 QA(제한적, 이후 2026-08-16 갱신(6)에서 실제 pointer 검증으로 보완됨)**: 로컬 DB에
+경주 CULTURE_HISTORY·청주 NATURE_WELLNESS QA 프로젝트를 만들어 실제 서버 렌더링 결과를 확인했다 —
+두 페이지 모두 일정 항목·추천 후보 카드에 드래그 손잡이(`⋮⋮`, 정확한 `aria-label`)가 실제로
+렌더링되고, 후보 추천 데이터(경주: 감은사지·경덕왕릉 등 실제 문화유적, 청주: 뉴베라관광호텔 등
+core-theme 후보)에 회귀가 없음을 `get_page_text`/DOM 질의로 확인했다. 375px에서
+`document.documentElement.scrollWidth===clientWidth===375`(가로 스크롤 없음)를 확인했다. 이 세션에서는
+Browser pane이 실제로 화면에 표시되지 않아(백그라운드 tab, `document.hidden===true`로 실제
+레이아웃이 계산되지 않음) 실제 pointer drag 자체는 재현하지 못했다 — 이 한계는 아래
+"2026-08-16 갱신(6)"에서 Playwright(실제 Chromium)로 완전히 해소됐다.
 
 **10) 변경 금지 범위 준수 확인**: DNA/Network/similarity/전략 점수/전략 선택/후보 랭킹·개수/POI fit/
 dedup 정책/route algorithm/저장 전 지도 갱신/실시간 품질검증은 전혀 건드리지 않았다 — 이번 변경은
@@ -2493,5 +2491,67 @@ dedup 정책/route algorithm/저장 전 지도 갱신/실시간 품질검증은 
 
 **아직 남은 위험(투명하게 공개)**: (a) 저장 전 지도 실시간 갱신은 아직 없다. (b) 실시간 코스 품질
 검증(추가/이동 직후 "핵심 테마 POI 부족" 경고 등)은 아직 없다. (c) 실제 마우스/터치 드래그의 시각적
-동작은 이번 세션에서 Browser pane 표시 문제로 직접 재현하지 못했다 — 다음 세션에서 재확인 권장.
-(d) 후보 카드에 예상 이동거리는 여전히 표시하지 않는다.
+동작은 2026-08-16 갱신(6)에서 Playwright 실제 pointer 이벤트로 재현·확인됐다(마우스 drag 검증
+완료, touch drag 자체는 CDP synthetic touch 신뢰도 문제로 미검증 — 아래 절 참고). (d) 후보 카드에
+예상 이동거리는 여전히 표시하지 않는다.
+
+## 2026-08-16 갱신(6) — 코스 Drag & Drop 실제 pointer 상호작용 검증
+
+**배경**: 위(2026-08-16(5))에서 Browser pane이 표시되지 않아 실제 마우스 drag를 재현하지 못했다는
+한계를 이번에 해소했다. 이번 세션의 목표는 새 기능 구현이 아니라 실제 브라우저 interaction 수준의
+검증이었다 — 코드를 먼저 고치지 않고, 저장소에 이미 있는 실제 도구(Playwright, `@playwright/test`,
+`e2e/core-flow.spec.ts`)부터 조사해 활용했다.
+
+**1) 검증 방법**: `computeDragOutcome()` 같은 순수 함수 직접 호출이나 React handler 직접 실행이
+아니라, Playwright로 실제 Chromium을 띄우고 `page.mouse.down()`→`move()`(단계별)→`up()`으로 진짜
+포인터 이벤트를 dnd-kit의 `PointerSensor`에 전달했다 — sensor→collision detection(`closestCenter`)→
+`active`/`over`→`onDragEnd`→`computeDragOutcome`→`setDays`까지 이어지는 전체 경로를 통과시켰다.
+로컬 전용 QA 프로젝트(경주 CULTURE_HISTORY·청주 NATURE_WELLNESS)를 스크립트로 미리 만들어 프로젝트
+id를 환경변수로 전달하는 방식을 썼다(Production Neon 무관). 신규 파일: `e2e/plan-drag-drop.spec.ts`.
+
+**2) 같은 날짜 pointer Drag**: 실제 mouse down→move→up으로 1일차 3번째 항목을 1번째 항목 위로
+드래그하면 DOM 순서가 실제로 바뀜(개수는 그대로)을 확인했다.
+
+**3) 날짜 간 pointer Drag**: 1일차 항목을 2일차 항목 위로 드래그하면 1일차에서 사라지고 2일차에
+나타나며, 전체 POI 수가 그대로 유지됨을 확인했다.
+
+**4) 추천 후보 → 일정 pointer Drag**: 추천 후보 카드를 1일차 항목 위로 드래그하면 일정에 추가되고
+(시간 입력이 실제로 나타남), 같은 이름의 후보 카드는 후보 풀에서 즉시 사라짐을 확인했다.
+
+**5) KeyboardSensor 검증**: 드래그 손잡이에 포커스 후 `Space`(활성화)→`ArrowDown`(이동)→`Space`(드롭)
+로 실제 순서가 바뀜을 확인했다. 최초 시도에서는 키 입력 사이에 지연 없이 연속으로 보내 활성화 전에
+`ArrowDown`이 무시되는 현상이 있었다(테스트 코드 문제) — 각 키 입력 사이에 150ms 대기를 추가해
+해결했다(dnd-kit 자체 문제가 아니라 테스트의 이벤트 타이밍 문제였다).
+
+**6) 모바일/touch 검증**: 375px 뷰포트에서 가로 스크롤 없음
+(`document.documentElement.scrollWidth===clientWidth`)과 날짜 select+"이 날짜에 추가" 버튼 fallback
+이 실제 클릭으로 정상 동작함을 확인했다. **실제 touch(멀티터치 포인터) drag 자체는 검증하지
+않았다** — Playwright/CDP의 synthetic touch 이벤트가 dnd-kit `PointerSensor`가 기대하는
+`pointerType:"touch"` 시퀀스를 안정적으로 재현하기 어려워, 검증 범위에서 명시적으로 제외했다(추측성
+"검증 완료" 주장을 피하기 위해 완료 보고에서도 이 부분만 별도로 "미검증"이라고 밝혔다).
+
+**7) 저장/새로고침 검증**: 드래그 직후 "저장하지 않은 변경사항이 있습니다" 상태만 뜨고(DB 미반영),
+저장 버튼 클릭 후 새로고침해도 새 순서가 유지됨을 실제 브라우저 흐름(저장→reload→재확인)으로
+검증했다.
+
+**8) 실제 버그 발견 여부**: 이번 검증에서 dnd-kit 통합 경로 자체의 버그는 발견되지 않았다. 처음
+8개 중 6개가 실패했던 원인은 전부 테스트 코드 결함이었다 — (a) 기본 720px 뷰포트에서는 세로로 긴
+실행안 페이지의 drag source/target이 동시에 화면에 들어오지 않아 좌표가 어긋남(뷰포트를
+1280×2600으로 확대 + `scrollIntoViewIfNeeded()`로 해결), (b) 날짜 컨테이너를 찾는 locator가
+`getByText("N일차")`만 써서 모든 항목의 "다른 날짜로 이동" `<select>` 안 `<option>N일차</option>`
+에도 걸려 지나치게 넓은 div를 골랐음(`<p>` 태그로 한정하는 `dayContainer()` 헬퍼로 해결), (c)
+KeyboardSensor 키 입력 사이 지연 부족(위 5) 참고). 세 가지 모두 앱 코드가 아니라 테스트 작성의
+문제였으므로, 이번 세션에서 앱 코드(`PlanEditor.tsx`/`planBuilder.ts`)는 전혀 수정하지 않았다.
+
+**9) 기존 버튼/accessibility 회귀**: 위/아래 이동, 삭제 버튼을 실제 클릭했을 때 drag가 오작동으로
+시작되지 않고 각 버튼 고유 동작만 수행함을 확인했다(Playwright 실제 클릭 기준).
+
+**10) 검증 결과**: 신규 `e2e/plan-drag-drop.spec.ts` 9개 테스트(같은 날짜 재정렬, 날짜 간 이동,
+후보→일정 추가, KeyboardSensor, 버튼 오작동 없음, 저장/새로고침, 청주 후보 추가→삭제→재등장→버튼
+재추가, SHOPPING dedup 회귀, 375px 모바일 레이아웃+버튼 fallback) 전부 실제 Chromium에서 통과했다.
+전체 유닛 테스트 1510개(변경 없음), `npx tsc --noEmit`, lint 모두 통과했다(코드 변경이 없어 build는
+이번 세션에서 재실행하지 않음 — 이전 갱신(5)에서 이미 통과 확인됨).
+
+**최종 판정**: **검증 완료** — 같은 날짜 재정렬, 날짜 간 이동, 추천 후보→일정 추가 세 가지 핵심
+Drag를 모두 실제 pointer 이벤트로 재현·성공시켰다. 단, touch drag 자체는 미검증 상태로 남아있다
+(위 6) 참고).
