@@ -12,7 +12,7 @@ export async function fetchPoisByCategory(
   regionCode: string,
 ): Promise<Partial<Record<PoiCategoryCode, PoiLike[]>>> {
   const region = await prisma.region.findUniqueOrThrow({ where: { code: regionCode } });
-  const pois = await prisma.poi.findMany({ where: { regionId: region.id } });
+  const pois = await prisma.poi.findMany({ where: { regionId: region.id }, include: { curation: true } });
 
   const map: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};
   for (const p of pois) {
@@ -35,6 +35,8 @@ export async function fetchPoisByCategory(
       // TourAPI 공식 분류 신호 — computePoiFit과 동일한 신호를 재사용한다(새 판정 로직 아님).
       lclsSystm1: extractLclsSystm1FromRawPayload(p.rawPayload),
       lclsSystm2: extractLclsSystm2FromRawPayload(p.rawPayload),
+      curationStatus: p.curation?.status ?? null,
+      representation: p.curation?.representation ?? null,
     });
     map[category] = list;
   }

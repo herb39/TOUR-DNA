@@ -82,6 +82,8 @@ export interface CourseItem {
   foodSubcategory?: FoodSubcategory;
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  curationStatus?: "UNREVIEWED" | "APPROVED" | "REJECTED" | null;
+  representation?: "UNKNOWN" | "DESTINATION" | "SUPPORT" | "CONSUMPTION" | "LODGING" | null;
   /** 실제 경로 API 연동(Phase 12, 2026-08-05) 이후에만 채워지는 구조화된 이동 결과 — travel(문자열
    * 라벨)은 그대로 화면에 쓰지만, 이 필드들로 그 라벨이 실제 도로/캐시/추정 중 무엇인지 구분해 보여줄
    * 수 있다. courseRouteEnrichment.ts(서비스 계층)만 채우고, planBuilder.ts의 haversine 계산

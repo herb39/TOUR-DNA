@@ -47,6 +47,7 @@ import { AXIS_LABEL_KO } from "@/lib/domain/types";
 import type { DurationCode } from "@/lib/domain/strategy";
 import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 import { classifyLeisureActivity } from "@/lib/domain/leisureClassification";
+import { poiRepresentationLabel } from "@/lib/domain/poiRecommendation";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -295,11 +296,23 @@ export function PlanEditor({
     [candidatePois, existingPoiIds],
   );
   const [candidateAddDay, setCandidateAddDay] = useState<Record<string, number>>({});
+  const [candidatePanelOpen, setCandidatePanelOpen] = useState(false);
 
   const [addingToDay, setAddingToDay] = useState<number | null>(null);
   const [poiQuery, setPoiQuery] = useState("");
   const [poiResults, setPoiResults] = useState<PoiDetail[]>([]);
   const [poiSearchPending, setPoiSearchPending] = useState(false);
+
+  // 추천 후보는 PC에서는 저장 패널 옆에서 바로 확인하고, 모바일에서는 접힌 상태로 두어 코스 편집을
+  // 방해하지 않는다. 초기값은 SSR과 일치시키고 mount 후 viewport에 맞춰 연다.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setCandidatePanelOpen(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const qualityDuration: DurationCode =
     plan.duration ??
@@ -701,42 +714,6 @@ export function PlanEditor({
           </div>
         </section>
 
-        <section className="no-print rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">추천 후보</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            공식 분류와 선택한 전략·테마의 적합도가 확인된 대체 장소입니다. 공원·가로수길·캠핑장처럼
-            지역 대표성을 자동 확정하기 어려운 보조시설과 숙박은 일반 후보에서 분리했습니다. 마음에 드는
-            장소는 직접 골라 원하는 날짜에 추가할 수 있습니다.
-          </p>
-          {candidatePois === null ? (
-            <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              추천 후보를 불러오지 못했습니다. 기존 일정은 그대로 편집·저장할 수 있습니다.
-            </p>
-          ) : visibleCandidates.length === 0 ? (
-            <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              현재 조건에서 추가로 추천할 수 있는 장소가 없습니다.
-            </p>
-          ) : (
-            <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {visibleCandidates.map((candidate) => {
-                const selectedDay = candidateAddDay[candidate.id] ?? days[0]?.dayIndex ?? 1;
-                return (
-                  <CandidateCard
-                    key={candidate.id}
-                    candidate={candidate}
-                    days={days}
-                    selectedDay={selectedDay}
-                    onSelectDay={(dayIndex) =>
-                      setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: dayIndex }))
-                    }
-                    onAdd={() => addPoiToDay(selectedDay, candidate)}
-                  />
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
         <details className="rounded-lg border border-slate-200 bg-white p-5">
           <summary className="cursor-pointer text-sm font-semibold text-slate-900">
             운영 체크리스트 보기 ({operationChecklist.length}개)
@@ -920,9 +897,59 @@ export function PlanEditor({
           />
         </details>
       </div>
-      </DndContext>
-
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">추천 후보</h2>
+            {candidatePois !== null ? (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                {visibleCandidates.length}개
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            코스 아래에 길게 나열하지 않고 별도 패널에서 검토합니다. 관광 목적지와 보조 자원을 구분하며,
+            마음에 드는 장소만 날짜를 선택해 추가할 수 있습니다.
+          </p>
+          <details
+            className="mt-3"
+            open={candidatePanelOpen}
+            onToggle={(event) => setCandidatePanelOpen(event.currentTarget.open)}
+          >
+            <summary className="cursor-pointer rounded border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              후보 목록 {candidatePanelOpen ? "닫기" : "열기"}
+            </summary>
+            <div className="mt-2 max-h-[min(70vh,640px)] overflow-y-auto pr-1">
+              {candidatePois === null ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  추천 후보를 불러오지 못했습니다. 기존 일정은 그대로 편집·저장할 수 있습니다.
+                </p>
+              ) : visibleCandidates.length === 0 ? (
+                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  현재 조건에서 추가로 추천할 수 있는 장소가 없습니다.
+                </p>
+              ) : (
+                <ul className="grid grid-cols-1 gap-2">
+                  {visibleCandidates.map((candidate) => {
+                    const selectedDay = candidateAddDay[candidate.id] ?? days[0]?.dayIndex ?? 1;
+                    return (
+                      <CandidateCard
+                        key={candidate.id}
+                        candidate={candidate}
+                        days={days}
+                        selectedDay={selectedDay}
+                        onSelectDay={(dayIndex) =>
+                          setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: dayIndex }))
+                        }
+                        onAdd={() => addPoiToDay(selectedDay, candidate)}
+                      />
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </details>
+        </section>
         {state.message ? (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
             {state.message}
@@ -957,6 +984,7 @@ export function PlanEditor({
           인쇄/PDF 보기
         </Link>
       </aside>
+      </DndContext>
     </form>
   );
 }
@@ -1163,6 +1191,8 @@ function CandidateCard({
   const badge = resolveFitBadge(candidate.fit);
   const reason = candidate.fit.positiveReasons[0] ?? candidate.fit.cautions[0] ?? null;
   const leisureType = classifyLeisureActivity(candidate.lclsSystm1, candidate.lclsSystm2);
+  const representation = candidate.representation ?? "UNKNOWN";
+  const isSupportCandidate = candidate.recommendationStatus === "DEMOTE";
 
   return (
     <li ref={setNodeRef} style={style} className="rounded-md border border-slate-200 p-3 text-xs">
@@ -1179,7 +1209,14 @@ function CandidateCard({
           </button>
           <div>
             <p className="font-medium text-slate-800">{candidate.name}</p>
-            <p className="mt-0.5 text-slate-400">{poiCategoryLabel(candidate.category)}</p>
+            <div className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{poiCategoryLabel(candidate.category)}</span>
+              <span
+                className={`rounded px-1.5 py-0.5 ${isSupportCandidate ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}
+              >
+                {poiRepresentationLabel(representation)}
+              </span>
+            </div>
             {leisureType ? <p className="mt-0.5 text-slate-500">공식 분류: {leisureType.label}</p> : null}
           </div>
         </div>
@@ -1187,7 +1224,11 @@ function CandidateCard({
           {badge.label}
         </span>
       </div>
-      {reason ? <p className="mt-2 text-slate-500">{reason}</p> : null}
+      {isSupportCandidate ? (
+        <p className="mt-2 text-amber-700">자동 코스에는 넣지 않고, 직접 확인할 보조 후보입니다.</p>
+      ) : reason ? (
+        <p className="mt-2 text-slate-500">{reason}</p>
+      ) : null}
       <div className="mt-2 flex items-center gap-2">
         <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
           {candidate.name} 추가할 날짜

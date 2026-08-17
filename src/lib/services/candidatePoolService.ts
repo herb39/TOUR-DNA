@@ -10,7 +10,11 @@ import { classifyThemes, templateCoreThemeCategories } from "@/lib/domain/audien
 import { themeRelevanceTier, type PoiLike } from "@/lib/domain/strategy";
 import { dedupeBySameCoordinates } from "@/lib/domain/poiDedup";
 import { dedupeBySameSite } from "@/lib/domain/poiDedup";
-import { isAutoTourismCandidate } from "@/lib/domain/poiRecommendation";
+import {
+  decidePoiRecommendation,
+  isVisibleRecommendationCandidate,
+  recommendationStatusRank,
+} from "@/lib/domain/poiRecommendation";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 
 /**
@@ -33,6 +37,10 @@ export interface CandidatePoi {
   foodSubcategory?: PoiLike["foodSubcategory"];
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  representation?: "UNKNOWN" | "DESTINATION" | "SUPPORT" | "CONSUMPTION" | "LODGING" | null;
+  recommendationStatus?: "ALLOW" | "DEMOTE" | "EXCLUDE";
+  recommendationReason?: string;
+  curationStatus?: "UNREVIEWED" | "APPROVED" | "REJECTED" | null;
   fit: PoiFitResult;
 }
 
@@ -67,7 +75,12 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
   const poisByCategory = await fetchPoisByCategory(params.regionCode);
   const existingIds = new Set(params.existingPoiIds);
 
-  const evaluated: Array<{ poi: PoiLike; fit: PoiFitResult; tier: 0 | 1 | 2 }> = [];
+  const evaluated: Array<{
+    poi: PoiLike;
+    fit: PoiFitResult;
+    tier: 0 | 1 | 2;
+    recommendation: ReturnType<typeof decidePoiRecommendation>;
+  }> = [];
   const nonLodgingCandidates = dedupeBySameSite(
     (Object.entries(poisByCategory)
       .filter(([category]) => category !== "LODGING")
@@ -86,8 +99,8 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
     const pool = poisByCategory[category] ?? [];
     // SHOPPING만 동일 시설(동일 좌표) 중복을 대표 1건으로 좁힌다(4f093ec와 동일 근거) — 다른 카테고리는
     // 동일 좌표라도 서로 다른 콘텐츠인 사례가 많아 건드리지 않는다.
-    const deduped = (category === "SHOPPING" ? dedupeBySameCoordinates(pool, (group) => group[0]) : pool).filter((poi) =>
-      nonLodgingIds.has(poi.id) && isAutoTourismCandidate(poi, rankingThemeCategories),
+    const deduped = (category === "SHOPPING" ? dedupeBySameCoordinates(pool, (group) => group[0]) : pool).filter(
+      (poi) => nonLodgingIds.has(poi.id) && isVisibleRecommendationCandidate(poi, rankingThemeCategories),
     );
     for (const poi of deduped) {
       if (existingIds.has(poi.id)) continue;
@@ -106,11 +119,19 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
         context,
       );
       if (isExcludedFromRecommendation(fit)) continue;
-      evaluated.push({ poi, fit, tier: themeRelevanceTier(poi, rankingThemeCategories) });
+      evaluated.push({
+        poi,
+        fit,
+        tier: themeRelevanceTier(poi, rankingThemeCategories),
+        recommendation: decidePoiRecommendation(poi, rankingThemeCategories),
+      });
     }
   }
 
   evaluated.sort((a, b) => {
+    const recommendationRankDiff =
+      recommendationStatusRank(a.recommendation.status) - recommendationStatusRank(b.recommendation.status);
+    if (recommendationRankDiff !== 0) return recommendationRankDiff;
     if (a.tier !== b.tier) return a.tier - b.tier;
     const categoryTierDiff =
       CATEGORY_TIER_ORDER[a.fit.breakdown.categoryFit.tier] - CATEGORY_TIER_ORDER[b.fit.breakdown.categoryFit.tier];
@@ -137,6 +158,10 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
       ...(item.poi.foodSubcategory !== undefined ? { foodSubcategory: item.poi.foodSubcategory } : {}),
       ...(item.poi.lclsSystm1 !== undefined ? { lclsSystm1: item.poi.lclsSystm1 } : {}),
       ...(item.poi.lclsSystm2 !== undefined ? { lclsSystm2: item.poi.lclsSystm2 } : {}),
+      representation: item.recommendation.representation,
+      recommendationStatus: item.recommendation.status,
+      recommendationReason: item.recommendation.reason,
+      curationStatus: item.poi.curationStatus ?? "UNREVIEWED",
       fit: item.fit,
     });
   }

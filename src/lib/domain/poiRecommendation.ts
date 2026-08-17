@@ -1,56 +1,150 @@
 import { classifyStructuralPoiThemes, type ThemeCategory } from "./audienceContext";
 
+export type PoiCurationStatusCode = "UNREVIEWED" | "APPROVED" | "REJECTED";
+export type PoiRepresentationCode = "UNKNOWN" | "DESTINATION" | "SUPPORT" | "CONSUMPTION" | "LODGING";
+export type PoiRecommendationStatus = "ALLOW" | "DEMOTE" | "EXCLUDE";
+
 export interface PoiRecommendationShape {
   name: string;
   category: string;
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  curationStatus?: PoiCurationStatusCode | null;
+  representation?: PoiRepresentationCode | null;
+}
+
+export interface PoiRecommendationDecision {
+  status: PoiRecommendationStatus;
+  representation: PoiRepresentationCode;
+  reason: string;
+  structuralThemes: ThemeCategory[];
 }
 
 /**
- * 공공 분류가 테마와 맞는다는 사실과, 지역의 대표 관광지라는 사실은 다르다.
- * 자동 코스에 바로 넣기에는 대표성 근거가 약한 생활권·보조시설 유형을 별도로 표시한다.
+ * POI 원천 분류와 관광상품 대표성을 분리한다.
  *
- * 이 규칙은 특정 지역·상호를 차단하지 않는다. 공식 중분류와 일반 시설 유형만 사용하며,
- * 사용자가 직접 검색해 추가하는 수동 경로에는 적용하지 않는다.
+ * 이름·지역명 blacklist는 사용하지 않는다. 공식 중분류는 생활권 보조시설을 "보조 후보"로
+ * 낮추는 신호로만 사용하고, 지역 검수(PoiCuration)가 있으면 그 결과를 우선한다.
  */
-export function isGenericLocalSupportPoi(poi: PoiRecommendationShape): boolean {
-  if (poi.category === "LODGING") return true;
+export function classifyPoiRepresentation(poi: PoiRecommendationShape): PoiRepresentationCode {
+  if (poi.category === "LODGING") return "LODGING";
+  if (poi.category === "FOOD" || poi.category === "SHOPPING") return "CONSUMPTION";
 
-  const name = poi.name.replace(/\s+/gu, "");
-  if (/(가로수길|근린공원|어린이공원|도시공원|캠핑장|야영장|스포츠월드|스포츠센터|체육관|체육센터)$/u.test(name)) {
-    return true;
-  }
-  if (poi.lclsSystm2 === "VE03") return true; // 도시공원
-  if (poi.lclsSystm2 === "AC05") return true; // 캠핑장
-  if (poi.category === "ATTRACTION" && poi.lclsSystm1 === "NA" && poi.lclsSystm2 === "NA04" && /공원/u.test(name)) {
-    return true;
+  // 한국관광공사 분류상 생활권 보조시설로 볼 여지가 큰 중분류다.
+  // 관광 명소를 영구 차단하는 규칙이 아니라, 검수 전 자동 코스에서 한 단계 낮추는 신호다.
+  if (poi.lclsSystm2 === "VE03" || poi.lclsSystm2 === "AC05" || poi.lclsSystm2 === "EX07") {
+    return "SUPPORT";
   }
 
+  if (poi.category === "ATTRACTION" || poi.category === "EXPERIENCE" || poi.category === "FESTIVAL") {
+    return "DESTINATION";
+  }
+
+  return "UNKNOWN";
+}
+
+function hasNatureWellnessConflict(
+  poi: PoiRecommendationShape,
+  structuralThemes: ThemeCategory[],
+  themeCategories: ThemeCategory[],
+): boolean {
+  const natureWellnessContext = themeCategories.includes("NATURE") || themeCategories.includes("WELLNESS");
+  if (!natureWellnessContext) return false;
+  if (structuralThemes.length > 0) {
+    return !structuralThemes.some((theme) => theme === "NATURE" || theme === "WELLNESS");
+  }
+
+  // 공식 분류가 아직 세부 테마로 매핑되지 않은 경우에도, 자연·웰니스와 명백히 다른 대분류만
+  // 보수적으로 제외한다. 이름·지역명은 사용하지 않는다.
+  if (poi.lclsSystm1 === "HS" || poi.lclsSystm1 === "LS" || poi.lclsSystm1 === "VE") return true;
+  if (poi.lclsSystm1 === "EX" && poi.lclsSystm2 !== "EX05") return true;
   return false;
 }
 
-/** 숙박은 관광 후보와 분리하고, 보조시설은 해당 테마의 주된 경험으로 확정하지 않는다.
- * 레저 테마의 공식 레포츠 분류처럼 명확한 구조 신호가 있는 경우에는 보조시설 예외로 둔다. */
+/** 자동 코스/후보 패널이 같은 정책을 공유하도록 대표성 판단을 한 곳에서 계산한다. */
+export function decidePoiRecommendation(
+  poi: PoiRecommendationShape,
+  themeCategories: ThemeCategory[],
+): PoiRecommendationDecision {
+  const structuralThemes = classifyStructuralPoiThemes(poi.lclsSystm1, poi.lclsSystm2);
+  const curatedRepresentation = poi.representation ?? null;
+  const representation = curatedRepresentation ?? classifyPoiRepresentation(poi);
+
+  if (poi.category === "LODGING" || representation === "LODGING") {
+    return { status: "EXCLUDE", representation: "LODGING", reason: "숙박은 관광 후보가 아니라 별도 숙박 슬롯으로 관리합니다.", structuralThemes };
+  }
+
+  if (poi.curationStatus === "REJECTED") {
+    return {
+      status: "EXCLUDE",
+      representation,
+      reason: "지역 POI 검수에서 관광상품 후보로 부적합 판정을 받은 장소입니다.",
+      structuralThemes,
+    };
+  }
+
+  // 승인된 목적지는 공식 중분류가 보조시설이어도 지역 검수 결과를 우선한다.
+  if (poi.curationStatus === "APPROVED" && representation === "DESTINATION") {
+    return { status: "ALLOW", representation, reason: "지역 POI 검수에서 관광 목적지로 승인된 장소입니다.", structuralThemes };
+  }
+
+  if (hasNatureWellnessConflict(poi, structuralThemes, themeCategories)) {
+    return {
+      status: "EXCLUDE",
+      representation,
+      reason: "공식 관광 분류가 선택한 전략·테마와 달라 자동 후보에서 제외했습니다.",
+      structuralThemes,
+    };
+  }
+
+  if (representation === "SUPPORT") {
+    return {
+      status: "DEMOTE",
+      representation,
+      reason: "생활권 보조시설 신호가 있어 자동 코스에서는 낮추고, 사용자가 검토할 보조 후보로 남겼습니다.",
+      structuralThemes,
+    };
+  }
+
+  return {
+    status: "ALLOW",
+    representation,
+    reason:
+      poi.curationStatus === "APPROVED"
+        ? "지역 POI 검수에서 후보로 승인된 장소입니다."
+        : "공식 분류와 전략·테마 적합도를 기준으로 자동 후보에 포함했습니다.",
+    structuralThemes,
+  };
+}
+
+/** 자동 생성 코스와 일반 backfill에 사용할 판정. 보조 후보(DEMOTE)는 자동 코스에 넣지 않는다. */
 export function isAutoTourismCandidate(
   poi: PoiRecommendationShape,
   themeCategories: ThemeCategory[],
 ): boolean {
-  if (poi.category === "LODGING") return false;
+  return decidePoiRecommendation(poi, themeCategories).status === "ALLOW";
+}
 
-  const structuralThemes = classifyStructuralPoiThemes(poi.lclsSystm1, poi.lclsSystm2);
+/** 사용자가 직접 검토할 추천 후보 패널에는 DEMOTE도 표시하되, EXCLUDE만 숨긴다. */
+export function isVisibleRecommendationCandidate(
+  poi: PoiRecommendationShape,
+  themeCategories: ThemeCategory[],
+): boolean {
+  return decidePoiRecommendation(poi, themeCategories).status !== "EXCLUDE";
+}
 
-  // 자연·웰니스 전략은 "관광지/체험" 카테고리만 맞는다는 이유로 문화유산·일반 체험시설까지
-  // 섞으면 안 된다. 이 경우 공식 대분류가 명확히 다른 후보는 자동 핵심 후보에서 제외한다.
-  // 다른 전략은 기존의 구조 관련성 랭킹을 유지해 과도한 hard filter를 피한다.
-  const natureWellnessContext = themeCategories.includes("NATURE") || themeCategories.includes("WELLNESS");
-  if (natureWellnessContext && (poi.category === "ATTRACTION" || poi.category === "EXPERIENCE")) {
-    if (poi.lclsSystm1 === "HS" || poi.lclsSystm1 === "LS" || poi.lclsSystm1 === "VE") return false;
-    if (poi.lclsSystm1 === "EX" && poi.lclsSystm2 !== "EX05") return false;
-  }
+export function recommendationStatusRank(status: PoiRecommendationStatus): number {
+  return status === "ALLOW" ? 0 : status === "DEMOTE" ? 1 : 2;
+}
 
-  if (!isGenericLocalSupportPoi(poi)) return true;
-  if (themeCategories.includes("LEISURE_ACTIVITY") && structuralThemes.includes("LEISURE_ACTIVITY")) return true;
-
-  return false;
+export function poiRepresentationLabel(representation: PoiRepresentationCode): string {
+  return representation === "DESTINATION"
+    ? "관광 목적지"
+    : representation === "SUPPORT"
+      ? "보조 자원"
+      : representation === "CONSUMPTION"
+        ? "소비 접점"
+        : representation === "LODGING"
+          ? "숙박"
+          : "대표성 미검수";
 }

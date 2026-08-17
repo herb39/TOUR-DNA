@@ -3,7 +3,7 @@ import { haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import type { FoodSubcategory } from "./foodClassification";
 import { dedupeBySameCoordinates, dedupeBySameSite } from "./poiDedup";
-import { isAutoTourismCandidate } from "./poiRecommendation";
+import { isAutoTourismCandidate, type PoiCurationStatusCode, type PoiRepresentationCode } from "./poiRecommendation";
 import { AXIS_LABEL_KO, METRIC_CODES, type DnaAxisKey, type DnaResult, type EvidenceItem } from "./types";
 import { formatSignedPercent } from "@/lib/format";
 import {
@@ -67,6 +67,9 @@ export interface PoiLike {
    * fallback한다(하위 호환, 회귀 없음). */
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  /** 지역·POI 대표성 검수 레이어. 없으면 원천 데이터만으로 판단하는 미검수 상태다. */
+  curationStatus?: PoiCurationStatusCode | null;
+  representation?: PoiRepresentationCode | null;
 }
 
 function hasPoiCoords(p: PoiLike): p is PoiLike & GeoPoint {

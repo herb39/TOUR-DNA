@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { isAutoTourismCandidate } from "@/lib/domain/poiRecommendation";
+import { isAutoTourismCandidate, type PoiCurationStatusCode, type PoiRepresentationCode } from "@/lib/domain/poiRecommendation";
 import type { PoiCategory } from "@/generated/prisma/enums";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
 import { classifyFoodSubcategory, isMealEligibleFoodSubcategory, type FoodSubcategory } from "@/lib/domain/foodClassification";
@@ -74,6 +74,7 @@ interface PoiRow {
   closedDays: string | null;
   sourceType: string;
   rawPayload: unknown;
+  curation?: { status: PoiCurationStatusCode; representation: PoiRepresentationCode } | null;
 }
 
 /** DB Poi 행 → PoiDetail 매핑을 한 곳에만 둔다(fetchPoiDetailsInOrder/fetchAdditionalMealEligibleFood 공용). */
@@ -98,7 +99,7 @@ function mapRowToPoiDetail(r: PoiRow): PoiDetail {
 /** poiIds 순서를 그대로 유지해 POI 상세정보를 조회한다. */
 export async function fetchPoiDetailsInOrder(poiIds: string[]): Promise<PoiDetail[]> {
   if (poiIds.length === 0) return [];
-  const rows = await prisma.poi.findMany({ where: { id: { in: poiIds } } });
+  const rows = await prisma.poi.findMany({ where: { id: { in: poiIds } }, include: { curation: true } });
   const byId = new Map(rows.map((r) => [r.id, r]));
   return poiIds
     .map((id) => byId.get(id))
@@ -164,6 +165,7 @@ export async function fetchAdditionalGeneralPois(
   if (limit <= 0) return [];
   const rows = await prisma.poi.findMany({
     where: { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } },
+    include: { curation: true },
     take: Math.min(limit * SUPPLEMENT_GENERAL_FETCH_MULTIPLIER, SUPPLEMENT_GENERAL_FETCH_CAP),
   });
   const candidates = rows
@@ -202,6 +204,7 @@ export async function searchPoisInRegion(regionId: string, query: string): Promi
   const rows = await prisma.poi.findMany({
     where: { regionId, name: { contains: trimmed } },
     orderBy: { name: "asc" },
+    include: { curation: true },
     take: POI_SEARCH_LIMIT,
   });
   return rows.map((r) => ({
@@ -218,5 +221,7 @@ export async function searchPoisInRegion(regionId: string, query: string): Promi
     sourceType: r.sourceType,
     lclsSystm1: extractLclsSystm1FromRawPayload(r.rawPayload),
     lclsSystm2: extractLclsSystm2FromRawPayload(r.rawPayload),
+    curationStatus: r.curation?.status ?? null,
+    representation: r.curation?.representation ?? null,
   }));
 }

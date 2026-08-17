@@ -115,6 +115,22 @@ enum PoiSourceType {
   FIXTURE
 }
 
+/// POI 자체 원천 분류와 별개로, 관광상품 후보로서의 대표성을 검수하는 상태.
+/// 미검수 데이터는 자동으로 삭제하지 않고 보조 후보로만 노출한다.
+enum PoiCurationStatus {
+  UNREVIEWED
+  APPROVED
+  REJECTED
+}
+
+enum PoiRepresentation {
+  UNKNOWN
+  DESTINATION
+  SUPPORT
+  CONSUMPTION
+  LODGING
+}
+
 // ── 행정구역 / 데이터 원천 ──────────────────────────────────
 
 model Region {
@@ -241,12 +257,33 @@ model Poi {
 
   centerOf  PoiRelation[] @relation("CenterPoi")
   relatedOf PoiRelation[] @relation("RelatedPoi")
+  curation  PoiCuration?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([regionId, name])
   @@index([regionId, category])
+}
+
+/// 지역·POI별 관광 대표성 검수 레이어. 원천 POI를 삭제하거나 이름 규칙으로 차단하지 않고,
+/// 자동 분류와 현장 검수 결과를 별도로 보존한다. 검수 행이 없으면 UNREVIEWED로 간주한다.
+model PoiCuration {
+  id                 String            @id @default(cuid())
+  poiId              String            @unique
+  poi                Poi               @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  status             PoiCurationStatus @default(UNREVIEWED)
+  representation     PoiRepresentation @default(UNKNOWN)
+  representativeness Int?
+  reason             String?
+  sourceLabel        String?
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  expiresAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([status, representation])
 }
 
 model PoiRelation {
