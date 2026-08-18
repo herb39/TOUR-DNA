@@ -44,6 +44,8 @@ import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCa
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
 import { readProjectPreferences } from "@/lib/validation/project-preferences";
+import { FestivalAnchorPanel } from "@/components/festival/FestivalAnchorPanel";
+import { fetchFestivalAnchorCandidates } from "@/lib/services/festivalAnchorService";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +118,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const { analysisResult, input } = project;
   if (!input) notFound();
   const preferences = readProjectPreferences(input.preferredThemes);
+  // P1-1: 분석 화면에서만 공식 행사정보를 읽어 Anchor 후보를 보여준다. 후보 선택은 아직 코스·전략
+  // 계산에 연결하지 않으며, API 실패·기간 겹침 없음도 각각 정직한 상태로 화면에 전달한다.
+  const festivalAnchorLookup = await fetchFestivalAnchorCandidates({
+    regionCode: project.region.code,
+    travelYear: project.travelYear,
+    travelMonth: project.travelMonth,
+  });
 
   const axisData: DnaAxisChartDatum[] = AXIS_ORDER.map((axis) => {
     const scoreKey = `${axis}Score` as const;
@@ -431,6 +440,16 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             전략 3안 확인하기 →
           </a>
         </section>
+
+        <div className="mt-6">
+          <FestivalAnchorPanel
+            projectId={project.id}
+            regionName={project.region.name}
+            travelYear={project.travelYear}
+            travelMonth={project.travelMonth}
+            lookup={festivalAnchorLookup}
+          />
+        </div>
 
         {/* 사업 사전검증 리포트(2026-08-13, 실행안 선택 전 단계에도 노출) — 코스·KPI·위험은 아직 없어
          * POI 공급 충분성·이동 현실성은 "확인 필요"로 안전하게 남는다(같은 함수를 plan 화면과 동일하게
