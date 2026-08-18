@@ -43,6 +43,7 @@ export async function fetchPoisByCategory(
       lclsSystm2: extractLclsSystm2FromRawPayload(p.rawPayload),
       curationStatus: curation?.status ?? null,
       representation: curation?.representation ?? null,
+      sourceType: p.sourceType,
     });
     map[category] = list;
   }

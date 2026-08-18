@@ -70,6 +70,8 @@ export interface PoiLike {
   /** 지역·POI 대표성 검수 레이어. 없으면 원천 데이터만으로 판단하는 미검수 상태다. */
   curationStatus?: PoiCurationStatusCode | null;
   representation?: PoiRepresentationCode | null;
+  /** 원천 POI의 데이터 출처. 후보 적합도 표시가 실제 공공데이터/API와 fixture를 구분할 때 재사용한다. */
+  sourceType?: string;
 }
 
 function hasPoiCoords(p: PoiLike): p is PoiLike & GeoPoint {

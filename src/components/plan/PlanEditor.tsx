@@ -13,6 +13,7 @@ import {
   reorderCourseItemWithinDay,
   moveCourseItemToDay,
   insertPoiIntoDay,
+  insertLodgingIntoDay,
   isFestivalAnchorItem,
   type CourseItem,
   type CourseDay,
@@ -50,6 +51,7 @@ import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 import { classifyLeisureActivity } from "@/lib/domain/leisureClassification";
 import { poiRepresentationLabel } from "@/lib/domain/poiRecommendation";
 import type { ProjectAnchorRecord } from "@/lib/services/projectAnchorService";
+import type { AnchorCandidate, AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
 import {
   canApplyFestivalAnchor,
   findFestivalAnchorItems,
@@ -58,6 +60,8 @@ import {
   removeFestivalAnchorFromCourse,
   replaceFestivalAnchorInCourse,
   validateFestivalAnchorCourseDays,
+  insertPoiAroundFestivalAnchor,
+  type FestivalAnchorRelatedPosition,
 } from "@/lib/domain/festivalAnchorCourse";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
@@ -230,6 +234,7 @@ export function PlanEditor({
   poiFits,
   poiShortage,
   candidatePois,
+  anchorCandidates,
 }: {
   plan: PlanEditorData;
   poiFits?: Record<string, PoiFitResult>;
@@ -239,6 +244,8 @@ export function PlanEditor({
    * 전략/테마 관련성·SHOPPING dedup·최소 적합 기준을 반영해 계산해 둔 값을 그대로 받는다 — 이 컴포넌트는
    * 현재 course에 이미 있는 POI만 클라이언트에서 걸러낸다(추가/삭제 즉시 반영, 별도 재조회 없음). */
   candidatePois?: CandidatePoi[] | null;
+  /** 확정·반영된 Anchor 주변 연계 후보. null은 조회 실패/구조 미적용으로, 결과 내부의 빈 상태와 구분한다. */
+  anchorCandidates?: AnchorCandidateResult | null;
 }) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
   const [state, formAction, isPending] = useActionState(boundSave, initialActionState);
@@ -302,7 +309,10 @@ export function PlanEditor({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isDirty]);
 
-  const existingPoiIds = useMemo(() => new Set(days.flatMap((d) => d.items.map((i) => i.poiId))), [days]);
+  const existingPoiIds = useMemo(
+    () => new Set(days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])),
+    [days],
+  );
   const courseAnchorItems = useMemo(() => findFestivalAnchorItems(days), [days]);
   const courseAnchor = courseAnchorItems[0] ?? null;
   const currentAnchorValidation = plan.festivalAnchor
@@ -319,8 +329,25 @@ export function PlanEditor({
     () => (candidatePois ?? []).filter((c) => !existingPoiIds.has(c.id)),
     [candidatePois, existingPoiIds],
   );
+  const visibleAnchorGroups = useMemo(() => {
+    const empty: Record<"PRE_EVENT" | "MEAL" | "POST_EVENT" | "STAY", AnchorCandidate[]> = {
+      PRE_EVENT: [],
+      MEAL: [],
+      POST_EVENT: [],
+      STAY: [],
+    };
+    if (!anchorCandidates || anchorCandidates.status !== "AVAILABLE") return empty;
+    return Object.fromEntries(
+      Object.entries(anchorCandidates.groups).map(([role, candidates]) => [
+        role,
+        candidates.filter((candidate) => !existingPoiIds.has(candidate.id)),
+      ]),
+    ) as typeof empty;
+  }, [anchorCandidates, existingPoiIds]);
   const [candidateAddDay, setCandidateAddDay] = useState<Record<string, number>>({});
   const [candidatePanelOpen, setCandidatePanelOpen] = useState(false);
+  const [anchorMealPosition, setAnchorMealPosition] = useState<FestivalAnchorRelatedPosition>("AFTER_ANCHOR");
+  const [anchorCandidateMessage, setAnchorCandidateMessage] = useState<string | null>(null);
 
   const [addingToDay, setAddingToDay] = useState<number | null>(null);
   const [poiQuery, setPoiQuery] = useState("");
@@ -446,6 +473,70 @@ export function PlanEditor({
         };
       }),
     );
+  }
+
+  function addAnchorCandidate(candidate: AnchorCandidate) {
+    const anchor = plan.festivalAnchor;
+    const courseAnchorId = courseAnchor?.item.anchorId;
+    if (!anchor || !courseAnchorId || !currentAnchorIsInCourse || !currentAnchorValidation.ok) {
+      setAnchorCandidateMessage("현재 코스의 Anchor가 최신 상태가 아닙니다. Anchor를 다시 반영한 뒤 후보를 추가해주세요.");
+      return;
+    }
+    if (candidate.role === "STAY") {
+      setDays((prev) => {
+        const result = insertLodgingIntoDay(
+          prev,
+          candidate.dayIndex,
+          {
+            id: candidate.id,
+            name: candidate.name,
+            category: candidate.category,
+            lat: candidate.lat,
+            lng: candidate.lng,
+            operatingHours: candidate.operatingHours,
+            closedDays: candidate.closedDays,
+            mealEligible: candidate.mealEligible,
+            foodSubcategory: candidate.foodSubcategory,
+            lclsSystm1: candidate.lclsSystm1,
+            lclsSystm2: candidate.lclsSystm2,
+          },
+          plan.transport,
+        );
+        if (!result.ok) {
+          setAnchorCandidateMessage(result.message);
+          return prev;
+        }
+        setAnchorCandidateMessage(`${candidate.name}을(를) ${candidate.dayIndex}일차 숙박 슬롯에 추가했습니다. 저장하면 확정됩니다.`);
+        return result.days;
+      });
+      return;
+    }
+    const position: FestivalAnchorRelatedPosition = candidate.role === "PRE_EVENT" ? "BEFORE_ANCHOR" : candidate.role === "MEAL" ? anchorMealPosition : "AFTER_ANCHOR";
+    setDays((prev) => {
+      const next = insertPoiAroundFestivalAnchor(
+        prev,
+        courseAnchorId,
+        {
+          poiId: candidate.id,
+          poiName: candidate.name,
+          category: candidate.category,
+          lat: candidate.lat,
+          lng: candidate.lng,
+          operatingHours: candidate.operatingHours,
+          closedDays: candidate.closedDays,
+          mealEligible: candidate.mealEligible,
+          foodSubcategory: candidate.foodSubcategory,
+          lclsSystm1: candidate.lclsSystm1,
+          lclsSystm2: candidate.lclsSystm2,
+        },
+        position,
+        plan.transport,
+      );
+      setAnchorCandidateMessage(
+        `${candidate.name}을(를) Anchor ${position === "BEFORE_ANCHOR" ? "앞" : "뒤"}에 추가했습니다. Anchor 시각은 고정되며 저장하면 확정됩니다.`,
+      );
+      return next;
+    });
   }
 
   function applyFestivalAnchor(replace = false) {
@@ -1036,6 +1127,86 @@ export function PlanEditor({
         </details>
       </div>
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">
+        {plan.festivalAnchor && anchorCandidates !== undefined ? (
+          <section
+            aria-label="축제 Anchor 연계 후보"
+            className="rounded-lg border border-violet-200 bg-violet-50/50 p-4"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-violet-950">축제 Anchor 연계 후보</h2>
+              {anchorCandidates?.status === "AVAILABLE" ? (
+                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-violet-700">
+                  {Object.values(visibleAnchorGroups).reduce((sum, group) => sum + group.length, 0)}개
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-xs text-violet-900/70">
+              Anchor 시각은 고정합니다. 행사 전·후 연결을 제안할 뿐 자동으로 일정에 넣거나 재계획하지 않습니다.
+              거리는 직선거리 추정입니다.
+            </p>
+            {anchorCandidates === null ? (
+              <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Anchor 연계 후보를 불러오지 못했습니다. 기존 코스와 일반 추천 후보는 계속 사용할 수 있습니다.
+              </p>
+            ) : anchorCandidates.status !== "AVAILABLE" ? (
+              <p className="mt-3 rounded-md border border-violet-200 bg-white px-3 py-2 text-xs text-violet-800">
+                {anchorCandidates.message}
+              </p>
+            ) : Object.values(visibleAnchorGroups).every((group) => group.length === 0) ? (
+              <p className="mt-3 rounded-md border border-violet-200 bg-white px-3 py-2 text-xs text-violet-800">
+                표시할 새 연계 후보가 없습니다. 일반 추천 후보 풀을 함께 확인해주세요.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {visibleAnchorGroups.MEAL.length > 0 ? (
+                  <div className="rounded border border-violet-200 bg-white p-2">
+                    <p className="text-[11px] font-medium text-violet-900">식사 후보 추가 위치</p>
+                    <div className="mt-1 flex gap-2 text-xs">
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="anchor-meal-position"
+                          checked={anchorMealPosition === "BEFORE_ANCHOR"}
+                          onChange={() => setAnchorMealPosition("BEFORE_ANCHOR")}
+                        />
+                        행사 전
+                      </label>
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="anchor-meal-position"
+                          checked={anchorMealPosition === "AFTER_ANCHOR"}
+                          onChange={() => setAnchorMealPosition("AFTER_ANCHOR")}
+                        />
+                        행사 후
+                      </label>
+                    </div>
+                  </div>
+                ) : null}
+                {(["PRE_EVENT", "MEAL", "POST_EVENT", "STAY"] as const).map((role) => {
+                  const group = visibleAnchorGroups[role];
+                  if (group.length === 0) return null;
+                  const heading = role === "PRE_EVENT" ? "행사 전 연결" : role === "MEAL" ? "식사 연결" : role === "POST_EVENT" ? "행사 후 연결" : "숙박 연결";
+                  return (
+                    <div key={role}>
+                      <h3 className="mb-1 text-xs font-semibold text-slate-800">{heading}</h3>
+                      <ul className="space-y-2">
+                        {group.map((candidate) => (
+                          <AnchorCandidateCard key={`${role}-${candidate.id}`} candidate={candidate} onAdd={() => addAnchorCandidate(candidate)} />
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {anchorCandidateMessage ? (
+              <p className="mt-2 text-xs font-medium text-violet-800" role="status">
+                {anchorCandidateMessage}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-900">추천 후보</h2>
@@ -1421,6 +1592,38 @@ function CandidateCard({
           이 날짜에 추가
         </button>
       </div>
+    </li>
+  );
+}
+
+function AnchorCandidateCard({ candidate, onAdd }: { candidate: AnchorCandidate; onAdd: () => void }) {
+  const badge = resolveFitBadge(candidate.fit);
+  return (
+    <li className="rounded-md border border-violet-200 bg-white p-2.5 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-medium text-slate-800">{candidate.name}</p>
+          <div className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{poiCategoryLabel(candidate.category)}</span>
+            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800">직선거리 {candidate.distanceLabel}</span>
+          </div>
+        </div>
+        <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badge.className}`}>{badge.label}</span>
+      </div>
+      <p className="mt-1.5 text-slate-600">{candidate.reason}</p>
+      {candidate.fit.dataSource.operatingHoursConfirmed ? (
+        <p className="mt-1 text-[11px] text-slate-500">운영시간: {candidate.fit.dataSource.operatingHoursText}</p>
+      ) : (
+        <p className="mt-1 text-[11px] text-amber-700">운영시간 확인 필요</p>
+      )}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="mt-2 w-full cursor-pointer rounded border border-violet-300 bg-white px-2 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-50"
+        aria-label={`${candidate.name} ${candidate.roleLabel} 후보를 일정에 추가`}
+      >
+        {candidate.role === "STAY" ? "숙박 슬롯에 추가" : candidate.role === "PRE_EVENT" ? "Anchor 앞에 추가" : candidate.role === "MEAL" ? "선택한 위치에 추가" : "Anchor 뒤에 추가"}
+      </button>
     </li>
   );
 }

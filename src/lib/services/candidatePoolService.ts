@@ -110,7 +110,7 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
           id: poi.id,
           name: poi.name,
           category,
-          sourceType: "FIXTURE",
+          sourceType: poi.sourceType ?? "FIXTURE",
           operatingHours: poi.operatingHours ?? null,
           closedDays: poi.closedDays ?? null,
           lclsSystm1: poi.lclsSystm1,

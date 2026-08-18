@@ -1,11 +1,13 @@
 import {
   courseItemToInput,
+  estimateTravel,
   isFestivalAnchorItem,
   minutesToTimeSlot,
   parseTimeSlotToMinutes,
   recomputeDayItems,
   type CourseDay,
   type CourseItem,
+  type CourseItemInput,
   type TransportCode,
 } from "./planBuilder";
 
@@ -28,6 +30,7 @@ export interface FestivalAnchorCourseSource {
   address: string | null;
   lat: number | null;
   lng: number | null;
+  regionCode?: string;
 }
 
 export type FestivalAnchorCourseMutationResult =
@@ -194,6 +197,52 @@ export function removeFestivalAnchorFromCourse(
   return days.map((day) => {
     const items = day.items.filter((item) => !(isFestivalAnchorItem(item) && item.anchorId === anchorId));
     return items.length === day.items.length ? day : { ...day, items: recomputeItems(items, transport) };
+  });
+}
+
+export type FestivalAnchorRelatedPosition = "BEFORE_ANCHOR" | "AFTER_ANCHOR";
+
+/** Anchor를 기준으로 앞·뒤에 POI를 삽입한다. Anchor의 명시 시각은 recomputeDayItems가 그대로
+ * 보존하므로 사용자가 확정한 행사 시각을 자동으로 밀거나 다시 계획하지 않는다. */
+export function insertPoiAroundFestivalAnchor(
+  days: CourseDay[],
+  anchorId: string,
+  poi: Pick<
+    CourseItem,
+    "poiId" | "poiName" | "category" | "lat" | "lng" | "operatingHours" | "closedDays" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
+  >,
+  position: FestivalAnchorRelatedPosition,
+  transport: TransportCode,
+): CourseDay[] {
+  return days.map((day) => {
+    const anchorIndex = day.items.findIndex((item) => item.kind === "FESTIVAL_ANCHOR" && item.anchorId === anchorId);
+    if (anchorIndex === -1) return day;
+    const input: CourseItemInput = {
+      poiId: poi.poiId,
+      poiName: poi.poiName,
+      category: poi.category,
+      stayMinutes: 60,
+      operatingHours: poi.operatingHours,
+      closedDays: poi.closedDays,
+      lat: poi.lat,
+      lng: poi.lng,
+      mealEligible: poi.mealEligible,
+      foodSubcategory: poi.foodSubcategory,
+      lclsSystm1: poi.lclsSystm1,
+      lclsSystm2: poi.lclsSystm2,
+    };
+    if (position === "BEFORE_ANCHOR") {
+      const anchorItem = day.items[anchorIndex];
+      const anchorStart = parseTimeSlotToMinutes(anchorItem.timeSlot);
+      if (anchorStart !== null) {
+        const travelMinutes = estimateTravel(input, anchorItem, transport).minutes ?? 0;
+        const desiredStart = Math.max(0, anchorStart - 60 - travelMinutes);
+        input.timeSlot = minutesToTimeSlot(Math.floor(desiredStart / 30) * 30);
+      }
+    }
+    const items = day.items.map(courseItemToInput);
+    items.splice(position === "BEFORE_ANCHOR" ? anchorIndex : anchorIndex + 1, 0, input);
+    return { ...day, items: recomputeDayItems(items, transport) };
   });
 }
 

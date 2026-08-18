@@ -20,6 +20,7 @@ import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
+import { buildAnchorCandidateSuggestions, type AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
 
 export const dynamic = "force-dynamic";
 
@@ -100,13 +101,17 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           ...(d.lodging ? [d.lodging.poiId] : []),
         ])
       : null;
+  const allCoursePoiIds = planData.course.days.flatMap((d) => [
+    ...d.items.map((item) => item.poiId),
+    ...(d.lodging ? [d.lodging.poiId] : []),
+  ]);
   const analysisResult = project.analysisResult;
   const analysisOwnBaseYm = analysisResult ? summarizeEvidenceBaseYms(analysisResult.evidences).primary : null;
 
   // 2026-08-13(로딩 성능 개선): promoContent 조회·POI 적합도 계산·유사지역 비교 재계산은 서로 완전히
   // 독립적인데 이전에는 순차 await로 걸려 있었다 — 세 작업 중 가장 느린 것 하나만큼만 기다리도록
   // Promise.all로 병렬화한다(각 함수의 계산 로직·산식 자체는 전혀 바꾸지 않음).
-  const [promoContentResult, poiFitSummary, regionComparisonResolved, candidatePois] = await Promise.all([
+  const [promoContentResult, poiFitSummary, regionComparisonResolved, candidatePois, anchorCandidateResult] = await Promise.all([
     getPromoContentForProject(id),
     poiIds && templateId && project.input
       ? buildStrategyPoiFitSummary({
@@ -138,6 +143,24 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           existingPoiIds: poiIds,
         }).catch((): CandidatePoi[] | null => null)
       : Promise.resolve([] as CandidatePoi[]),
+    festivalAnchorResult.storage === "AVAILABLE" && festivalAnchorResult.anchor && templateId && project.input
+      ? buildAnchorCandidateSuggestions({
+          anchor: festivalAnchorResult.anchor,
+          days: planData.course.days,
+          templateId,
+          regionCode: project.region.code,
+          travelMonth: project.travelMonth,
+          preferredThemes,
+          duration:
+            (project.input.duration as DurationCode | undefined) ??
+            (planData.course.days.length >= 3
+              ? "TWO_NIGHTS_THREE_DAYS"
+              : planData.course.days.length === 2
+                ? "ONE_NIGHT_TWO_DAYS"
+                : "DAY_TRIP"),
+          existingPoiIds: allCoursePoiIds,
+        }).catch((): AnchorCandidateResult | null => null)
+      : Promise.resolve(null as AnchorCandidateResult | null),
   ]);
 
   // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미
@@ -245,6 +268,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             poiFits={poiFitSummary?.fitsByPoiId}
             poiShortage={poiFitSummary?.shortage ?? null}
             candidatePois={candidatePois}
+            anchorCandidates={anchorCandidateResult}
           />
         </div>
         <div className="mt-6">

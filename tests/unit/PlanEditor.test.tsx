@@ -14,6 +14,7 @@ import { savePlanAction, searchAvailablePoisAction } from "@/app/projects/[id]/p
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { CourseDay } from "@/lib/domain/planBuilder";
 import type { CandidatePoi } from "@/lib/services/candidatePoolService";
+import type { AnchorCandidate } from "@/lib/services/anchorCandidateService";
 
 function makePlan(): PlanEditorData {
   return {
@@ -921,6 +922,48 @@ describe("PlanEditor — 추천 후보 풀(Phase B 첫 단계, 2026-08-16)", () 
     fireEvent.click(screen.getAllByRole("button", { name: "A장소 삭제" })[0]);
 
     expect(screen.getByRole("button", { name: /A장소.*에 추가/ })).toBeInTheDocument();
+  });
+
+  it("고정된 Anchor의 행사 전 후보를 Anchor 앞에 추가하고 Anchor 시각을 보존한다", () => {
+    const candidate: AnchorCandidate = {
+      id: "anchor-pre-1",
+      name: "행사 전 명소",
+      category: "ATTRACTION",
+      lat: 36.351,
+      lng: 127.381,
+      role: "PRE_EVENT",
+      roleLabel: "행사 전",
+      suggestedPosition: "BEFORE_ANCHOR",
+      dayIndex: 1,
+      distanceKm: 0.2,
+      distanceLabel: "0.2km",
+      distanceMethod: "HAVERSINE",
+      reason: "Anchor 시작 전 연결 후보입니다.",
+      recommendationStatus: "ALLOW",
+      recommendationReason: "전략 적합",
+      representation: "DESTINATION",
+      fit: makeCandidateFit(),
+    };
+    render(
+      <PlanEditor
+        plan={makeFestivalAnchorPlan()}
+        anchorCandidates={{ status: "AVAILABLE", groups: { PRE_EVENT: [candidate], MEAL: [], POST_EVENT: [], STAY: [] }, total: 1 }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "이 축제를 코스에 고정" }));
+    fireEvent.click(screen.getByRole("button", { name: "행사 전 명소 행사 전 후보를 일정에 추가" }));
+
+    expect(screen.getByText("행사 전 명소")).toBeInTheDocument();
+    expect(screen.getAllByText(/15:00~17:00/).length).toBeGreaterThan(0);
+    const submittedDays = JSON.parse((document.querySelector('input[name="courseJson"]') as HTMLInputElement).value).days;
+    expect(submittedDays[0].items.map((item: { poiId: string }) => item.poiId)).toEqual([
+      "poi-a",
+      "poi-b",
+      "anchor-pre-1",
+      "festival-anchor:anchor-1",
+    ]);
+    expect(submittedDays[0].items.find((item: { kind?: string }) => item.kind === "FESTIVAL_ANCHOR").timeSlot).toBe("15:00");
   });
 });
 

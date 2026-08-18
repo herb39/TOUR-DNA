@@ -521,6 +521,56 @@ export function insertPoiIntoDay(
   });
 }
 
+export type LodgingInsertionResult =
+  | { ok: true; days: CourseDay[] }
+  | { ok: false; message: string };
+
+/** 숙박 후보는 일반 items가 아닌 날짜별 lodging 슬롯에만 추가한다. 기존 슬롯·Anchor는 건드리지 않고,
+ * 체크인 시각을 현재 마지막 일정과 숙소까지의 직선거리 추정으로 계산한다. */
+export function insertLodgingIntoDay(
+  days: CourseDay[],
+  dayIndex: number,
+  poi: Pick<
+    PoiDetail,
+    "id" | "name" | "category" | "lat" | "lng" | "mealEligible" | "foodSubcategory" | "lclsSystm1" | "lclsSystm2"
+  > &
+    Partial<Pick<PoiDetail, "operatingHours" | "closedDays">>,
+  transport: TransportCode,
+): LodgingInsertionResult {
+  const target = days.find((day) => day.dayIndex === dayIndex);
+  if (!target) return { ok: false, message: "숙박을 추가할 날짜를 찾을 수 없습니다." };
+  if (target.lodging) return { ok: false, message: "이 날짜에는 이미 숙박이 등록되어 있습니다." };
+
+  const lastItem = target.items[target.items.length - 1] ?? null;
+  const travelEstimate = lastItem ? estimateTravel(lastItem, poi, transport) : null;
+  const timeSlot = determineLodgingTimeSlot(target.items, travelEstimate?.minutes ?? null);
+  if (timeSlot === null) {
+    return { ok: false, message: "현재 일정 뒤에는 체크인 시각을 표시할 수 없어 숙박을 추가하지 않았습니다. 일정을 먼저 조정해주세요." };
+  }
+
+  const lodging: CourseItem = {
+    order: 1,
+    poiId: poi.id,
+    poiName: poi.name,
+    category: poi.category,
+    timeSlot,
+    stayMinutes: 0,
+    travel: travelEstimate ? travelEstimate.label : "당일 일반 일정 이후 숙소로 이동(그날 일반 일정 없음)",
+    operatingHours: poi.operatingHours,
+    closedDays: poi.closedDays,
+    lat: poi.lat,
+    lng: poi.lng,
+    mealEligible: poi.mealEligible,
+    foodSubcategory: poi.foodSubcategory,
+    lclsSystm1: poi.lclsSystm1,
+    lclsSystm2: poi.lclsSystm2,
+  };
+  return {
+    ok: true,
+    days: days.map((day) => (day.dayIndex === dayIndex ? { ...day, lodging } : day)),
+  };
+}
+
 /** 3번째 인자(timeSlots)를 생략한 기존 호출(편집기의 추가/삭제/재정렬)은 계속 DEFAULT_TIME_SLOTS를
  * 써서 동작이 바뀌지 않는다. buildDraftCourse만 날짜별 슬롯을 명시적으로 넘긴다. */
 
