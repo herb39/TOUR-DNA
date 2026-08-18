@@ -13,6 +13,7 @@ import {
   reorderCourseItemWithinDay,
   moveCourseItemToDay,
   insertPoiIntoDay,
+  isFestivalAnchorItem,
   type CourseItem,
   type CourseDay,
   type TransportCode,
@@ -49,6 +50,15 @@ import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 import { classifyLeisureActivity } from "@/lib/domain/leisureClassification";
 import { poiRepresentationLabel } from "@/lib/domain/poiRecommendation";
 import type { ProjectAnchorRecord } from "@/lib/services/projectAnchorService";
+import {
+  canApplyFestivalAnchor,
+  findFestivalAnchorItems,
+  formatFestivalAnchorCourseTime,
+  insertFestivalAnchorIntoCourse,
+  removeFestivalAnchorFromCourse,
+  replaceFestivalAnchorInCourse,
+  validateFestivalAnchorCourseDays,
+} from "@/lib/domain/festivalAnchorCourse";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -76,7 +86,7 @@ export interface PlanEditorData {
   /** 사용자가 새 KPI를 추가할 때도 같은 사업 목표를 연결하기 위해 그대로 전달한다(kpiLinking.ts). */
   primaryGoalCode: string | null;
   primaryGoalLabel: string | null;
-  /** P1-2a에서 읽은 현재 축제 Anchor. P1-2b 전까지는 코스에 자동 삽입하거나 표시하지 않는다. */
+  /** P1-2a에서 읽은 현재 축제 Anchor. P1-2b에서도 자동 삽입하지 않고 사용자 명시 동작으로만 코스에 반영한다. */
   festivalAnchor?: ProjectAnchorRecord | null;
 }
 
@@ -205,6 +215,8 @@ export function computeDragOutcome(
     const poiId = activeId.slice(SCHEDULE_ITEM_DND_PREFIX.length);
     const source = findScheduleItemLocation(days, poiId);
     if (!source) return null;
+    const sourceDay = days.find((day) => day.dayIndex === source.dayIndex);
+    if (sourceDay && isFestivalAnchorItem(sourceDay.items[source.index])) return null;
     return {
       days: moveCourseItemToDay(days, source.dayIndex, source.index, target.dayIndex, target.index, transport),
     };
@@ -236,6 +248,7 @@ export function PlanEditor({
   const [memo, setMemo] = useState(plan.memo);
   const [kpiMemo, setKpiMemo] = useState(plan.kpiMemo);
   const [days, setDays] = useState<CourseDay[]>(plan.course.days);
+  const [anchorActionMessage, setAnchorActionMessage] = useState<string | null>(null);
   const [operationChecklist, setOperationChecklist] = useState<string[]>(plan.operationChecklist);
   const [risks, setRisks] = useState<PlanEditorData["risks"]>(plan.risks);
   const [kpis, setKpis] = useState<PlanEditorData["kpis"]>(plan.kpis);
@@ -290,6 +303,14 @@ export function PlanEditor({
   }, [isDirty]);
 
   const existingPoiIds = useMemo(() => new Set(days.flatMap((d) => d.items.map((i) => i.poiId))), [days]);
+  const courseAnchorItems = useMemo(() => findFestivalAnchorItems(days), [days]);
+  const courseAnchor = courseAnchorItems[0] ?? null;
+  const currentAnchorValidation = plan.festivalAnchor
+    ? validateFestivalAnchorCourseDays(days, plan.festivalAnchor)
+    : { ok: courseAnchorItems.length === 0 };
+  const currentAnchorIsInCourse = Boolean(
+    courseAnchor && plan.festivalAnchor && courseAnchor.item.anchorId === plan.festivalAnchor.id,
+  );
 
   // 추천 후보 풀(Phase B 첫 단계, 2026-08-16): 서버가 이미 계산해 둔 후보 목록에서 현재 course에 있는
   // POI만 클라이언트에서 걸러낸다 — 후보를 추가하면 existingPoiIds에 즉시 반영되어 후보 풀에서
@@ -341,13 +362,18 @@ export function PlanEditor({
   }
 
   function removeItem(dayIndex: number, itemIndex: number) {
-    setDays((prev) =>
-      prev.map((d) => {
+    setDays((prev) => {
+      const targetDay = prev.find((d) => d.dayIndex === dayIndex);
+      const targetItem = targetDay?.items[itemIndex];
+      if (targetItem && isFestivalAnchorItem(targetItem)) {
+        return removeFestivalAnchorFromCourse(prev, targetItem.anchorId!, plan.transport);
+      }
+      return prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
         const items = d.items.filter((_, i) => i !== itemIndex);
         return { ...d, items: recomputeDayItems(items.map(toInput), plan.transport) };
-      }),
-    );
+      });
+    });
   }
 
   function moveItemToDay(fromDayIndex: number, itemIndex: number, toDayIndex: number) {
@@ -401,7 +427,10 @@ export function PlanEditor({
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
-        return { ...d, items: d.items.map((it, i) => (i === itemIndex ? { ...it, timeSlot } : it)) };
+        return {
+          ...d,
+          items: d.items.map((it, i) => (i === itemIndex && !isFestivalAnchorItem(it) ? { ...it, timeSlot } : it)),
+        };
       }),
     );
   }
@@ -411,9 +440,35 @@ export function PlanEditor({
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
-        return { ...d, items: d.items.map((it, i) => (i === itemIndex ? { ...it, stayMinutes } : it)) };
+        return {
+          ...d,
+          items: d.items.map((it, i) => (i === itemIndex && !isFestivalAnchorItem(it) ? { ...it, stayMinutes } : it)),
+        };
       }),
     );
+  }
+
+  function applyFestivalAnchor(replace = false) {
+    const anchor = plan.festivalAnchor;
+    if (!anchor) {
+      setAnchorActionMessage("현재 확정된 축제 Anchor가 없습니다.");
+      return;
+    }
+    const result = replace
+      ? replaceFestivalAnchorInCourse(days, anchor, plan.transport)
+      : insertFestivalAnchorIntoCourse(days, anchor, plan.transport);
+    if (!result.ok) {
+      setAnchorActionMessage(result.message);
+      return;
+    }
+    setDays(result.days);
+    setAnchorActionMessage("축제 Anchor를 코스에 반영했습니다. 기존 장소는 유지되며, 저장 버튼을 눌러 확정하세요.");
+  }
+
+  function removeCourseAnchor() {
+    if (!courseAnchor) return;
+    setDays(removeFestivalAnchorFromCourse(days, courseAnchor.item.anchorId!, plan.transport));
+    setAnchorActionMessage("Anchor를 코스에서만 제거했습니다. 프로젝트의 축제 확정은 유지됩니다.");
   }
 
   /** 이전 장소의 체류 종료 시각부터 이 장소 시작 시각까지의 여유가 예상 이동시간보다 부족하면 실행 불가로 본다. */
@@ -581,6 +636,86 @@ export function PlanEditor({
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
+          <section className="mt-3 rounded-md border border-violet-200 bg-violet-50 p-3" aria-label="축제 Anchor 연결">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-semibold text-violet-900">확정된 축제 Anchor</h3>
+                <p className="mt-1 text-[11px] text-violet-800">
+                  사용자가 직접 확정한 축제만 지정 일차·정확한 시각에 고정합니다. 기존 장소는 자동으로 삭제하거나 이동하지 않습니다.
+                </p>
+              </div>
+              {plan.festivalAnchor ? (
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-violet-700">프로젝트 확정</span>
+              ) : null}
+            </div>
+            {plan.festivalAnchor ? (
+              <div className="mt-2 rounded border border-violet-100 bg-white p-2 text-xs text-slate-700">
+                <p className="font-medium">{plan.festivalAnchor.name}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  행사일 {plan.festivalAnchor.eventStartDate}~{plan.festivalAnchor.eventEndDate} · 연계 {plan.festivalAnchor.plannedDate} ·{" "}
+                  {plan.festivalAnchor.plannedDayIndex}일차 ·{" "}
+                  {plan.festivalAnchor.timeStart && plan.festivalAnchor.timeEnd
+                    ? plan.festivalAnchor.timeStart + "~" + plan.festivalAnchor.timeEnd
+                    : "정확한 시각 미확정"}{" "}
+                  · 출처 {plan.festivalAnchor.source}
+                </p>
+              </div>
+            ) : null}
+            {courseAnchor ? (
+              <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+                <p className="font-medium">코스에 고정된 Anchor: {courseAnchor.item.poiName}</p>
+                <p className="mt-0.5 text-[11px]">
+                  {courseAnchor.dayIndex}일차 · {formatFestivalAnchorCourseTime(courseAnchor.item)} · 이 일정은 드래그·시간·날짜 편집에서 제외됩니다.
+                </p>
+                {!plan.festivalAnchor ? (
+                  <p className="mt-1 text-amber-700">프로젝트 Anchor가 삭제되었거나 조회되지 않습니다. 코스에서만 제거해야 새 Anchor를 반영할 수 있습니다.</p>
+                ) : currentAnchorIsInCourse && !currentAnchorValidation.ok ? (
+                  <p className="mt-1 text-amber-700">{currentAnchorValidation.message}</p>
+                ) : currentAnchorIsInCourse ? (
+                  <p className="mt-1">현재 프로젝트 Anchor와 일치합니다.</p>
+                ) : (
+                  <p className="mt-1 text-amber-700">현재 프로젝트 Anchor와 다른 일정입니다. 기존 Anchor를 코스에서만 제거한 뒤 반영하세요.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={removeCourseAnchor}
+                  className="no-print mt-2 cursor-pointer rounded border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                >
+                  코스에서만 제거
+                </button>
+              </div>
+            ) : plan.festivalAnchor ? (
+              canApplyFestivalAnchor(plan.festivalAnchor) ? (
+                <button
+                  type="button"
+                  onClick={() => applyFestivalAnchor(false)}
+                  className="no-print mt-2 cursor-pointer rounded bg-violet-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-800"
+                >
+                  이 축제를 코스에 고정
+                </button>
+              ) : (
+                <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                  시간대만 지정되었거나 공식 시각이 미확정입니다. 코스에 고정하려면 사용자가 정확한 시작·종료 시각을 확정해야 합니다.
+                </p>
+              )
+            ) : (
+              <p className="mt-2 text-[11px] text-slate-500">현재 프로젝트에 확정된 축제 Anchor가 없습니다.</p>
+            )}
+            {currentAnchorIsInCourse && plan.festivalAnchor && !currentAnchorValidation.ok ? (
+              <button
+                type="button"
+                onClick={() => applyFestivalAnchor(true)}
+                className="no-print mt-2 cursor-pointer rounded border border-violet-300 bg-white px-3 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100"
+              >
+                변경한 Anchor 다시 반영
+              </button>
+            ) : null}
+            {anchorActionMessage ? (
+              <p className="mt-2 text-[11px] font-medium text-violet-800" role="status">
+                {anchorActionMessage}
+              </p>
+            ) : null}
+          </section>
           <CourseQualityPanel report={courseQuality} />
           {poiShortage ? (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1033,8 +1168,10 @@ function ScheduleItemRow({
   onMoveItemToDay: (fromDayIndex: number, itemIndex: number, toDayIndex: number) => void;
   onRemoveItem: (dayIndex: number, itemIndex: number) => void;
 }) {
+  const isAnchor = isFestivalAnchorItem(item);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: SCHEDULE_ITEM_DND_PREFIX + item.poiId,
+    disabled: isAnchor,
   });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
   const leisureType = classifyLeisureActivity(item.lclsSystm1, item.lclsSystm2);
@@ -1044,43 +1181,57 @@ function ScheduleItemRow({
       ref={setNodeRef}
       style={style}
       className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
-        infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
+        isAnchor ? "border-violet-300 bg-violet-50" : infeasible ? "border-red-300 bg-red-50" : "border-slate-100 bg-slate-50"
       }`}
     >
       <div className="flex items-start gap-2">
-        <button
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label={`${item.poiName} 드래그로 순서·날짜 변경`}
-          className="no-print mt-0.5 cursor-grab touch-none rounded border border-slate-200 bg-white px-1 py-0.5 text-slate-400 active:cursor-grabbing"
-        >
-          ⋮⋮
-        </button>
+        {isAnchor ? (
+          <span className="mt-0.5 rounded bg-violet-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">축제 Anchor</span>
+        ) : (
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`${item.poiName} 드래그로 순서·날짜 변경`}
+            className="no-print mt-0.5 cursor-grab touch-none rounded border border-slate-200 bg-white px-1 py-0.5 text-slate-400 active:cursor-grabbing"
+          >
+            ⋮⋮
+          </button>
+        )}
         <div>
           <span className="font-medium text-slate-800">
-            <input
-              type="time"
-              value={item.timeSlot}
-              onChange={(e) => onUpdateItemTime(day.dayIndex, idx, e.target.value)}
-              aria-label={`${item.poiName} 시간`}
-              className="mr-1 rounded border border-slate-300 px-1 py-0.5 text-sm"
-            />
+            {isAnchor ? (
+              <span className="mr-1 text-violet-800">{formatFestivalAnchorCourseTime(item)}</span>
+            ) : (
+              <input
+                type="time"
+                value={item.timeSlot}
+                onChange={(e) => onUpdateItemTime(day.dayIndex, idx, e.target.value)}
+                aria-label={`${item.poiName} 시간`}
+                className="mr-1 rounded border border-slate-300 px-1 py-0.5 text-sm"
+              />
+            )}
             {item.poiName}
           </span>
-          <span className="ml-2 text-xs text-slate-500">
-            ({describeCourseItemPurpose(item)}, 체류{" "}
-            <input
-              type="number"
-              min={0}
-              step={10}
-              value={item.stayMinutes}
-              onChange={(e) => onUpdateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
-              aria-label={`${item.poiName} 체류시간(분)`}
-              className="w-14 rounded border border-slate-300 px-1 py-0.5 text-xs"
-            />
-            분, {item.travel})
-          </span>
+          {isAnchor ? (
+            <span className="ml-2 text-xs text-violet-800">
+              ({item.anchorEventStartDate}~{item.anchorEventEndDate} · {item.stayMinutes}분 고정 · 출처 ID {item.anchorSourceId ?? "확인 필요"})
+            </span>
+          ) : (
+            <span className="ml-2 text-xs text-slate-500">
+              ({describeCourseItemPurpose(item)}, 체류{" "}
+              <input
+                type="number"
+                min={0}
+                step={10}
+                value={item.stayMinutes}
+                onChange={(e) => onUpdateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
+                aria-label={`${item.poiName} 체류시간(분)`}
+                className="w-14 rounded border border-slate-300 px-1 py-0.5 text-xs"
+              />
+              분, {item.travel})
+            </span>
+          )}
           {idx > 0 && transport === "PRIVATE_VEHICLE" ? (
             <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
               {travelSourceLabel(item.travelSource)}
@@ -1089,7 +1240,7 @@ function ScheduleItemRow({
           {infeasible ? (
             <p className="mt-0.5 text-xs font-medium text-red-600">일정 조정 필요: {feasibilityReason}</p>
           ) : null}
-          {fit ? (
+          {fit && !isAnchor ? (
             <details className="mt-1">
               <summary className="cursor-pointer text-xs">
                 <span
@@ -1127,46 +1278,59 @@ function ScheduleItemRow({
         </div>
       </div>
       <div className="no-print flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => onMoveItem(day.dayIndex, idx, -1)}
-          disabled={idx === 0}
-          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label={`${item.poiName} 위로 이동`}
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          onClick={() => onMoveItem(day.dayIndex, idx, 1)}
-          disabled={idx === day.items.length - 1}
-          className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label={`${item.poiName} 아래로 이동`}
-        >
-          ↓
-        </button>
-        {days.length > 1 ? (
-          <select
-            aria-label={`${item.poiName} 다른 날짜로 이동`}
-            value={day.dayIndex}
-            onChange={(e) => onMoveItemToDay(day.dayIndex, idx, Number(e.target.value))}
-            className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+        {isAnchor ? (
+          <button
+            type="button"
+            onClick={() => onRemoveItem(day.dayIndex, idx)}
+            className="cursor-pointer rounded border border-red-200 bg-white px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+            aria-label={`${item.poiName} 코스에서만 제거`}
           >
-            {days.map((d) => (
-              <option key={d.dayIndex} value={d.dayIndex}>
-                {d.dayIndex}일차
-              </option>
-            ))}
-          </select>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => onRemoveItem(day.dayIndex, idx)}
-          className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-          aria-label={`${item.poiName} 삭제`}
-        >
-          삭제
-        </button>
+            코스에서만 제거
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onMoveItem(day.dayIndex, idx, -1)}
+              disabled={idx === 0}
+              className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={`${item.poiName} 위로 이동`}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={() => onMoveItem(day.dayIndex, idx, 1)}
+              disabled={idx === day.items.length - 1}
+              className="cursor-pointer rounded border border-slate-300 px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={`${item.poiName} 아래로 이동`}
+            >
+              ↓
+            </button>
+            {days.length > 1 ? (
+              <select
+                aria-label={`${item.poiName} 다른 날짜로 이동`}
+                value={day.dayIndex}
+                onChange={(e) => onMoveItemToDay(day.dayIndex, idx, Number(e.target.value))}
+                className="cursor-pointer rounded border border-slate-300 px-1 py-0.5 text-xs"
+              >
+                {days.map((d) => (
+                  <option key={d.dayIndex} value={d.dayIndex}>
+                    {d.dayIndex}일차
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onRemoveItem(day.dayIndex, idx)}
+              className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+              aria-label={`${item.poiName} 삭제`}
+            >
+              삭제
+            </button>
+          </>
+        )}
       </div>
     </li>
   );

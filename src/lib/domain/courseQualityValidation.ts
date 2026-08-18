@@ -5,6 +5,7 @@ import {
   DEFAULT_ITEM_STAY_MINUTES,
   MEAL_WINDOWS,
   estimateTravel,
+  isFestivalAnchorItem,
   parseTimeSlotToMinutes,
   type CourseDay,
   type CourseItem,
@@ -268,11 +269,12 @@ function evaluateDailyDensityWarnings(input: CourseQualityInput): CourseQualityW
     if (target === undefined || !slots || slots.length === 0) continue;
 
     const reasons: string[] = [];
-    if (day.items.length > target) {
-      reasons.push(`장소 ${day.items.length}곳(기본 목표 ${target}곳)`);
+    const ordinaryItems = day.items.filter((item) => !isFestivalAnchorItem(item));
+    if (ordinaryItems.length > target) {
+      reasons.push(`장소 ${ordinaryItems.length}곳(기본 목표 ${target}곳, 축제 Anchor 제외)`);
     }
 
-    const lastItem = day.items[day.items.length - 1];
+    const lastItem = ordinaryItems[ordinaryItems.length - 1];
     const lastStart = lastItem ? parseTimeSlotToMinutes(lastItem.timeSlot) : null;
     const plannedEnd = parseTimeSlotToMinutes(slots[slots.length - 1]);
     const actualEnd = lastItem && lastStart !== null ? lastStart + lastItem.stayMinutes : null;
@@ -468,7 +470,11 @@ function evaluateThemeWarnings(input: CourseQualityInput): CourseQualityWarning[
 
   const hasNonFoodTheme = requiredThemes.some((theme) => theme !== "FOOD");
   const themeItems = input.days.flatMap((day) =>
-    day.items.filter((item) => (hasNonFoodTheme ? item.category !== "FOOD" && item.category !== "LODGING" : item.category === "FOOD")),
+    day.items.filter(
+      (item) =>
+        !isFestivalAnchorItem(item) &&
+        (hasNonFoodTheme ? item.category !== "FOOD" && item.category !== "LODGING" : item.category === "FOOD"),
+    ),
   );
   if (themeItems.length === 0) return [];
 

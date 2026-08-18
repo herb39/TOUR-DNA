@@ -70,6 +70,37 @@ function makePlan(): PlanEditorData {
 
 const plan = makePlan();
 
+function makeFestivalAnchorPlan(timeOverrides: Partial<NonNullable<PlanEditorData["festivalAnchor"]>> = {}): PlanEditorData {
+  const result = makePlan();
+  result.festivalAnchor = {
+    id: "anchor-1",
+    projectId: "project-1",
+    status: "CONFIRMED",
+    source: "TOUR_API",
+    sourceId: "festival-1",
+    contentTypeId: "15",
+    name: "지역 축제",
+    eventStartDate: "2026-10-10",
+    eventEndDate: "2026-10-12",
+    plannedDate: "2026-10-10",
+    plannedDayIndex: 1,
+    timeStatus: "USER_CONFIRMED",
+    timeSlot: "CUSTOM",
+    timeStart: "15:00",
+    timeEnd: "17:00",
+    regionCode: "11110",
+    address: "축제장",
+    lat: 36.35,
+    lng: 127.38,
+    sourceSnapshot: {},
+    provenance: {},
+    confirmedAt: "2026-08-18T00:00:00.000Z",
+    updatedAt: "2026-08-18T01:00:00.000Z",
+    ...timeOverrides,
+  };
+  return result;
+}
+
 function timeInputValue(poiName: string): string {
   return (screen.getByLabelText(`${poiName} 시간`) as HTMLInputElement).value;
 }
@@ -80,6 +111,78 @@ describe("PlanEditor 실시간 코스 품질검증", () => {
 
     expect(screen.getByRole("region", { name: "실시간 코스 품질검증" })).toBeInTheDocument();
     expect(screen.getByText(/경고가 있어도 저장은 계속할 수 있습니다/)).toBeInTheDocument();
+  });
+});
+
+describe("PlanEditor — 확정 축제 Anchor 코스 연결(P1-2b)", () => {
+  it("명시적으로 고정하면 기존 POI를 보존하고 Anchor는 고정 일정으로 표시한다", () => {
+    render(<PlanEditor plan={makeFestivalAnchorPlan()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "이 축제를 코스에 고정" }));
+
+    expect(screen.getAllByText("지역 축제").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("축제 Anchor", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("A장소")).toBeInTheDocument();
+    expect(screen.getByText("B장소")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "지역 축제 코스에서만 제거" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("지역 축제 시간")).not.toBeInTheDocument();
+
+    const submittedDays = JSON.parse((document.querySelector('input[name="courseJson"]') as HTMLInputElement).value).days;
+    const anchorItem = submittedDays[0].items.find((item: { kind?: string }) => item.kind === "FESTIVAL_ANCHOR");
+    expect(anchorItem).toMatchObject({
+      poiId: "festival-anchor:anchor-1",
+      timeSlot: "15:00",
+      anchorUpdatedAt: "2026-08-18T01:00:00.000Z",
+    });
+    expect(submittedDays[0].items.map((item: { poiId: string }) => item.poiId)).toEqual([
+      "poi-a",
+      "poi-b",
+      "festival-anchor:anchor-1",
+    ]);
+  });
+
+  it("시간대만 있거나 미확정인 Anchor는 고정 버튼 대신 정확한 시각 확정을 안내한다", () => {
+    render(
+      <PlanEditor
+        plan={makeFestivalAnchorPlan({ timeStatus: "UNCONFIRMED", timeSlot: "AFTERNOON", timeStart: null, timeEnd: null })}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "이 축제를 코스에 고정" })).not.toBeInTheDocument();
+    expect(screen.getByText(/정확한 시작·종료 시각을 확정해야 합니다/)).toBeInTheDocument();
+  });
+
+  it("Anchor를 코스에서만 제거하면 프로젝트 Anchor 안내는 남고 기존 POI는 유지된다", () => {
+    const planWithAnchor = makeFestivalAnchorPlan();
+    planWithAnchor.course.days[0].items.splice(1, 0, {
+      kind: "FESTIVAL_ANCHOR",
+      order: 2,
+      poiId: "festival-anchor:anchor-1",
+      poiName: "지역 축제",
+      category: "FESTIVAL",
+      timeSlot: "15:00",
+      stayMinutes: 120,
+      travel: "축제 Anchor",
+      anchorId: "anchor-1",
+      anchorUpdatedAt: "2026-08-18T01:00:00.000Z",
+      anchorSourceId: "festival-1",
+      anchorEventStartDate: "2026-10-10",
+      anchorEventEndDate: "2026-10-12",
+      anchorPlannedDate: "2026-10-10",
+      anchorPlannedDayIndex: 1,
+      anchorTimeStatus: "USER_CONFIRMED",
+      anchorTimeSlot: "CUSTOM",
+      anchorTimeStart: "15:00",
+      anchorTimeEnd: "17:00",
+    });
+    render(<PlanEditor plan={planWithAnchor} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "지역 축제 코스에서만 제거" }));
+
+    expect(screen.queryByRole("button", { name: "지역 축제 코스에서만 제거" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이 축제를 코스에 고정" })).toBeInTheDocument();
+    expect(screen.getByText("A장소")).toBeInTheDocument();
+    expect(screen.getByText("B장소")).toBeInTheDocument();
   });
 });
 

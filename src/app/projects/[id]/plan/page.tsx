@@ -19,6 +19,7 @@ import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale"
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
+import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,10 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 선택 로직(selectPois)이나 전략 점수·순위는 전혀 건드리지 않는다.
   const poiIds =
     templateId && project.input
-      ? planData.course.days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])
+      ? planData.course.days.flatMap((d) => [
+          ...d.items.filter((item) => !isFestivalAnchorItem(item)).map((i) => i.poiId),
+          ...(d.lodging ? [d.lodging.poiId] : []),
+        ])
       : null;
   const analysisResult = project.analysisResult;
   const analysisOwnBaseYm = analysisResult ? summarizeEvidenceBaseYms(analysisResult.evidences).primary : null;

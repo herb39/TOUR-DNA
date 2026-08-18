@@ -8,6 +8,7 @@ export interface CourseMapItem {
   poiId: string;
   poiName: string;
   timeSlot: string;
+  kind?: "POI" | "FESTIVAL_ANCHOR";
   lat?: number;
   lng?: number;
 }
@@ -104,7 +105,7 @@ function createMarkers(
     const position = new kakao.LatLng(item.lat, item.lng);
     const marker = new kakao.Marker({ position, map, zIndex: 10 });
     const info = new kakao.InfoWindow({
-      content: `<div style="padding:4px;font-size:12px;">${i + 1}. ${item.timeSlot} ${item.poiName}</div>`,
+      content: `<div style="padding:4px;font-size:12px;">${i + 1}. ${item.kind === "FESTIVAL_ANCHOR" ? "축제 Anchor · " : ""}${item.timeSlot} ${item.poiName}</div>`,
     });
     kakao.event.addListener(marker, "click", () => info.open(map, marker));
     markers.push(marker as { setMap: (map: unknown) => void });

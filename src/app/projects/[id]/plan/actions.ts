@@ -9,6 +9,8 @@ import type { CourseDay, PoiDetail, TransportCode } from "@/lib/domain/planBuild
 import { enrichCourseDaysWithRealRoutes } from "@/lib/services/route/courseRouteEnrichment";
 import { fetchCourseRouteGeometry, type RouteGeometrySegment } from "@/lib/services/route/routeGeometryService";
 import { assertProjectAccessible, projectAccessCookieName } from "@/lib/services/projectAccess";
+import { getProjectAnchor } from "@/lib/services/projectAnchorService";
+import { findFestivalAnchorItems, validateFestivalAnchorCourseDays } from "@/lib/domain/festivalAnchorCourse";
 import {
   generatePromoContentForProject,
   getPromoContentForProject,
@@ -67,6 +69,23 @@ export async function savePlanAction(
     kpis = JSON.parse(kpisJson);
   } catch {
     return { success: false, message: "실행안 데이터 형식이 올바르지 않습니다." };
+  }
+
+  // P1-2b: 코스에 Anchor가 있을 때만 현재 ProjectAnchor를 읽어 snapshot 정합성을 확인한다.
+  // Anchor가 없는 기존 실행안은 이 조회를 거치지 않아 레거시 Production 스키마에서도 계속 저장된다.
+  const courseAnchorItems = findFestivalAnchorItems(course.days);
+  if (courseAnchorItems.length > 0) {
+    const anchorResult = await getProjectAnchor(projectId);
+    if (anchorResult.storage === "UNAVAILABLE") {
+      return { success: false, message: "축제 Anchor 저장소를 확인할 수 없어 저장할 수 없습니다. 기존 장소만 있는 실행안은 계속 저장할 수 있습니다." };
+    }
+    if (!anchorResult.anchor) {
+      return { success: false, message: "현재 프로젝트에 확정된 Anchor가 없습니다. 코스에서 기존 Anchor를 먼저 코스에서만 제거해주세요." };
+    }
+    const anchorValidation = validateFestivalAnchorCourseDays(course.days, anchorResult.anchor);
+    if (!anchorValidation.ok) {
+      return { success: false, message: anchorValidation.message ?? "축제 Anchor 설정이 현재 프로젝트와 일치하지 않습니다. 다시 반영해주세요." };
+    }
   }
 
   // 실제 도로 경로(Phase 12, 2026-08-05): PRIVATE_VEHICLE 실행안만, 저장 직전에 이전에 저장된 course와

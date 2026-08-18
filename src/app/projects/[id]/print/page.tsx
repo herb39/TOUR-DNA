@@ -12,7 +12,8 @@ import { formatBaseYm, formatDateTime, metricLabel, sourceLabel, summarizeEviden
 import { buildTourismMetricCards } from "@/lib/domain/tourismMetricSummary";
 import { METRIC_CODES } from "@/lib/domain/types";
 import { PrintButton } from "@/components/plan/PrintButton";
-import { describeCourseItemPurpose, type CourseDay } from "@/lib/domain/planBuilder";
+import { describeCourseItemPurpose, isFestivalAnchorItem, type CourseDay } from "@/lib/domain/planBuilder";
+import { formatFestivalAnchorCourseTime } from "@/lib/domain/festivalAnchorCourse";
 import { parsePromoContent } from "@/lib/validation/promoContent.schema";
 import { buildStrategyPoiFitSummary } from "@/lib/services/poiFitService";
 import type { DurationCode } from "@/lib/domain/strategy";
@@ -92,7 +93,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
   const poiIdsForFit =
     selectedStrategy && project.input
-      ? course.days.flatMap((d) => [...d.items.map((i) => i.poiId), ...(d.lodging ? [d.lodging.poiId] : [])])
+      ? course.days.flatMap((d) => [
+          ...d.items.filter((item) => !isFestivalAnchorItem(item)).map((i) => i.poiId),
+          ...(d.lodging ? [d.lodging.poiId] : []),
+        ])
       : null;
 
   // 2026-08-13(로딩 성능 개선): 유사지역 비교 재계산, (레거시 분석만 발생하는) 카테고리별 POI
@@ -520,10 +524,20 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
               ) : null}
               <ol className="mt-1 space-y-1 text-xs text-slate-700">
                 {day.items.map((item, i) => {
-                  const fit = poiFits?.[item.poiId];
+                  const isAnchor = isFestivalAnchorItem(item);
+                  const fit = isAnchor ? undefined : poiFits?.[item.poiId];
                   return (
                     <li key={i}>
-                      {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분, {item.travel})
+                      {isAnchor ? (
+                        <>
+                          <span className="font-semibold text-violet-800">[축제 Anchor]</span>{" "}
+                          {formatFestivalAnchorCourseTime(item)} {item.poiName} ({item.anchorEventStartDate}~{item.anchorEventEndDate}, {item.stayMinutes}분 고정)
+                        </>
+                      ) : (
+                        <>
+                          {item.timeSlot} {item.poiName} ({describeCourseItemPurpose(item)}, {item.stayMinutes}분, {item.travel})
+                        </>
+                      )}
                       {i > 0 && project.input?.transport === "PRIVATE_VEHICLE" ? (
                         <span className="text-slate-400"> · {travelSourceLabel(item.travelSource)}</span>
                       ) : null}

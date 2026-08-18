@@ -28,6 +28,9 @@ import {
 
 export type TransportCode = "WALK" | "PUBLIC_TRANSPORT" | "PRIVATE_VEHICLE" | "MIXED";
 
+/** 실행안 일정 항목의 의미. 기존 저장 데이터는 kind가 없어 일반 POI로 취급한다. */
+export type CourseItemKind = "POI" | "FESTIVAL_ANCHOR";
+
 export interface PoiDetail {
   id: string;
   name: string;
@@ -65,6 +68,8 @@ export interface PoiDetail {
 export type MealPurpose = "LUNCH" | "DINNER" | "GENERAL";
 
 export interface CourseItem {
+  /** 없으면 기존 POI 항목으로 본다. 축제 Anchor는 일반 POI와 구분해 고정 정책을 적용한다. */
+  kind?: CourseItemKind;
   order: number;
   poiId: string;
   poiName: string;
@@ -96,6 +101,21 @@ export interface CourseItem {
   travelSource?: "LIVE_API" | "CACHED_API" | "ESTIMATED";
   travelProvider?: "KAKAO_MOBILITY" | "HAVERSINE";
   travelCalculatedAt?: string;
+  /** 축제 Anchor snapshot. ProjectAnchor와 코스 반영 상태의 정합성 확인에 사용한다. */
+  anchorId?: string;
+  anchorUpdatedAt?: string;
+  anchorSource?: string;
+  anchorSourceId?: string;
+  anchorContentTypeId?: string;
+  anchorAddress?: string | null;
+  anchorEventStartDate?: string;
+  anchorEventEndDate?: string;
+  anchorPlannedDate?: string;
+  anchorPlannedDayIndex?: number;
+  anchorTimeStatus?: "UNCONFIRMED" | "USER_CONFIRMED";
+  anchorTimeSlot?: "MORNING" | "AFTERNOON" | "EVENING" | "CUSTOM" | null;
+  anchorTimeStart?: string | null;
+  anchorTimeEnd?: string | null;
 }
 
 export interface CourseDay {
@@ -116,6 +136,7 @@ export interface CourseDay {
  * 기본값을 새로 계산한다(처음 추가되는 장소용).
  */
 export interface CourseItemInput {
+  kind?: CourseItemKind;
   poiId: string;
   poiName: string;
   category: string;
@@ -130,6 +151,20 @@ export interface CourseItemInput {
   foodSubcategory?: FoodSubcategory;
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  anchorId?: string;
+  anchorUpdatedAt?: string;
+  anchorSource?: string;
+  anchorSourceId?: string;
+  anchorContentTypeId?: string;
+  anchorAddress?: string | null;
+  anchorEventStartDate?: string;
+  anchorEventEndDate?: string;
+  anchorPlannedDate?: string;
+  anchorPlannedDayIndex?: number;
+  anchorTimeStatus?: "UNCONFIRMED" | "USER_CONFIRMED";
+  anchorTimeSlot?: "MORNING" | "AFTERNOON" | "EVENING" | "CUSTOM" | null;
+  anchorTimeStart?: string | null;
+  anchorTimeEnd?: string | null;
 }
 
 export const DAY_COUNT_BY_DURATION: Record<DurationCode, number> = {
@@ -273,7 +308,12 @@ export function recomputeDayItems(
     const defaultMinutes = parseTimeSlotToMinutes(defaultTimeSlotFor(idx, timeSlots)) ?? 0;
 
     let timeSlot: string;
-    if (item.timeSlot) {
+    if (item.kind === "FESTIVAL_ANCHOR") {
+      // Anchor는 사용자가 확정한 시각을 시간 경계로 사용한다. 값이 없으면 빈 값으로 보존해
+      // 임의 시각을 만들지 않고, 상위 검증/UI가 재확정을 요구하게 한다.
+      timeSlot = item.timeSlot ?? "";
+      cumulativeMinutes = parseTimeSlotToMinutes(timeSlot);
+    } else if (item.timeSlot) {
       // 사용자가 이미 편집했거나 기존에 있던 시각은 그대로 유지한다(형식을 다시 만들지 않음).
       timeSlot = item.timeSlot;
       cumulativeMinutes = parseTimeSlotToMinutes(item.timeSlot);
@@ -291,9 +331,15 @@ export function recomputeDayItems(
       cumulativeMinutes = defaultMinutes;
     }
 
-    cumulativeMinutes = (cumulativeMinutes ?? defaultMinutes) + item.stayMinutes;
+    if (item.kind === "FESTIVAL_ANCHOR" && cumulativeMinutes === null) {
+      // 시간 미확정 Anchor는 기본 슬롯으로 보정하지 않는다.
+      cumulativeMinutes = null;
+    } else {
+      cumulativeMinutes = (cumulativeMinutes ?? defaultMinutes) + item.stayMinutes;
+    }
 
     return {
+      ...(item.kind !== undefined ? { kind: item.kind } : {}),
       order: idx + 1,
       poiId: item.poiId,
       poiName: item.poiName,
@@ -310,14 +356,34 @@ export function recomputeDayItems(
       ...(item.foodSubcategory !== undefined ? { foodSubcategory: item.foodSubcategory } : {}),
       ...(item.lclsSystm1 !== undefined ? { lclsSystm1: item.lclsSystm1 } : {}),
       ...(item.lclsSystm2 !== undefined ? { lclsSystm2: item.lclsSystm2 } : {}),
+      ...(item.anchorId !== undefined ? { anchorId: item.anchorId } : {}),
+      ...(item.anchorUpdatedAt !== undefined ? { anchorUpdatedAt: item.anchorUpdatedAt } : {}),
+      ...(item.anchorSource !== undefined ? { anchorSource: item.anchorSource } : {}),
+      ...(item.anchorSourceId !== undefined ? { anchorSourceId: item.anchorSourceId } : {}),
+      ...(item.anchorContentTypeId !== undefined ? { anchorContentTypeId: item.anchorContentTypeId } : {}),
+      ...(item.anchorAddress !== undefined ? { anchorAddress: item.anchorAddress } : {}),
+      ...(item.anchorEventStartDate !== undefined ? { anchorEventStartDate: item.anchorEventStartDate } : {}),
+      ...(item.anchorEventEndDate !== undefined ? { anchorEventEndDate: item.anchorEventEndDate } : {}),
+      ...(item.anchorPlannedDate !== undefined ? { anchorPlannedDate: item.anchorPlannedDate } : {}),
+      ...(item.anchorPlannedDayIndex !== undefined ? { anchorPlannedDayIndex: item.anchorPlannedDayIndex } : {}),
+      ...(item.anchorTimeStatus !== undefined ? { anchorTimeStatus: item.anchorTimeStatus } : {}),
+      ...(item.anchorTimeSlot !== undefined ? { anchorTimeSlot: item.anchorTimeSlot } : {}),
+      ...(item.anchorTimeStart !== undefined ? { anchorTimeStart: item.anchorTimeStart } : {}),
+      ...(item.anchorTimeEnd !== undefined ? { anchorTimeEnd: item.anchorTimeEnd } : {}),
     };
   });
+}
+
+/** 일반 POI 편집 경로가 축제 Anchor(필드가 일부 손상된 경우 포함)를 삭제·이동하지 않도록 의미를 판별하는 공용 helper. */
+export function isFestivalAnchorItem(item: Pick<CourseItem, "kind" | "anchorId">): boolean {
+  return item.kind === "FESTIVAL_ANCHOR";
 }
 
 /** CourseItem → recomputeDayItems 입력으로 되돌린다(장소 하나를 이미 배치된 상태에서 다시 재계산에
  * 넣을 때 공용으로 쓴다 — 편집기의 재정렬/날짜 이동/추천 후보 추가가 모두 이 매핑 하나만 공유한다). */
 export function courseItemToInput(item: CourseItem): CourseItemInput {
   return {
+    kind: item.kind,
     poiId: item.poiId,
     poiName: item.poiName,
     category: item.category,
@@ -332,6 +398,20 @@ export function courseItemToInput(item: CourseItem): CourseItemInput {
     foodSubcategory: item.foodSubcategory,
     lclsSystm1: item.lclsSystm1,
     lclsSystm2: item.lclsSystm2,
+    anchorId: item.anchorId,
+    anchorUpdatedAt: item.anchorUpdatedAt,
+    anchorSource: item.anchorSource,
+    anchorSourceId: item.anchorSourceId,
+    anchorContentTypeId: item.anchorContentTypeId,
+    anchorAddress: item.anchorAddress,
+    anchorEventStartDate: item.anchorEventStartDate,
+    anchorEventEndDate: item.anchorEventEndDate,
+    anchorPlannedDate: item.anchorPlannedDate,
+    anchorPlannedDayIndex: item.anchorPlannedDayIndex,
+    anchorTimeStatus: item.anchorTimeStatus,
+    anchorTimeSlot: item.anchorTimeSlot,
+    anchorTimeStart: item.anchorTimeStart,
+    anchorTimeEnd: item.anchorTimeEnd,
   };
 }
 
@@ -353,6 +433,7 @@ export function reorderCourseItemWithinDay(
     if (fromIndex < 0 || fromIndex >= d.items.length) return d;
     const clampedTo = Math.max(0, Math.min(toIndex, d.items.length - 1));
     if (clampedTo === fromIndex) return d;
+    if (isFestivalAnchorItem(d.items[fromIndex])) return d;
     const items = [...d.items];
     const [moved] = items.splice(fromIndex, 1);
     items.splice(clampedTo, 0, moved);
@@ -382,6 +463,7 @@ export function moveCourseItemToDay(
   // 대상 날짜가 존재하지 않으면(예: drop 대상 id 파싱 오류) 아무 것도 바꾸지 않는다 — 잘못하면 원본
   // 날짜에서만 항목이 사라지고 어디에도 들어가지 않는 데이터 유실이 생길 수 있다.
   if (!fromDay || !toDay || !moved) return days;
+  if (isFestivalAnchorItem(moved)) return days;
 
   return days.map((d) => {
     if (d.dayIndex === fromDayIndex) {
