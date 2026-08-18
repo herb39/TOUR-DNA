@@ -466,7 +466,11 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 
 ### P1 — 근거 기반 여행 조건 검증
 
-무장애·반려동물 조건을 실제 POI·숙박·식음 데이터의 근거와 연결한다. 근거가 없는 경우 적합하다고 단정하지 않고 확인 필요로 표시한다. 이동·식사·숙박·중복 검증과 함께 실시간 품질 패널에 노출한다.
+상태: **공공데이터 가용성 조사 완료·기능 구현 대기(2026-08-19)**
+
+조사 결과 한국관광공사 `KorWithService2/detailWithTour2`(무장애)와 `KorPetTourService2/detailPetTour2`/`KorService2/detailPetTour2`(반려동물)의 공식 endpoint·응답 필드를 확인했다. 로컬 `Poi` 48,291건은 `externalId`가 100% 연결되어 있지만, `rawPayload`에 두 조건의 상세 원문은 각각 0건이다. 반려동물 endpoint는 현재 키로 소량 실응답까지 확인됐고, 무장애 endpoint는 권한 부족 HTTP 403으로 확인됐다. 전국 전수 상세 호출은 개발계정 호출량과 원문 최신성 문제 때문에 바로 실행하지 않는다.
+
+다음 구현은 ① 조건별 상세 저장·상태·최신성 계약 확정, ② 반려동물 소량 증분 adapter/cache 검증, ③ 무장애 활용신청·권한 확인 후 같은 경로 검증, ④ `UNKNOWN`을 불가로 오판하지 않는 사용자 표시와 실시간 검증 연결 순서로 진행한다. 후보 ranking·POI 필터·Prisma migration·Neon 데이터 작업은 이 조사에 포함하지 않았다.
 
 ### P2 — 일정 현실성과 관광 가치
 
