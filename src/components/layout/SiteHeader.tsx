@@ -12,6 +12,12 @@ export function SiteHeader() {
         </Link>
         <nav aria-label="주요 메뉴" className="flex items-center gap-4">
           <Link
+            href="/admin/poi-curation"
+            className="hidden rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 sm:inline-block"
+          >
+            POI 큐레이션
+          </Link>
+          <Link
             href="/projects/new"
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
           >
