@@ -466,11 +466,11 @@ travelMonth/preferredThemes 모두 이미 저장돼 있던 기존 컬럼만 읽�
 
 ### P1 — 근거 기반 여행 조건 검증
 
-상태: **공공데이터 가용성 조사 완료·기능 구현 대기(2026-08-19)**
+상태: **반려동물 증분 수집 기반 완료·무장애 권한 및 사용자 기능 연결 대기(2026-08-19)**
 
-조사 결과 한국관광공사 `KorWithService2/detailWithTour2`(무장애)와 `KorPetTourService2/detailPetTour2`/`KorService2/detailPetTour2`(반려동물)의 공식 endpoint·응답 필드를 확인했다. 로컬 `Poi` 48,291건은 `externalId`가 100% 연결되어 있지만, `rawPayload`에 두 조건의 상세 원문은 각각 0건이다. 반려동물 endpoint는 현재 키로 소량 실응답까지 확인됐고, 무장애 endpoint는 권한 부족 HTTP 403으로 확인됐다. 전국 전수 상세 호출은 개발계정 호출량과 원문 최신성 문제 때문에 바로 실행하지 않는다.
+조사 결과 한국관광공사 `KorWithService2/detailWithTour2`(무장애)와 `KorPetTourService2/detailPetTour2`/`KorService2/detailPetTour2`(반려동물)의 공식 endpoint·응답 필드를 확인했다. 반려동물은 `PoiConditionEvidence` 기반 목록 교집합·상세 원문·증분 cache 경로를 구현하고 경주 10건 QA까지 완료했다. 무장애 endpoint는 권한 부족 HTTP 403으로 확인됐고, 전국 전수 상세 호출은 개발계정 호출량과 원문 최신성 문제 때문에 실행하지 않는다.
 
-다음 구현은 ① 조건별 상세 저장·상태·최신성 계약 확정, ② 반려동물 소량 증분 adapter/cache 검증, ③ 무장애 활용신청·권한 확인 후 같은 경로 검증, ④ `UNKNOWN`을 불가로 오판하지 않는 사용자 표시와 실시간 검증 연결 순서로 진행한다. 후보 ranking·POI 필터·Prisma migration·Neon 데이터 작업은 이 조사에 포함하지 않았다.
+다음 구현은 ① 무장애 활용신청·권한 확인 후 같은 경로 검증, ② `UNKNOWN`을 불가로 오판하지 않는 사용자 표시, ③ 조건 선택 시 후보 ranking/filter·실시간 검증 연결 순서로 진행한다. 기존 추천 산식과 Neon Production은 변경하지 않는다.
 
 ### P2 — 일정 현실성과 관광 가치
 
@@ -510,3 +510,31 @@ Phase 2-D까지 완료했지만, 다음은 여전히 하지 않았다: 완전 �
 비상절차 검토), drift gate threshold의 실측 기반 확정(다음 전국 dataset이 나와야 가능), POI
 폐업/삭제 자동 감지(TOUR_INFO 재수집은 upsert만 하고 delete는 하지 않음), DNA normalization·DNA
 weight·drift threshold·Demand/Network metric·LLM·전략 scoring·유사도 산식·POI 추천 로직 변경.
+
+## 2026-08-19 로드맵 갱신 — 반려동물 조건 데이터 기반
+
+### P1 — 근거 기반 여행 조건 검증
+
+상태: **반려동물 증분 수집 기반 완료·사용자 기능 연결 대기**
+
+이번 단위에서는 `petTourSyncList2` 전국 목록 또는 단일 SIGUNGU `areaBasedList2`를 먼저 조회한 뒤,
+공식 `contentid`와 local `Poi.externalId`의 교집합만 `detailPetTour2`에 전달한다. 상세 요청에는 실제 API
+계약에 없는 `contentTypeId`를 넣지 않는다. 결과는 `PoiConditionEvidence`에 조건 종류, API 상태, 원천 수정시각,
+표시 여부, 원문, 최소 정규화 근거, 오류를 함께 저장한다.
+
+증분 정책은 원천 `modifiedtime`·`showflag`가 동일한 `SUCCESS`/`EMPTY`만 cache hit로 건너뛰는 방식이다.
+`ERROR`와 수정시각이 바뀐 항목은 다시 시도하며, `--max-items`·`--max-list-pages`·`--delay-ms`·`--dry-run`으로
+개발계정 quota와 중단 후 재개를 통제한다. 모든 실행은 `checkDataSyncTarget`로 localhost DB만 기본 허용한다.
+
+로컬 경주 QA에서는 공식 목록 49건, 교집합 49건, 상세 10건을 확인했고, 재실행 dry-run에서 10건 cache hit와
+상세 API 0회를 확인했다. 현재 로컬 저장은 `SUCCESS` 10건이며 사용자 화면·후보 ranking·코스 검증에는 연결하지
+않았다. Neon Production에는 migration과 데이터 쓰기를 수행하지 않았다.
+
+남은 P1 작업 순서는 다음과 같다.
+
+1. 무장애 API 활용 권한을 확보하고 같은 목록 교집합·상세 원문·증분 cache 경로를 소량 검증한다.
+2. 두 조건의 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN`을 사용자에게 안전하게 표시하되, `UNKNOWN`을 불가로
+   표시하지 않는다.
+3. 사용자 조건을 선택했을 때만 후보 풀과 실시간 검증에 증거를 연결한다. 이 연결 전에는 기존 추천 산식을
+   변경하지 않는다.
+4. 반려동물·무장애 증거가 충분히 쌓인 뒤 전국 범위 수집 정책과 최신성 TTL을 별도로 확정한다.

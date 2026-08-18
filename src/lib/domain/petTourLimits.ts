@@ -1,0 +1,2 @@
+export const MAX_PET_TOUR_DETAIL_ITEMS_PER_RUN = 100;
+export const MAX_PET_TOUR_LIST_PAGES_PER_RUN = 20;

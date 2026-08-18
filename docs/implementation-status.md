@@ -3177,7 +3177,9 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 
 ### 20. 반려동물 최종 데이터 준비도
 
-**무장애보다 한 단계 앞선 조사 상태·사용자 기능 미준비.** 목록·동기화·상세 endpoint가 현재 키로 정상 응답하고 10개 필드 계약도 실제 확인됐지만 로컬 저장 원문은 0/48,291건이다. 따라서 지금은 반려동물 가능 필터를 켜면 안 된다.
+**반려동물 증분 수집 기반 완료·사용자 기능 미준비.** 목록·동기화·상세 endpoint가 현재 키로 정상 응답하고
+10개 필드 계약도 실제 확인됐다. 경주 로컬 QA에서 공식 목록 49건 중 10건의 상세 원문을
+`PoiConditionEvidence`에 저장했으며, 사용자 가능 필터·후보 ranking에는 아직 연결하지 않았다.
 
 ### 21. 두 조건 비교
 
@@ -3187,9 +3189,9 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 | 상세 endpoint | `KorWithService2/detailWithTour2` | `KorPetTourService2/detailPetTour2` 및 `KorService2/detailPetTour2` |
 | 현재 키 접근 | 403 | 200 정상 |
 | 실제 필드 확인 | 명세 필드 확인, 실응답 미확인 | 명세·실응답 확인 |
-| 로컬 원문 보유 | 0건 | 0건 |
+| 로컬 원문 보유 | 0건 | 10건(경주 소량 QA) |
 | 현재 사용자 판정 | 불가 | 불가 |
-| 다음 우선순위 | 권한 확인 후 증분 적재 | 증분 적재 설계·소량 검증 |
+| 다음 우선순위 | 권한 확인 후 증분 적재 | 사용자 표시·후보 검증 연결 전 추가 QA |
 
 ### 22. 다음 실제 구현 우선순위와 이유
 
@@ -3216,3 +3218,54 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 - 권장 커밋 메시지: `docs: 여행 조건 공공데이터 가용성 조사`.
 - 명시적 문서 파일만 stage하고 보호 대상 파일은 계속 untracked로 보존한다.
 - commit/push 뒤 `main`과 `origin/main`의 해시·최종 `git status`를 다시 확인해 이 문서의 완료 보고에 기록한다.
+
+## 2026-08-19 갱신 — 반려동물 조건 증분 수집 기반 구현
+
+이번 작업은 여행 조건 UI·후보 ranking·코스 검증을 연결하지 않고, 반려동물 공식 원문을 안전하게
+수집·보존할 수 있는 데이터 파이프라인만 구현한 단위다. 기존 `Poi.externalId`를 공식 `contentId`와
+조인 키로 사용하며, `Poi.rawPayload`에 조건 원문을 섞지 않는다.
+
+### 구현 범위
+
+- `petTourSyncList2`를 전국 기본 목록 endpoint로, `areaBasedList2`를 단일 SIGUNGU 제한 모드로 추가했다.
+- 공식 목록의 `contentid`만 deduplicate하고, `Poi.externalId`와 교집합인 API POI만 상세 대상이 된다.
+- 상세 endpoint는 실제 계약대로 `contentId`만 전송한다. `contentTypeId`를 추가하지 않는다.
+- 목록의 `modifiedtime`·`showflag`를 보존하고, 상세 원문과 최소 정규화 근거를 `PoiConditionEvidence`에 저장한다.
+- `SUCCESS`·`EMPTY`·`ERROR`를 API 상태로 분리하고, 빈 원문·누락 원문은 `UNKNOWN`으로 남긴다. `UNKNOWN`을
+  불가로 추론하지 않는다.
+- `conditionType=PET`를 사용하되, `ACCESSIBILITY`도 같은 모델에서 재사용할 수 있도록 저장 계약을 공통화했다.
+- `modifiedtime`과 `showflag`가 같은 성공/empty 증거는 cache hit로 건너뛰고, 변경·신규·error만 다음 회차에
+  처리한다. `--max-items`, `--max-list-pages`, `--delay-ms`, `--dry-run`으로 호출량과 재개 지점을 제한한다.
+- `checkDataSyncTarget`를 API·DB 접근 전에 호출해 localhost가 아닌 DB는 기본 차단한다.
+
+### 공식 API 확인 결과
+
+- `KorPetTourService2/areaBasedList2`와 `petTourSyncList2`는 현재 서비스키로 HTTP 200·`0000` 응답을 확인했다.
+- 지역 필터는 `lDongRegnCd=47`, `lDongSignguCd=130`처럼 시군구 코드 뒤 3자리를 사용해야 경주시 응답이 나온다.
+- 경주시 소량 QA에서 `areaBasedList2` 49건, local POI 교집합 49건을 확인했다.
+- local POI 전체 620건을 상세 brute-force하는 대신, 이번 실행의 상세 계획은 10건이며 실제 상세 호출도 10건이었다.
+- 목록 1회 + 상세 10회로 총 11회 요청했고, 상세 기준 571회 호출을 줄였다.
+- 10건 저장 결과는 `SUCCESS` 10건·`EMPTY` 0건·`ERROR` 0건이다. 재실행 `dry-run`에서 저장된 10건은
+  `cacheHits`로 확인됐고 상세 API는 0회, 목록 API 1회만 호출됐다.
+- category 분포는 `ATTRACTION` 23, `LODGING` 4, `EXPERIENCE` 1, `SHOPPING` 19, `FOOD` 2였다. 이는
+  “자연” 같은 이름으로 관광 가치를 보증하는 분류가 아니라, 공식 목록과 기존 POI의 현황 보고다.
+
+### 변경 파일과 검증
+
+- 신규 Prisma model/enum과 로컬 migration: `PoiConditionEvidence`, `20260818171403_add_poi_condition_evidence`.
+- 신규 adapter/domain/service/CLI: `src/lib/public-data/adapters/petTour.ts`,
+  `src/lib/domain/petTourEvidence.ts`, `src/lib/domain/petTourEnrichment.ts`,
+  `src/lib/services/petTourEnrichment.ts`, `scripts/enrich-pet-tour-detail.ts`.
+- 실행 명령: `npm run enrich:pet-tour-detail -- --region-code=SGG_GYEONGJU --mode=area --max-items=10`.
+- 단위 테스트 10개와 `npm run typecheck` 통과. 전체 `lint`, 전체 `test`, `build`는 최종 커밋 전 다시 실행한다.
+- README, 운영자 화면, 사용자 조건 입력·추천 후보·코스 검증은 변경하지 않았다.
+- Production Neon에는 migration·데이터 쓰기를 하지 않았다. 현재 로컬 증거 저장은 10건이다.
+
+### 로드맵 판정
+
+- **P1 근거 기반 여행 조건 검증 — 반려동물 저장·증분 기반 완료, 사용자 기능 연결 대기**.
+- 아직 하지 않은 것: 반려동물 조건을 후보 ranking/filter/실시간 검증에 연결하는 일, 무장애 API 권한 확보와
+  동일 pipeline 구현, 사용자 화면 문구·필터 UI, 전국 상세 전수 수집.
+- 다음 우선 작업은 무장애 API 활용 권한을 먼저 확보한 뒤 동일한 `PoiConditionEvidence` 계약으로 목록 교집합과
+  소량 상세 수집을 검증하는 것이다. 그 다음에만 사용자 화면의 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN` 표시와
+  실행안 검증을 연결한다.

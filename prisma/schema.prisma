@@ -149,6 +149,32 @@ enum PoiRepresentation {
   LODGING
 }
 
+/// POI별 조건 원문 수집 종류. 향후 무장애 데이터도 같은 저장 계약을 재사용한다.
+enum PoiConditionType {
+  PET
+  ACCESSIBILITY
+}
+
+/// 조건 상세 API의 수집 상태. EMPTY/ERROR는 가능 여부 판정이 아니다.
+enum PoiConditionEvidenceStatus {
+  SUCCESS
+  EMPTY
+  ERROR
+}
+
+/// 공식 원문에서 정규화한 최소 가능성 신호. UNKNOWN은 불가를 의미하지 않는다.
+enum PoiConditionAvailability {
+  CONFIRMED
+  CONDITIONAL
+  UNKNOWN
+}
+
+enum PoiConditionScope {
+  ALL
+  PARTIAL
+  UNKNOWN
+}
+
 // ── 행정구역 / 데이터 원천 ──────────────────────────────────
 
 model Region {
@@ -276,12 +302,45 @@ model Poi {
   centerOf  PoiRelation[] @relation("CenterPoi")
   relatedOf PoiRelation[] @relation("RelatedPoi")
   curation  PoiCuration?
+  conditionEvidences PoiConditionEvidence[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([regionId, name])
   @@index([regionId, category])
+}
+
+/// 조건별 공식 원문과 최소 정규화 근거. 사용자 후보 필터나 화면에서 직접 판정하지 않고,
+/// 후속 여행 조건 기능이 재사용할 수 있는 증거 레이어로만 저장한다.
+model PoiConditionEvidence {
+  id                  String                       @id @default(cuid())
+  poiId               String
+  poi                 Poi                          @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  conditionType       PoiConditionType
+  contentId           String
+  sourceCode          String
+  endpoint            String
+  apiVersion          String?
+  status              PoiConditionEvidenceStatus
+  availability        PoiConditionAvailability
+  scope               PoiConditionScope
+  requirements        Json                         @default("[]")
+  capacityNote        String?
+  riskNote            String?
+  facilityNote        String?
+  sourceModifiedTime  String?
+  sourceShowFlag      String?
+  rawPayload          Json?
+  fetchedAt           DateTime                     @default(now())
+  lastErrorCode       String?
+  lastErrorMessage    String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  @@unique([conditionType, contentId])
+  @@index([poiId, conditionType])
+  @@index([conditionType, status, sourceModifiedTime])
 }
 
 /// 지역·POI별 관광 대표성 검수 레이어. 원천 POI를 삭제하거나 이름 규칙으로 차단하지 않고,

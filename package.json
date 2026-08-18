@@ -33,7 +33,8 @@
     "dataset:status": "tsx --env-file=.env.local scripts/dataset-status.ts",
     "dataset:discover": "tsx --env-file=.env.local scripts/dataset-discover.ts",
     "dataset:drift": "tsx --env-file=.env.local scripts/dataset-drift.ts",
-    "enrich:tour-info-detail": "tsx --env-file=.env.local scripts/enrich-tour-info-detail.ts"
+    "enrich:tour-info-detail": "tsx --env-file=.env.local scripts/enrich-tour-info-detail.ts",
+    "enrich:pet-tour-detail": "tsx --env-file=.env.local scripts/enrich-pet-tour-detail.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
