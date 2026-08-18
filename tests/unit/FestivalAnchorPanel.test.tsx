@@ -11,6 +11,7 @@ const lookup: FestivalAnchorLookup = {
     {
       id: "tourapi-festival-1",
       externalId: "1",
+      contentTypeId: "15",
       name: "여름 강변 축제",
       startDate: "2026-08-01",
       endDate: "2026-08-03",
@@ -54,5 +55,48 @@ describe("FestivalAnchorPanel", () => {
     first.unmount();
     render(<FestivalAnchorPanel {...props} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /여름 강변 축제/ })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("서버 확정 Anchor가 있으면 localStorage보다 서버 상태를 우선하고 날짜·일차·시간을 보여준다", async () => {
+    window.localStorage.setItem("tour-dna:anchor-event:project-1", "another-candidate");
+    render(
+      <FestivalAnchorPanel
+        projectId="project-1"
+        regionName="대전 유성구"
+        travelYear={2026}
+        travelMonth={8}
+        lookup={lookup}
+        projectUpdatedAt="2026-08-18T08:00:00.000Z"
+        initialAnchor={{
+          id: "anchor-1",
+          projectId: "project-1",
+          status: "CONFIRMED",
+          source: "TOUR_API_FESTIVAL",
+          sourceId: "1",
+          contentTypeId: "15",
+          name: "여름 강변 축제",
+          eventStartDate: "2026-08-01",
+          eventEndDate: "2026-08-03",
+          plannedDate: "2026-08-02",
+          plannedDayIndex: 2,
+          timeStatus: "UNCONFIRMED",
+          timeSlot: null,
+          timeStart: null,
+          timeEnd: null,
+          regionCode: "SGG_DAEJEON",
+          address: "대전광역시 유성구",
+          lat: 36.36,
+          lng: 127.35,
+          sourceSnapshot: { sourceId: "1" },
+          provenance: {},
+          confirmedAt: "2026-08-18T08:00:00.000Z",
+          updatedAt: "2026-08-18T08:00:00.000Z",
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /여름 강변 축제/ })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByText(/2026\.08\.02 · 2일차 · 공식 행사 시각 미확정/)).toBeInTheDocument();
+    await waitFor(() => expect(window.localStorage.getItem("tour-dna:anchor-event:project-1")).toBe("tourapi-festival-1"));
   });
 });

@@ -18,6 +18,7 @@ import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
 import { preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // 같으면 기존 값(사용자 편집분 포함)을 그대로 반환한다 — 항상 호출해야 전략 재선택이 반영된다.
   // course의 poiId 목록(poiFitSummary용)이 이 결과에서 나오므로 아래 병렬 조회보다 먼저 완료돼야 한다.
   const planRow = await ensureSelectedPlan(id);
+  // P1-2a: 다음 단계(P1-2b)에서 Anchor를 일정 편집에 연결할 수 있도록 현재 프로젝트 Anchor를
+  // 함께 읽어 전달한다. 이번 단계에서는 코스에 표시·삽입·순서 변경을 하지 않는다.
+  const festivalAnchorResult = await getProjectAnchor(id);
 
   const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
   const templateId = selectedStrategy?.templateId;
@@ -82,6 +86,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     kpiMemo: planRow.kpiMemo ?? "",
     primaryGoalCode: project.input?.primaryGoal ?? null,
     primaryGoalLabel: project.input?.primaryGoal ? labelForPrimaryGoal(project.input.primaryGoal) : null,
+    festivalAnchor: festivalAnchorResult.anchor,
   };
 
   // 2026-07-30(P0-1): 전략별 POI 적합도·후보 부족 안내를 이 코스에 담긴 poiId 기준으로 매번 새로

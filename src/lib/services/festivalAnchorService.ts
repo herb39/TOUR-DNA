@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { filterFestivalAnchorItems, getTravelMonthRange, type FestivalAnchorCandidate } from "@/lib/domain/festivalAnchor";
+import type { FestivalAnchorProvenance } from "@/lib/domain/festivalAnchorProject";
 import { fetchFestivalInfo } from "@/lib/public-data/adapters/festival";
 
 export type FestivalAnchorLookupStatus = "AVAILABLE" | "EMPTY" | "UNAVAILABLE" | "ERROR";
@@ -8,18 +9,7 @@ export interface FestivalAnchorLookup {
   status: FestivalAnchorLookupStatus;
   candidates: FestivalAnchorCandidate[];
   message: string;
-  provenance: {
-    provider: "한국관광공사";
-    dataset: "행사정보 조회(searchFestival2)";
-    regionCode: string;
-    travelYear: number;
-    travelMonth: number;
-    eventStartDate: string | null;
-    eventEndDate: string | null;
-    fetchedAt: string;
-    apiItemCount: number;
-    matchedItemCount: number;
-  };
+  provenance: FestivalAnchorProvenance;
 }
 
 function emptyProvenance(params: { regionCode: string; travelYear: number; travelMonth: number }) {
@@ -35,6 +25,8 @@ function emptyProvenance(params: { regionCode: string; travelYear: number; trave
     fetchedAt: new Date().toISOString(),
     apiItemCount: 0,
     matchedItemCount: 0,
+    officialRegionCode: null,
+    officialSigunguCode: null,
   };
 }
 
@@ -107,7 +99,12 @@ export async function fetchFestivalAnchorCandidates(params: {
   });
 
   const apiItemCount = response.items.length;
-  const provenance = { ...baseProvenance, apiItemCount };
+  const provenance = {
+    ...baseProvenance,
+    apiItemCount,
+    officialRegionCode: region.tourApiLdongRegnCd,
+    officialSigunguCode: region.tourApiLdongSignguCd ?? null,
+  };
   if (response.status === "ERROR") {
     return {
       status: "ERROR",

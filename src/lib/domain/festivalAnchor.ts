@@ -17,6 +17,7 @@ export interface FestivalAnchorSourceItem {
 export interface FestivalAnchorCandidate {
   id: string;
   externalId: string;
+  contentTypeId: string;
   name: string;
   startDate: string;
   endDate: string;
@@ -67,7 +68,7 @@ export function overlapsTravelMonth(
   return startDate <= travelMonth.end && endDate >= travelMonth.start;
 }
 
-function candidateId(externalId: string): string {
+export function festivalAnchorCandidateId(externalId: string): string {
   return `tourapi-festival-${externalId}`;
 }
 
@@ -102,8 +103,9 @@ export function filterFestivalAnchorItems(params: {
     }
     if (byId.has(item.contentid)) continue;
     byId.set(item.contentid, {
-      id: candidateId(item.contentid),
+      id: festivalAnchorCandidateId(item.contentid),
       externalId: item.contentid,
+      contentTypeId: item.contenttypeid ?? "15",
       name: item.title,
       startDate,
       endDate,

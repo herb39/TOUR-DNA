@@ -46,6 +46,11 @@ import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidatio
 import { readProjectPreferences } from "@/lib/validation/project-preferences";
 import { FestivalAnchorPanel } from "@/components/festival/FestivalAnchorPanel";
 import { fetchFestivalAnchorCandidates } from "@/lib/services/festivalAnchorService";
+import { getProjectAnchor } from "@/lib/services/projectAnchorService";
+import {
+  deleteFestivalAnchorAction,
+  saveFestivalAnchorAction,
+} from "./festivalAnchorActions";
 
 export const dynamic = "force-dynamic";
 
@@ -118,13 +123,16 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const { analysisResult, input } = project;
   if (!input) notFound();
   const preferences = readProjectPreferences(input.preferredThemes);
-  // P1-1: 분석 화면에서만 공식 행사정보를 읽어 Anchor 후보를 보여준다. 후보 선택은 아직 코스·전략
-  // 계산에 연결하지 않으며, API 실패·기간 겹침 없음도 각각 정직한 상태로 화면에 전달한다.
-  const festivalAnchorLookup = await fetchFestivalAnchorCandidates({
-    regionCode: project.region.code,
-    travelYear: project.travelYear,
-    travelMonth: project.travelMonth,
-  });
+  // P1-2a: 후보 조회와 프로젝트 Anchor 읽기는 서로 독립적이다. 새 Anchor 테이블이 아직 없는
+  // Production에서도 읽기 결과가 UNAVAILABLE로 내려가 분석 화면 전체를 중단하지 않는다.
+  const [festivalAnchorLookup, projectAnchorResult] = await Promise.all([
+    fetchFestivalAnchorCandidates({
+      regionCode: project.region.code,
+      travelYear: project.travelYear,
+      travelMonth: project.travelMonth,
+    }),
+    getProjectAnchor(project.id),
+  ]);
 
   const axisData: DnaAxisChartDatum[] = AXIS_ORDER.map((axis) => {
     const scoreKey = `${axis}Score` as const;
@@ -448,6 +456,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             travelYear={project.travelYear}
             travelMonth={project.travelMonth}
             lookup={festivalAnchorLookup}
+            duration={input.duration}
+            projectUpdatedAt={project.updatedAt.toISOString()}
+            initialAnchor={projectAnchorResult.anchor}
+            anchorStorage={projectAnchorResult.storage}
+            anchorStorageMessage={projectAnchorResult.storage === "UNAVAILABLE" ? projectAnchorResult.message : undefined}
+            saveAction={saveFestivalAnchorAction.bind(null, project.id)}
+            deleteAction={deleteFestivalAnchorAction.bind(null, project.id)}
           />
         </div>
 

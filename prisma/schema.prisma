@@ -59,6 +59,24 @@ enum ProjectStatus {
   PLANNED // 실행안까지 저장 완료
 }
 
+/// 프로젝트에 명시적으로 확정한 축제·이벤트 기획 계기.
+enum ProjectAnchorStatus {
+  CONFIRMED
+}
+
+/// TourAPI 행사정보에 정확한 시각이 없을 수 있으므로 시간 상태를 사실대로 보존한다.
+enum ProjectAnchorTimeStatus {
+  UNCONFIRMED // 공식 행사 시각이 확인되지 않음
+  USER_CONFIRMED // 기획자가 시간대 또는 직접 입력 시각을 명시함
+}
+
+enum ProjectAnchorTimeSlot {
+  MORNING
+  AFTERNOON
+  EVENING
+  CUSTOM
+}
+
 enum DataMode {
   LIVE
   HYBRID
@@ -336,6 +354,7 @@ model Project {
   input          ProjectInput?
   analysisResult AnalysisResult?
   selectedPlan   SelectedPlan?
+  anchor         ProjectAnchor?
   accessAttempt  ProjectAccessAttempt?
 
   createdAt DateTime @default(now())
@@ -517,6 +536,41 @@ model SelectedPlan {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// 프로젝트에 명시적으로 확정한 축제·이벤트 Anchor의 최소 스냅샷.
+/// TourAPI 원본 rawPayload 전체를 복사하지 않고, 확정 당시 화면에 표시한 사실과 출처만 보존한다.
+/// `Project.updatedAt`를 함께 조건부 갱신해 여러 브라우저에서 오래된 화면이 최신 Anchor를 덮어쓰지
+/// 못하게 한다. 현재는 프로젝트당 1건이며, 향후 이력/복수 Anchor가 필요하면 별도 모델 확장으로 다룬다.
+model ProjectAnchor {
+  id              String                  @id @default(cuid())
+  projectId       String                  @unique
+  project         Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status          ProjectAnchorStatus     @default(CONFIRMED)
+  source          String                  // "TOUR_API_FESTIVAL"
+  sourceId        String                  // 공식 contentid
+  contentTypeId   String                  // 현재 축제·공연·행사 contentTypeId=15
+  name            String
+  eventStartDate  String                  // YYYY-MM-DD, timezone 없는 행사 날짜
+  eventEndDate    String                  // YYYY-MM-DD, timezone 없는 행사 날짜
+  plannedDate     String                  // 사용자가 명시한 실제 연계 날짜 YYYY-MM-DD
+  plannedDayIndex Int                     // 사용자가 명시한 여행 일차(1부터 시작)
+  timeStatus      ProjectAnchorTimeStatus @default(UNCONFIRMED)
+  timeSlot        ProjectAnchorTimeSlot?
+  timeStart       String?                 // 직접 입력한 HH:mm, 공식 시각으로 해석하지 않음
+  timeEnd         String?                 // 직접 입력한 HH:mm, 공식 시각으로 해석하지 않음
+  regionCode      String                  // 프로젝트 내부 SIGUNGU Region.code
+  address         String?
+  lat             Float?
+  lng             Float?
+  sourceSnapshot  Json                    // 확정 당시 후보의 최소 사실 스냅샷
+  provenance      Json                    // provider/dataset/조회 시각/지역·월 범위
+  confirmedAt     DateTime                @default(now())
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([source, sourceId])
+  @@index([regionCode, plannedDate])
 }
 
 /// 카카오모빌리티 자동차 길찾기 실제 응답(거리·시간)의 짧은 TTL 캐시(2026-08-05, Phase 12).

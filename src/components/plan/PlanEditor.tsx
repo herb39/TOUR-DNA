@@ -48,6 +48,7 @@ import type { DurationCode } from "@/lib/domain/strategy";
 import { travelSourceLabel, poiCategoryLabel } from "@/lib/format";
 import { classifyLeisureActivity } from "@/lib/domain/leisureClassification";
 import { poiRepresentationLabel } from "@/lib/domain/poiRecommendation";
+import type { ProjectAnchorRecord } from "@/lib/services/projectAnchorService";
 
 const POI_SEARCH_DEBOUNCE_MS = 300;
 
@@ -75,6 +76,8 @@ export interface PlanEditorData {
   /** 사용자가 새 KPI를 추가할 때도 같은 사업 목표를 연결하기 위해 그대로 전달한다(kpiLinking.ts). */
   primaryGoalCode: string | null;
   primaryGoalLabel: string | null;
+  /** P1-2a에서 읽은 현재 축제 Anchor. P1-2b 전까지는 코스에 자동 삽입하거나 표시하지 않는다. */
+  festivalAnchor?: ProjectAnchorRecord | null;
 }
 
 const initialActionState: SavePlanFormState = { success: false };
