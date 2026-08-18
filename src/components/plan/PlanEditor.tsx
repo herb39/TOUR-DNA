@@ -40,7 +40,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { CourseMap } from "@/components/map/CourseMap";
 import { CourseQualityPanel } from "@/components/plan/CourseQualityPanel";
+import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
 import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
+import { unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
 import type { CandidatePoi } from "@/lib/services/candidatePoolService";
@@ -92,6 +94,10 @@ export interface PlanEditorData {
   primaryGoalLabel: string | null;
   /** P1-2a에서 읽은 현재 축제 Anchor. P1-2b에서도 자동 삽입하지 않고 사용자 명시 동작으로만 코스에 반영한다. */
   festivalAnchor?: ProjectAnchorRecord | null;
+  /** 반려동물 조건이 선택된 경우에만 근거 badge/advisory를 활성화한다. */
+  petConditionActive?: boolean;
+  petEvidenceByPoiId?: Record<string, PetEvidenceDisplay>;
+  petEvidenceRepositoryUnavailable?: boolean;
 }
 
 const initialActionState: SavePlanFormState = { success: false };
@@ -376,8 +382,10 @@ export function PlanEditor({
         transport: plan.transport,
         templateId: plan.templateId,
         preferredThemes: plan.preferredThemes ?? [],
+        petConditionActive: plan.petConditionActive,
+        petEvidenceByPoiId: plan.petEvidenceByPoiId,
       }),
-    [days, plan.preferredThemes, plan.templateId, plan.transport, qualityDuration],
+    [days, plan.petConditionActive, plan.petEvidenceByPoiId, plan.preferredThemes, plan.templateId, plan.transport, qualityDuration],
   );
 
   // 편집 상태를 다루는 순수 함수(재정렬/날짜 이동/POI 삽입)는 planBuilder.ts로 옮겨졌다(Phase B
@@ -684,7 +692,7 @@ export function PlanEditor({
       <input type="hidden" name="risksJson" value={JSON.stringify(risks)} />
       <input type="hidden" name="kpisJson" value={JSON.stringify(kpis)} />
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext id="plan-editor-dnd" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="space-y-6">
         <details className="rounded-lg border border-slate-200 bg-white p-5">
           <summary className="cursor-pointer text-sm font-semibold text-slate-900">상품 기획 요약</summary>
@@ -855,6 +863,11 @@ export function PlanEditor({
                             onMoveItem={moveItem}
                             onMoveItemToDay={moveItemToDay}
                             onRemoveItem={removeItem}
+                            petEvidence={
+                              plan.petConditionActive
+                                ? plan.petEvidenceByPoiId?.[item.poiId] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                                : undefined
+                            }
                           />
                         );
                       })}
@@ -876,6 +889,15 @@ export function PlanEditor({
                       <span className="ml-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
                         {travelSourceLabel(day.lodging.travelSource)}
                       </span>
+                    ) : null}
+                    {plan.petConditionActive ? (
+                      <PetEvidenceBadge
+                        evidence={
+                          plan.petEvidenceByPoiId?.[day.lodging.poiId] ??
+                          unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                        }
+                        compact
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -1192,7 +1214,16 @@ export function PlanEditor({
                       <h3 className="mb-1 text-xs font-semibold text-slate-800">{heading}</h3>
                       <ul className="space-y-2">
                         {group.map((candidate) => (
-                          <AnchorCandidateCard key={`${role}-${candidate.id}`} candidate={candidate} onAdd={() => addAnchorCandidate(candidate)} />
+                          <AnchorCandidateCard
+                            key={`${role}-${candidate.id}`}
+                            candidate={candidate}
+                            petEvidence={
+                              plan.petConditionActive
+                                ? plan.petEvidenceByPoiId?.[candidate.id] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                                : undefined
+                            }
+                            onAdd={() => addAnchorCandidate(candidate)}
+                          />
                         ))}
                       </ul>
                     </div>
@@ -1245,6 +1276,11 @@ export function PlanEditor({
                       <CandidateCard
                         key={candidate.id}
                         candidate={candidate}
+                        petEvidence={
+                          plan.petConditionActive
+                            ? plan.petEvidenceByPoiId?.[candidate.id] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                            : undefined
+                        }
                         days={days}
                         selectedDay={selectedDay}
                         onSelectDay={(dayIndex) =>
@@ -1324,6 +1360,7 @@ function ScheduleItemRow({
   onMoveItem,
   onMoveItemToDay,
   onRemoveItem,
+  petEvidence,
 }: {
   item: CourseItem;
   idx: number;
@@ -1338,6 +1375,7 @@ function ScheduleItemRow({
   onMoveItem: (dayIndex: number, itemIndex: number, direction: -1 | 1) => void;
   onMoveItemToDay: (fromDayIndex: number, itemIndex: number, toDayIndex: number) => void;
   onRemoveItem: (dayIndex: number, itemIndex: number) => void;
+  petEvidence?: PetEvidenceDisplay;
 }) {
   const isAnchor = isFestivalAnchorItem(item);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -1446,6 +1484,7 @@ function ScheduleItemRow({
               </div>
             </details>
           ) : null}
+          {petEvidence && !isAnchor ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
         </div>
       </div>
       <div className="no-print flex items-center gap-1">
@@ -1515,12 +1554,14 @@ function CandidateCard({
   selectedDay,
   onSelectDay,
   onAdd,
+  petEvidence,
 }: {
   candidate: CandidatePoi;
   days: CourseDay[];
   selectedDay: number;
   onSelectDay: (dayIndex: number) => void;
   onAdd: () => void;
+  petEvidence?: PetEvidenceDisplay;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: CANDIDATE_DND_PREFIX + candidate.id,
@@ -1567,6 +1608,7 @@ function CandidateCard({
       ) : reason ? (
         <p className="mt-2 text-slate-500">{reason}</p>
       ) : null}
+      {petEvidence ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
       <div className="mt-2 flex items-center gap-2">
         <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
           {candidate.name} 추가할 날짜
@@ -1596,7 +1638,15 @@ function CandidateCard({
   );
 }
 
-function AnchorCandidateCard({ candidate, onAdd }: { candidate: AnchorCandidate; onAdd: () => void }) {
+function AnchorCandidateCard({
+  candidate,
+  petEvidence,
+  onAdd,
+}: {
+  candidate: AnchorCandidate;
+  petEvidence?: PetEvidenceDisplay;
+  onAdd: () => void;
+}) {
   const badge = resolveFitBadge(candidate.fit);
   return (
     <li className="rounded-md border border-violet-200 bg-white p-2.5 text-xs">
@@ -1616,6 +1666,7 @@ function AnchorCandidateCard({ candidate, onAdd }: { candidate: AnchorCandidate;
       ) : (
         <p className="mt-1 text-[11px] text-amber-700">운영시간 확인 필요</p>
       )}
+      {petEvidence ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
       <button
         type="button"
         onClick={onAdd}

@@ -37,7 +37,10 @@ import {
   EXECUTION_DIFFICULTY_LABEL_KO,
   formatRoleFitRanking,
 } from "@/lib/domain/strategyResourcePlan";
-import { preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { getPetEvidenceForPoiIds } from "@/lib/services/petTourEvidenceRead";
+import { summarizePetEvidence, unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
+import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +62,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     redirect(`/projects/${id}/analysis`);
   }
   const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
+  const petConditionActive = hasPetFriendlyTravelCondition(project.input?.preferredThemes);
 
   const plan = project.selectedPlan;
   const analysisResult = project.analysisResult;
@@ -98,6 +102,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           ...(d.lodging ? [d.lodging.poiId] : []),
         ])
       : null;
+  const petPoiIds = petConditionActive
+    ? course.days.flatMap((d) => [
+        ...d.items.filter((item) => !isFestivalAnchorItem(item)).map((item) => item.poiId),
+        ...(d.lodging ? [d.lodging.poiId] : []),
+      ])
+    : [];
 
   // 2026-08-13(로딩 성능 개선): 유사지역 비교 재계산, (레거시 분석만 발생하는) 카테고리별 POI
   // 재조회, 실행안과 동일한 POI 적합도 계산은 서로 완전히 독립적인데 이전에는 순차 await로 걸려
@@ -106,6 +116,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     { analysis: regionComparisonAnalysis },
     poiCategoryFallback,
     poiFitSummaryResult,
+    petEvidenceResult,
   ] = await Promise.all([
     resolveRegionComparisonAnalysis({
       regionCode: project.region.code,
@@ -126,7 +137,13 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           duration: project.input.duration as DurationCode,
         }).catch(() => null) // 적합도 표시는 부가 정보라 계산 실패해도 인쇄 화면 자체는 그대로 보여준다.
       : Promise.resolve(null),
+    petConditionActive
+      ? getPetEvidenceForPoiIds(petPoiIds)
+      : Promise.resolve({ repository: "AVAILABLE" as const, byPoiId: {} as Record<string, PetEvidenceDisplay> }),
   ]);
+  const petEvidenceSummary = petConditionActive
+    ? summarizePetEvidence(petPoiIds, petEvidenceResult.byPoiId)
+    : null;
 
   // 분석 화면과 동일한 함수로 기준월 불일치 안내를 만든다(분석·인쇄 화면 안내 일치, 2026-08-02).
   const analysisBaseYmMismatchNote = resolveAnalysisBaseYmMismatchNote(
@@ -512,6 +529,19 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
       <section className="mt-4">
         <h2 className="text-sm font-semibold">코스</h2>
+        {petEvidenceSummary ? (
+          <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600">
+            <p>
+              반려동물 동반 조건 — 공식 정보 확인 {petEvidenceSummary.confirmed}곳 · 조건부 {petEvidenceSummary.conditional}곳 · 미확인 {petEvidenceSummary.unknown}곳
+            </p>
+            {petEvidenceSummary.unknown > 0 ? (
+              <p className="mt-0.5 text-slate-500">정보 미확인은 이용 불가를 뜻하지 않으며, 방문 전 시설 확인이 필요합니다.</p>
+            ) : null}
+            {petEvidenceResult.repository === "UNAVAILABLE" ? (
+              <p className="mt-0.5 text-slate-500">현재 환경에서는 반려동물 공식 정보 확인 기능을 사용할 수 없습니다.</p>
+            ) : null}
+          </div>
+        ) : null}
         {poiShortageMessage ? (
           <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">⚠ {poiShortageMessage}</p>
         ) : null}
@@ -542,18 +572,30 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                         <span className="text-slate-400"> · {travelSourceLabel(item.travelSource)}</span>
                       ) : null}
                       {fit ? <span className="text-slate-400"> · 적합도 {fit.totalScore}점</span> : null}
+                      {petConditionActive && !isAnchor ? (
+                        <PetEvidenceBadge
+                          evidence={petEvidenceResult.byPoiId[item.poiId] ?? unknownPetEvidence({ repositoryUnavailable: petEvidenceResult.repository === "UNAVAILABLE" })}
+                          compact
+                        />
+                      ) : null}
                     </li>
                   );
                 })}
               </ol>
               {day.lodging != null ? (
-                <p className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
+                <div className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
                   <span className="font-semibold">[숙박]</span> {day.lodging.timeSlot} {day.lodging.poiName} (
                   {day.lodging.category}, {day.lodging.travel})
                   {project.input?.transport === "PRIVATE_VEHICLE" ? (
                     <span className="text-slate-400"> · {travelSourceLabel(day.lodging.travelSource)}</span>
                   ) : null}
-                </p>
+                  {petConditionActive ? (
+                    <PetEvidenceBadge
+                      evidence={petEvidenceResult.byPoiId[day.lodging.poiId] ?? unknownPetEvidence({ repositoryUnavailable: petEvidenceResult.repository === "UNAVAILABLE" })}
+                      compact
+                    />
+                  ) : null}
+                </div>
               ) : null}
               {day.notices?.map((notice, i) => (
                 <p key={i} className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">

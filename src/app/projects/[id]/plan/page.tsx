@@ -17,10 +17,11 @@ import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
-import { preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
 import { buildAnchorCandidateSuggestions, type AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
+import { getPetEvidenceForPoiIds } from "@/lib/services/petTourEvidenceRead";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const templateId = selectedStrategy?.templateId;
   const duration = project.input?.duration as DurationCode;
   const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
+  const petConditionActive = hasPetFriendlyTravelCondition(project.input?.preferredThemes);
 
   const planData: PlanEditorData = {
     id: planRow.id,
@@ -103,6 +105,10 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       : null;
   const allCoursePoiIds = planData.course.days.flatMap((d) => [
     ...d.items.map((item) => item.poiId),
+    ...(d.lodging ? [d.lodging.poiId] : []),
+  ]);
+  const regularCoursePoiIds = planData.course.days.flatMap((d) => [
+    ...d.items.filter((item) => !isFestivalAnchorItem(item)).map((item) => item.poiId),
     ...(d.lodging ? [d.lodging.poiId] : []),
   ]);
   const analysisResult = project.analysisResult;
@@ -162,6 +168,31 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         }).catch((): AnchorCandidateResult | null => null)
       : Promise.resolve(null as AnchorCandidateResult | null),
   ]);
+
+  // 반려동물 근거는 PET 조건을 선택한 경우에만 후보·코스·Anchor 연계 후보를 합쳐 한 번 조회한다.
+  // 이 읽기는 표시와 advisory만 위한 것이며 후보 순서·자동 초안·Anchor 순위에는 관여하지 않는다.
+  const petEvidencePoiIds = petConditionActive
+    ? [
+        ...new Set([
+          ...regularCoursePoiIds,
+          ...(candidatePois ?? []).map((candidate) => candidate.id),
+          ...(anchorCandidateResult?.status === "AVAILABLE"
+            ? Object.values(anchorCandidateResult.groups)
+                .flat()
+                .map((candidate) => candidate.id)
+            : []),
+        ]),
+      ]
+    : [];
+  const petEvidenceResult = petConditionActive
+    ? await getPetEvidenceForPoiIds(petEvidencePoiIds)
+    : { repository: "AVAILABLE" as const, byPoiId: {} };
+  const planDataWithPetEvidence: PlanEditorData = {
+    ...planData,
+    petConditionActive,
+    petEvidenceByPoiId: petEvidenceResult.byPoiId,
+    petEvidenceRepositoryUnavailable: petEvidenceResult.repository === "UNAVAILABLE",
+  };
 
   // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미
   // 계산된 값만 조합한다(새 지표 없음, DNA·전략 점수 공식 변경 없음). 유사지역 비교는 분석·인쇄 화면과
@@ -264,7 +295,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         ) : null}
         <div className="mt-6">
           <PlanEditor
-            plan={planData}
+            plan={planDataWithPetEvidence}
             poiFits={poiFitSummary?.fitsByPoiId}
             poiShortage={poiFitSummary?.shortage ?? null}
             candidatePois={candidatePois}

@@ -110,3 +110,8 @@ export function preferredThemeCodes(value: unknown): ContentThemeCode[] {
 export function travelConditionCodes(value: unknown): TravelConditionCode[] {
   return readProjectPreferences(value).travelConditionCodes;
 }
+
+/** 반려동물 근거 표시·advisory를 켜는 공용 조건 판정. 컴포넌트마다 문자열을 직접 비교하지 않는다. */
+export function hasPetFriendlyTravelCondition(value: unknown): boolean {
+  return travelConditionCodes(value).includes("CONDITION_PET_FRIENDLY");
+}

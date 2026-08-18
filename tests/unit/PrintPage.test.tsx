@@ -17,6 +17,11 @@ vi.mock("@/lib/services/poiFitService", () => ({
   buildStrategyPoiFitSummary: vi.fn().mockResolvedValue({ fitsByPoiId: {}, shortage: null }),
 }));
 
+// PET 조건을 선택하지 않은 레거시 인쇄 fixture에서는 evidence 저장소를 읽지 않도록 모킹한다.
+vi.mock("@/lib/services/petTourEvidenceRead", () => ({
+  getPetEvidenceForPoiIds: vi.fn().mockResolvedValue({ repository: "AVAILABLE", byPoiId: {} }),
+}));
+
 // 관광사업 기회 3안(2026-08-02)도 같은 이유로 모킹한다 — print/page.tsx가 지역 POI 카테고리별 개수를
 // 조회할 때 @/lib/db(Prisma)까지 로드되는 실제 서비스 체인을 타지 않도록 한다. 이 테스트는 홍보자료
 // 출력 로직만 검증하므로 빈 결과(POI 없음)로 충분하다.

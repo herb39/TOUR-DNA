@@ -113,6 +113,75 @@ describe("PlanEditor 실시간 코스 품질검증", () => {
     expect(screen.getByRole("region", { name: "실시간 코스 품질검증" })).toBeInTheDocument();
     expect(screen.getByText(/경고가 있어도 저장은 계속할 수 있습니다/)).toBeInTheDocument();
   });
+
+  it("반려동물 조건이 선택되면 코스·추천 후보에 상태 배지를 표시한다", () => {
+    const petPlan = makePlan();
+    petPlan.petConditionActive = true;
+    petPlan.petEvidenceByPoiId = {
+      "poi-a": {
+        status: "CONFIRMED",
+        label: "공식 동반 정보 확인",
+        detailLines: ["공식 동반 범위: 전구역 동반가능"],
+        sourceLabel: "한국관광공사 반려동물 동반여행 정보",
+        fetchedAtLabel: "2026.08.19",
+        scope: "ALL",
+      },
+      "poi-b": {
+        status: "CONDITIONAL",
+        label: "조건부 동반",
+        detailLines: ["필요 사항: 목줄 필요"],
+        sourceLabel: "한국관광공사 반려동물 동반여행 정보",
+        fetchedAtLabel: "2026.08.19",
+        scope: "PARTIAL",
+      },
+    };
+    render(
+      <PlanEditor
+        plan={petPlan}
+        candidatePois={[
+          {
+            id: "pet-candidate",
+            name: "반려 후보",
+            category: "ATTRACTION",
+            lat: 36.3,
+            lng: 127.3,
+            fit: {
+              totalScore: 90,
+              grade: "HIGH",
+              recommendationStatus: "RECOMMENDED",
+              breakdown: {
+                categoryFit: { score: 30, tier: "CORE" },
+                themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+                seasonFit: { score: 20, isIdealMonth: true },
+              },
+              positiveReasons: [],
+              cautions: [],
+              dataSource: {
+                provenance: "LIVE_API",
+                sourceLabel: "공식",
+                operatingHoursConfirmed: false,
+                operatingHoursText: null,
+                closedDaysText: null,
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByTestId("pet-evidence").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("공식 동반 정보 확인").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("조건부 동반").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("동반 정보 미확인").length).toBeGreaterThan(0);
+    expect(screen.getByText(/정보 없음이 이용 불가를 의미하지 않습니다/)).toBeInTheDocument();
+  });
+
+  it("반려동물 조건이 없으면 PET 배지와 advisory를 표시하지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    expect(screen.queryByTestId("pet-evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("반려동물 동반 정보")).not.toBeInTheDocument();
+  });
 });
 
 describe("PlanEditor — 확정 축제 Anchor 코스 연결(P1-2b)", () => {

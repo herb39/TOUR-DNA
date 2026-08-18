@@ -24,6 +24,7 @@ import {
 } from "./audienceContext";
 import { classifyLeisureActivity } from "./leisureClassification";
 import { CORE_THEME_FLOOR_SHARE, type DurationCode } from "./strategy";
+import { summarizePetEvidence, type PetEvidenceDisplay } from "./petTourEvidenceDisplay";
 
 export interface CourseQualityWarning {
   id: string;
@@ -43,6 +44,8 @@ export interface CourseQualityInput {
   transport: TransportCode;
   templateId?: string | null;
   preferredThemes?: string[];
+  petConditionActive?: boolean;
+  petEvidenceByPoiId?: Readonly<Record<string, PetEvidenceDisplay>>;
 }
 
 const THEME_LABEL_KO: Record<ThemeCategory, string> = {
@@ -502,8 +505,33 @@ function evaluateThemeWarnings(input: CourseQualityInput): CourseQualityWarning[
   ];
 }
 
+function evaluatePetEvidenceWarnings(input: CourseQualityInput): CourseQualityWarning[] {
+  if (!input.petConditionActive) return [];
+  const poiIds = input.days.flatMap((day) => [
+    ...day.items.filter((item) => !isFestivalAnchorItem(item)).map((item) => item.poiId),
+    ...(day.lodging ? [day.lodging.poiId] : []),
+  ]);
+  const summary = summarizePetEvidence(poiIds, input.petEvidenceByPoiId ?? {});
+  if (summary.total === 0) return [];
+  const repositoryUnavailable = Object.values(input.petEvidenceByPoiId ?? {}).some((evidence) => evidence.repositoryUnavailable);
+  const details = summary.unknown > 0
+    ? ["공식 정보 미확인은 이용 불가를 뜻하지 않습니다. 방문 전 시설 확인이 필요합니다."]
+    : [];
+  if (repositoryUnavailable) details.unshift("현재 환경에서는 반려동물 공식 정보 확인 기능을 사용할 수 없습니다.");
+  return [
+    {
+      id: "pet-evidence-summary",
+      title: "반려동물 동반 정보",
+      message: `공식 정보가 확인된 장소 ${summary.confirmed}곳, 조건부 ${summary.conditional}곳, 미확인 ${summary.unknown}곳입니다.`,
+      severity: "INFO",
+      details,
+    },
+  ];
+}
+
 export function computeCourseQuality(input: CourseQualityInput): CourseQualityReport {
   const warnings = [
+    ...evaluatePetEvidenceWarnings(input),
     ...evaluateThemeWarnings(input),
     ...evaluateShoppingWarnings(input),
     ...evaluateDailyDensityWarnings(input),

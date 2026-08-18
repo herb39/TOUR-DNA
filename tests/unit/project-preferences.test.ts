@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStructuredProjectPreferences,
+  hasPetFriendlyTravelCondition,
   preferredThemeLabels,
   readProjectPreferences,
 } from "@/lib/validation/project-preferences";
@@ -26,5 +27,15 @@ describe("project preferences", () => {
     expect(parsed.themeCodes).toEqual(["THEME_CULTURE_HISTORY", "THEME_NIGHT_TOURISM"]);
     expect(parsed.themeLabels).toEqual(["문화", "역사", "야경"]);
     expect(preferredThemeLabels(["미식", "문화예술"])).toEqual(["미식", "문화예술"]);
+  });
+
+  it("반려동물 조건은 구조화된 travelConditions에서만 활성화한다", () => {
+    expect(
+      hasPetFriendlyTravelCondition(
+        buildStructuredProjectPreferences(["THEME_NATURE"], ["CONDITION_PET_FRIENDLY"]),
+      ),
+    ).toBe(true);
+    expect(hasPetFriendlyTravelCondition(buildStructuredProjectPreferences(["THEME_NATURE"], []))).toBe(false);
+    expect(hasPetFriendlyTravelCondition(["반려동물 동반"])).toBe(false);
   });
 });

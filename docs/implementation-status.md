@@ -3269,3 +3269,51 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 - 다음 우선 작업은 무장애 API 활용 권한을 먼저 확보한 뒤 동일한 `PoiConditionEvidence` 계약으로 목록 교집합과
   소량 상세 수집을 검증하는 것이다. 그 다음에만 사용자 화면의 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN` 표시와
   실행안 검증을 연결한다.
+
+## 2026-08-19 갱신(2) — 반려동물 공식 근거 사용자 검증 연결
+
+이번 단위에서 `PoiConditionEvidence(conditionType=PET)`를 사용자 실행안 흐름에 읽기 전용으로 연결했다.
+후보 ranking, 자동 초안, 전략 점수, DNA, Anchor ranking, 저장 데이터 구조, 운영자 화면은 변경하지 않았다.
+
+### 사용자 상태와 표시 범위
+
+- 구조화된 `travelConditions`에서 `CONDITION_PET_FRIENDLY`가 선택된 경우에만 PET 기능을 활성화한다.
+- 내부 `SUCCESS + CONFIRMED`는 `공식 동반 정보 확인`, `SUCCESS + CONDITIONAL`은 `조건부 동반`,
+  `EMPTY`·`ERROR`·모호한 값·row 없음은 `동반 정보 미확인`으로 변환한다.
+- 일반 추천 후보, 코스 일반 POI, 숙박, Anchor 연계 후보는 작은 배지와 `근거 보기` 펼침 영역을 제공한다.
+  공식 출처는 `한국관광공사 반려동물 동반여행 정보`, 날짜는 `정보 확인일 YYYY.MM.DD`로 표시한다.
+- 축제 Anchor 자체는 일반 POI evidence 대상으로 보지 않는다. Anchor 전후·식사·숙박 연계 후보는 일반 POI이므로
+  evidence가 있으면 표시한다.
+- 미확인은 이용 불가나 추천 제외가 아니다. 저장소가 없을 때도 기술 오류를 노출하지 않고 미확인·안내 상태로
+  표시한다.
+
+### 읽기·성능·fallback
+
+- `getPetEvidenceForPoiIds()`가 페이지 단위로 course·lodging·일반 후보·Anchor 후보 id를 합쳐 Prisma
+  `findMany` 1회로 조회하고 `byPoiId` map으로 전달한다. 카드별 query나 Server Action은 없다.
+- PET 조건 미선택 시 evidence 조회를 호출하지 않고 PET badge/advisory도 렌더링하지 않는다.
+- `PoiConditionEvidence` table/column 미존재(`P2021`·`P2022` 포함)는 repository unavailable로 기억하고
+  대상 POI를 UNKNOWN으로 채운다. 기존 Plan/Print 페이지는 계속 렌더링하며, 운영 DB에 migration·write를
+  수행하지 않았다.
+
+### 품질검증·인쇄·QA
+
+- 실시간 품질검증에는 `pet-evidence-summary` 하나의 `INFO` advisory만 추가한다. 확인·조건부·미확인 개수를
+  보여주며, POI 추가·Drag & Drop·저장·실행안 확정을 차단하지 않는다.
+- 인쇄 화면에는 동일한 개수 요약과 일반 코스 POI·숙박의 PET 배지를 표시한다. Anchor는 배지에서 제외한다.
+- 기존 경주 로컬 QA evidence 10건은 `SUCCESS 10`, normalized availability는 `CONFIRMED 4`·`CONDITIONAL 6`이며,
+  이번 단위에서 추가 지역 수집은 하지 않았다. 사용자 기능은 이 저장 데이터와 row 없음 상태를 함께 검증한다.
+- 새 단위 테스트는 상태 변환, source/freshness, 조건 판정, batch 1회 조회, empty id, old schema fallback,
+  INFO advisory, Anchor 제외, PET 미선택 회귀, PlanEditor badge를 포함한다.
+- 최종 검증은 `npm test` 122개 파일·1,620개 테스트 통과, `npm run typecheck`, `npm run lint`, `npm run build`
+  통과다. 실제 Chromium에서 PET 선택 프로젝트의 공식 확인·조건부·미확인 상태, `근거 보기`, 후보 추가, 코스
+  advisory, 일정 Drag & Drop, 저장·새로고침 후 상태 유지를 확인했다. 375px에서 `scrollWidth`가 viewport보다
+  크지 않았고, 인쇄 화면에도 PET 요약·배지를 확인했다.
+- PET 미선택 경주 프로젝트에서는 PET badge 0건·PET advisory 0건이며 추천 후보와 기존 품질검증 패널이 계속
+  표시됐다. DnD 컨텍스트에는 안정적인 id를 부여해 새 Chromium 검증에서 hydration 오류가 발생하지 않았다.
+
+### 판정과 한계
+
+반려동물 사용자 기능 1차 연결은 구현 완료다. 공식 evidence가 없는 POI가 많으므로 아직 PET 적합성 확정 필터나
+후보 정렬 보정은 하지 않는다. 다음 판단은 coverage를 소량 확대해 상태 분포와 장소 유형별 품질을 확인한 뒤
+`soft ranking`을 도입할지 결정하는 것이다. 무장애는 API 권한 확보 후 같은 모델과 read/advisory 원칙을 적용한다.

@@ -515,7 +515,7 @@ weight·drift threshold·Demand/Network metric·LLM·전략 scoring·유사도 �
 
 ### P1 — 근거 기반 여행 조건 검증
 
-상태: **반려동물 증분 수집 기반 완료·사용자 기능 연결 대기**
+상태: **반려동물 증분 수집·사용자 근거 표시 1차 완료**
 
 이번 단위에서는 `petTourSyncList2` 전국 목록 또는 단일 SIGUNGU `areaBasedList2`를 먼저 조회한 뒤,
 공식 `contentid`와 local `Poi.externalId`의 교집합만 `detailPetTour2`에 전달한다. 상세 요청에는 실제 API
@@ -527,14 +527,36 @@ weight·drift threshold·Demand/Network metric·LLM·전략 scoring·유사도 �
 개발계정 quota와 중단 후 재개를 통제한다. 모든 실행은 `checkDataSyncTarget`로 localhost DB만 기본 허용한다.
 
 로컬 경주 QA에서는 공식 목록 49건, 교집합 49건, 상세 10건을 확인했고, 재실행 dry-run에서 10건 cache hit와
-상세 API 0회를 확인했다. 현재 로컬 저장은 `SUCCESS` 10건이며 사용자 화면·후보 ranking·코스 검증에는 연결하지
-않았다. Neon Production에는 migration과 데이터 쓰기를 수행하지 않았다.
+상세 API 0회를 확인했다. 현재 로컬 저장은 `SUCCESS` 10건이며 normalized availability는 `CONFIRMED` 4건·
+`CONDITIONAL` 6건이다. Neon Production에는 migration과 데이터 쓰기를 수행하지 않았다.
 
-남은 P1 작업 순서는 다음과 같다.
+이번 후속 단위에서 반려동물 사용자 기능 1차 연결까지 완료했다. 남은 P1 작업 순서는 다음과 같다.
 
 1. 무장애 API 활용 권한을 확보하고 같은 목록 교집합·상세 원문·증분 cache 경로를 소량 검증한다.
-2. 두 조건의 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN`을 사용자에게 안전하게 표시하되, `UNKNOWN`을 불가로
-   표시하지 않는다.
-3. 사용자 조건을 선택했을 때만 후보 풀과 실시간 검증에 증거를 연결한다. 이 연결 전에는 기존 추천 산식을
-   변경하지 않는다.
+2. 반려동물은 일반 추천 후보·코스 POI·숙박·Anchor 연계 후보에 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN`을
+   표시하고, 코스 품질검증에는 저장을 막지 않는 `INFO` advisory를 연결했다. `UNKNOWN`은 불가로 표시하지
+   않는다.
+3. 무장애 권한 확보 후 같은 읽기·표시·advisory pipeline을 조건 선택 시에만 연결한다. 이 연결에서도 기존
+   추천 산식은 변경하지 않는다.
 4. 반려동물·무장애 증거가 충분히 쌓인 뒤 전국 범위 수집 정책과 최신성 TTL을 별도로 확정한다.
+
+### 반려동물 사용자 기능 1차 연결 완료
+
+- `hasPetFriendlyTravelCondition()`을 공용 판정으로 사용해 `CONDITION_PET_FRIENDLY` 선택 프로젝트에서만
+  PET evidence를 읽고 표시한다.
+- 실행안 페이지에서 코스 일반 POI·숙박·일반 추천 후보·Anchor 연계 후보 POI를 합쳐 `findMany` 1회로
+  읽는다. 후보 배열과 Anchor 후보 배열은 읽기 결과로 정렬하거나 필터링하지 않는다.
+- DB/API 내부 상태는 `공식 동반 정보 확인`·`조건부 동반`·`동반 정보 미확인`으로 변환한다. 조건부 근거,
+  공식 출처, 정보 확인일을 펼침 영역에서 보여주며, 미확인은 이용 불가로 해석하지 않는다.
+- 실시간 코스 품질검증과 인쇄 화면에는 확인·조건부·미확인 개수를 `INFO` 수준으로 보여준다. PET advisory는
+  POI 추가·Drag & Drop·저장·실행안 확정을 차단하지 않으며, 축제 Anchor 자체는 집계·배지에서 제외한다.
+- `PoiConditionEvidence` 테이블이 없는 Production 구형 스키마에서는 repository unavailable + UNKNOWN으로
+  fallback하며 실행안·후보 화면을 중단하지 않는다. 이 작업은 Neon migration·쓰기 없이 로컬 읽기 구조만
+  추가했다.
+- 경주 로컬 QA의 기존 10건 `SUCCESS` evidence(`CONFIRMED` 4건·`CONDITIONAL` 6건)를 사용자 상태 표시 검증에 재사용했다. 실제 Chromium에서 PET
+  선택 프로젝트의 배지·근거·advisory·후보 추가·Drag & Drop·저장·새로고침 유지와 인쇄 요약을 확인했고,
+  375px에서 가로 넘침이 없었다. PET 미선택 경주 프로젝트는 PET badge/advisory가 0건이었다.
+- 최종 검증은 단위·회귀 테스트 122개 파일/1,620개 통과, `typecheck`, `lint`, `build` 통과로 완료했다.
+
+반려동물 다음 단계는 실제 QA에서 확인된 공식 evidence coverage를 더 넓히는 것과 soft ranking 중 하나를
+선택하는 일이며, hard filter는 아직 도입하지 않는다.

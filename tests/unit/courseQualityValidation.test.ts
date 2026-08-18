@@ -22,6 +22,61 @@ function day(dayIndex: number, items: CourseItem[], lodging?: CourseItem | null)
 }
 
 describe("computeCourseQuality", () => {
+  it("반려동물 조건은 일반 POI만 대상으로 INFO advisory를 추가하고 Anchor는 제외한다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({ poiId: "confirmed" }),
+          item({ poiId: "conditional", lat: 36.36, lng: 127.39 }),
+          item({
+            poiId: "anchor",
+            poiName: "축제",
+            kind: "FESTIVAL_ANCHOR",
+            lat: 36.37,
+            lng: 127.4,
+          }),
+        ], item({ poiId: "unknown-lodging", category: "LODGING", lat: 36.38, lng: 127.41 })),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+      petConditionActive: true,
+      petEvidenceByPoiId: {
+        confirmed: {
+          status: "CONFIRMED",
+          label: "공식 동반 정보 확인",
+          detailLines: [],
+          sourceLabel: "공식",
+          fetchedAtLabel: "2026.08.19",
+          scope: "ALL",
+        },
+        conditional: {
+          status: "CONDITIONAL",
+          label: "조건부 동반",
+          detailLines: [],
+          sourceLabel: "공식",
+          fetchedAtLabel: "2026.08.19",
+          scope: "PARTIAL",
+        },
+      },
+    });
+
+    const warning = report.warnings.find((candidate) => candidate.id === "pet-evidence-summary");
+    expect(warning?.severity).toBe("INFO");
+    expect(warning?.message).toContain("확인된 장소 1곳, 조건부 1곳, 미확인 1곳");
+    expect(warning?.message).not.toContain("축제");
+  });
+
+  it("반려동물 조건이 없으면 PET advisory를 만들지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [day(1, [item()])],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+      petConditionActive: false,
+    });
+
+    expect(report.warnings.some((warning) => warning.id === "pet-evidence-summary")).toBe(false);
+  });
+
   it("기존 30% 기준과 TourAPI 구조 분류로 핵심 테마 구성을 advisory 검사한다", () => {
     const report = computeCourseQuality({
       days: [
