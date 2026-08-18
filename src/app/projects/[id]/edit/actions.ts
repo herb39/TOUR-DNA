@@ -6,6 +6,12 @@ import { prisma } from "@/lib/db";
 import { projectInputSchema } from "@/lib/validation/project-input.schema";
 import { computeProjectAnalysis, persistProjectAnalysis } from "@/lib/services/analyzeProject";
 import { assertProjectAccessible, projectAccessCookieName } from "@/lib/services/projectAccess";
+import {
+  buildStructuredProjectPreferences,
+  themeCodeForLabel,
+  themeLabelsFromCodes,
+} from "@/lib/validation/project-preferences";
+import { CONTENT_THEME_CODES } from "@/lib/validation/codes";
 
 export interface UpdateProjectFormState {
   success: boolean;
@@ -19,6 +25,19 @@ function splitThemes(value: FormDataEntryValue | null): string[] {
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
+}
+
+function selectedThemeCodes(formData: FormData): string[] {
+  return [
+    ...new Set(
+      formData
+        .getAll("preferredThemes")
+        .flatMap((value) => (typeof value === "string" ? value.split(",") : []))
+        .map((value) => value.trim())
+        .map((value) => (CONTENT_THEME_CODES.includes(value as (typeof CONTENT_THEME_CODES)[number]) ? value : themeCodeForLabel(value)))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
 }
 
 /** 낙관적 동시성 확인 실패를 일반 오류와 구분해 안내 문구를 다르게 주기 위한 표식 에러. */
@@ -71,7 +90,10 @@ export async function updateProjectAndReanalyzeAction(
     budgetLevel: formData.get("budgetLevel"),
     transport: formData.get("transport"),
     groupType: formData.get("groupType"),
-    preferredThemes: splitThemes(formData.get("preferredThemes")),
+    preferredThemes: selectedThemeCodes(formData),
+    travelConditions: formData
+      .getAll("travelConditions")
+      .filter((value): value is string => typeof value === "string"),
     excludedThemes: splitThemes(formData.get("excludedThemes")),
     memo: formData.get("memo") || undefined,
   };
@@ -80,6 +102,12 @@ export async function updateProjectAndReanalyzeAction(
   if (!parsed.success) {
     return { success: false, errors: parsed.error.flatten().fieldErrors as Record<string, string[]>, submittedValues: raw };
   }
+
+  const preferredThemeLabels = themeLabelsFromCodes(parsed.data.preferredThemes);
+  const storedPreferences = buildStructuredProjectPreferences(
+    parsed.data.preferredThemes,
+    parsed.data.travelConditions,
+  );
 
   const region = await prisma.region.findUnique({ where: { code: parsed.data.sigunguCode } });
   if (!region) {
@@ -146,7 +174,7 @@ export async function updateProjectAndReanalyzeAction(
       budgetLevel: parsed.data.budgetLevel,
       transport: parsed.data.transport,
       groupType: parsed.data.groupType,
-      preferredThemes: parsed.data.preferredThemes,
+      preferredThemes: preferredThemeLabels,
       excludedThemes: parsed.data.excludedThemes,
     });
   } catch (e) {
@@ -201,7 +229,7 @@ export async function updateProjectAndReanalyzeAction(
           budgetLevel: parsed.data.budgetLevel,
           transport: parsed.data.transport,
           groupType: parsed.data.groupType,
-          preferredThemes: parsed.data.preferredThemes,
+          preferredThemes: storedPreferences,
           excludedThemes: parsed.data.excludedThemes,
           memo: parsed.data.memo ?? null,
         },

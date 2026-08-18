@@ -20,6 +20,26 @@ export const AGE_GROUP_OPTIONS = [
   { code: "AGE_60S_PLUS", label: "60대 이상" },
 ] as const;
 
+/** 최종 제품 구조의 콘텐츠 테마. 여행 조건과 섞지 않고 코스·분석의 주제만 표현한다. */
+export const CONTENT_THEME_OPTIONS = [
+  { code: "THEME_FOOD", label: "미식", description: "음식·시장·로컬푸드" },
+  { code: "THEME_NATURE", label: "자연", description: "산·바다·생태·자연경관" },
+  { code: "THEME_WELLNESS", label: "웰니스", description: "온천·숲·힐링·휴식" },
+  { code: "THEME_CULTURE_HISTORY", label: "문화·역사", description: "유적·박물관·전통문화" },
+  { code: "THEME_CULTURE_ARTS", label: "문화예술", description: "공연·전시·미술·문화공간" },
+  { code: "THEME_LEISURE_ACTIVITY", label: "레저·액티비티", description: "스포츠·체험·야외활동" },
+  { code: "THEME_K_CONTENT", label: "K-콘텐츠", description: "촬영지·한류·콘텐츠 명소" },
+  { code: "THEME_NIGHT_TOURISM", label: "야간관광", description: "야경·야시장·야간공연" },
+] as const;
+
+/** 콘텐츠 테마와 독립적으로 적용하는 여행 조건. */
+export const TRAVEL_CONDITION_OPTIONS = [
+  { code: "CONDITION_PET_FRIENDLY", label: "반려동물 동반", description: "동반 가능 POI·숙박·식음 우선" },
+  { code: "CONDITION_ACCESSIBLE", label: "무장애·이동약자", description: "계단·화장실·휴식·접근성 확인" },
+  { code: "CONDITION_WALK_TRANSIT", label: "뚜벅이·대중교통", description: "권역 집중·대중교통 연결 우선" },
+  { code: "CONDITION_FAMILY", label: "가족·유아동", description: "이동량·안전·가족 편의시설 고려" },
+] as const;
+
 export const COMPANION_TYPE_OPTIONS = [
   { code: "COMPANION_SOLO", label: "혼자" },
   { code: "COMPANION_COUPLE", label: "커플/부부" },
@@ -29,14 +49,19 @@ export const COMPANION_TYPE_OPTIONS = [
 ] as const;
 
 export const PRIMARY_GOAL_OPTIONS = [
-  { code: "GOAL_STAY_SPEND_EXPANSION", label: "체류 및 지역 소비 확대" },
+  { code: "GOAL_STAY_EXPANSION", label: "체류 확대" },
+  { code: "GOAL_SPEND_EXPANSION", label: "지역 소비 확대" },
   { code: "GOAL_VISITOR_GROWTH", label: "방문객 증가" },
   { code: "GOAL_REPEAT_VISIT", label: "재방문 유도" },
-  { code: "GOAL_SEASONALITY_BALANCE", label: "비수기 수요 분산" },
+  { code: "GOAL_OFF_SEASON_ACTIVATION", label: "비수기 활성화" },
+  { code: "GOAL_VISITOR_DISTRIBUTION", label: "관광객 분산" },
   { code: "GOAL_LOCAL_ECONOMY", label: "지역 소상공인 매출 연계" },
   { code: "GOAL_BRAND_IMAGE", label: "지역 브랜드 이미지 제고" },
   { code: "GOAL_NEW_MARKET", label: "신규 타깃 시장 개척" },
 ] as const;
+
+/** 기존 프로젝트와 저장 데이터가 사용하는 통합 목표 코드. 새 폼에서는 노출하지 않는다. */
+export const LEGACY_PRIMARY_GOAL_CODES = ["GOAL_STAY_SPEND_EXPANSION", "GOAL_SEASONALITY_BALANCE"] as const;
 
 export const DURATION_OPTIONS = [
   { code: "DAY_TRIP", label: "당일" },
@@ -72,8 +97,13 @@ function codesOf<T extends readonly { code: string }[]>(
 export const ROLE_CODES = codesOf(ROLE_OPTIONS);
 export const NATIONALITY_CODES = codesOf(NATIONALITY_OPTIONS);
 export const AGE_GROUP_CODES = codesOf(AGE_GROUP_OPTIONS);
+export const CONTENT_THEME_CODES = codesOf(CONTENT_THEME_OPTIONS);
+export const TRAVEL_CONDITION_CODES = codesOf(TRAVEL_CONDITION_OPTIONS);
 export const COMPANION_TYPE_CODES = codesOf(COMPANION_TYPE_OPTIONS);
-export const PRIMARY_GOAL_CODES = codesOf(PRIMARY_GOAL_OPTIONS);
+export const PRIMARY_GOAL_CODES = [
+  ...codesOf(PRIMARY_GOAL_OPTIONS),
+  ...LEGACY_PRIMARY_GOAL_CODES,
+] as [string, ...string[]];
 export const DURATION_CODES = codesOf(DURATION_OPTIONS);
 export const BUDGET_LEVEL_CODES = codesOf(BUDGET_LEVEL_OPTIONS);
 export const TRANSPORT_CODES = codesOf(TRANSPORT_OPTIONS);
@@ -86,8 +116,15 @@ function labelOf<T extends readonly { code: string; label: string }[]>(options: 
 export const labelForRole = (code: string) => labelOf(ROLE_OPTIONS, code);
 export const labelForNationality = (code: string) => labelOf(NATIONALITY_OPTIONS, code);
 export const labelForAgeGroup = (code: string) => labelOf(AGE_GROUP_OPTIONS, code);
+export const labelForContentTheme = (code: string) => labelOf(CONTENT_THEME_OPTIONS, code);
+export const labelForTravelCondition = (code: string) => labelOf(TRAVEL_CONDITION_OPTIONS, code);
 export const labelForCompanionType = (code: string) => labelOf(COMPANION_TYPE_OPTIONS, code);
-export const labelForPrimaryGoal = (code: string) => labelOf(PRIMARY_GOAL_OPTIONS, code);
+export const labelForPrimaryGoal = (code: string) =>
+  code === "GOAL_STAY_SPEND_EXPANSION"
+    ? "체류 및 지역 소비 확대"
+    : code === "GOAL_SEASONALITY_BALANCE"
+      ? "비수기 수요 분산"
+      : labelOf(PRIMARY_GOAL_OPTIONS, code);
 export const labelForDuration = (code: string) => labelOf(DURATION_OPTIONS, code);
 export const labelForBudgetLevel = (code: string) => labelOf(BUDGET_LEVEL_OPTIONS, code);
 export const labelForTransport = (code: string) => labelOf(TRANSPORT_OPTIONS, code);

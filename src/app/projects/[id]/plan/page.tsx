@@ -17,6 +17,7 @@ import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const selectedStrategy = project.analysisResult?.strategyResults.find((s) => s.id === planRow.strategyResultId);
   const templateId = selectedStrategy?.templateId;
   const duration = project.input?.duration as DurationCode;
-  const preferredThemes = project.input?.preferredThemes as string[];
+  const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
 
   const planData: PlanEditorData = {
     id: planRow.id,
@@ -104,7 +105,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           regionCode: project.region.code,
           poiIds,
           travelMonth: project.travelMonth,
-          preferredThemes: project.input.preferredThemes as string[],
+          preferredThemes,
           duration: project.input.duration as DurationCode,
         }).catch(() => null) // 적합도 표시는 부가 정보라 계산 실패해도 실행안 화면 자체는 그대로 보여준다.
       : Promise.resolve(null),
@@ -124,7 +125,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           templateId,
           regionCode: project.region.code,
           travelMonth: project.travelMonth,
-          preferredThemes: project.input.preferredThemes as string[],
+          preferredThemes,
           existingPoiIds: poiIds,
         }).catch((): CandidatePoi[] | null => null)
       : Promise.resolve([] as CandidatePoi[]),

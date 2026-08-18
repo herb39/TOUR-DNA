@@ -43,6 +43,7 @@ import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionCom
 import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCard";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
+import { readProjectPreferences } from "@/lib/validation/project-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
 
   const { analysisResult, input } = project;
   if (!input) notFound();
+  const preferences = readProjectPreferences(input.preferredThemes);
 
   const axisData: DnaAxisChartDatum[] = AXIS_ORDER.map((axis) => {
     const scoreKey = `${axis}Score` as const;
@@ -306,7 +308,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     axisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score, status: a.status })),
     role: project.role,
     travelMonth: project.travelMonth,
-    preferredThemes: (input.preferredThemes as string[] | undefined) ?? [],
+    preferredThemes: preferences.themeLabels,
     poiCountByCategory,
   });
   const topStrategyName = analysisResult.strategyResults.find((s) => s.rank === 1)?.name ?? null;
@@ -492,7 +494,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </div>
             <div>
               <dt className="text-xs text-slate-400">선호 테마</dt>
-              <dd>{(input.preferredThemes as string[]).join(", ") || "-"}</dd>
+              <dd>{preferences.themeLabels.join(", ") || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">여행 조건</dt>
+              <dd>{preferences.travelConditionLabels.join(", ") || "-"}</dd>
             </div>
             <div>
               <dt className="text-xs text-slate-400">제외 테마</dt>

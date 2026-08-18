@@ -5,6 +5,11 @@ import { prisma } from "@/lib/db";
 import { projectInputSchema } from "@/lib/validation/project-input.schema";
 import { runAnalysisForProject } from "@/lib/services/analyzeProject";
 import { hashProjectPassword, validateProjectPasswordInput } from "@/lib/services/projectAccess";
+import {
+  buildStructuredProjectPreferences,
+  themeCodeForLabel,
+} from "@/lib/validation/project-preferences";
+import { CONTENT_THEME_CODES } from "@/lib/validation/codes";
 
 export interface CreateProjectFormState {
   success: boolean;
@@ -18,6 +23,19 @@ function splitThemes(value: FormDataEntryValue | null): string[] {
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
+}
+
+function selectedThemeCodes(formData: FormData): string[] {
+  return [
+    ...new Set(
+      formData
+        .getAll("preferredThemes")
+        .flatMap((value) => (typeof value === "string" ? value.split(",") : []))
+        .map((value) => value.trim())
+        .map((value) => (CONTENT_THEME_CODES.includes(value as (typeof CONTENT_THEME_CODES)[number]) ? value : themeCodeForLabel(value)))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
 }
 
 export async function createProjectAction(
@@ -40,7 +58,10 @@ export async function createProjectAction(
     budgetLevel: formData.get("budgetLevel"),
     transport: formData.get("transport"),
     groupType: formData.get("groupType"),
-    preferredThemes: splitThemes(formData.get("preferredThemes")),
+    preferredThemes: selectedThemeCodes(formData),
+    travelConditions: formData
+      .getAll("travelConditions")
+      .filter((value): value is string => typeof value === "string"),
     excludedThemes: splitThemes(formData.get("excludedThemes")),
     memo: formData.get("memo") || undefined,
   };
@@ -49,6 +70,11 @@ export async function createProjectAction(
   if (!parsed.success) {
     return { success: false, errors: parsed.error.flatten().fieldErrors as Record<string, string[]>, submittedValues: raw };
   }
+
+  const storedPreferences = buildStructuredProjectPreferences(
+    parsed.data.preferredThemes,
+    parsed.data.travelConditions,
+  );
 
   // 비밀번호 보호는 입력 조건(projectInputSchema)과 무관한 별도 설정이라 여기서 직접 검증한다.
   // 빈 값이면 공개 프로젝트로 만든다(기존 프로젝트와 동일한 기본값 — 하위 호환).
@@ -93,7 +119,7 @@ export async function createProjectAction(
           budgetLevel: parsed.data.budgetLevel,
           transport: parsed.data.transport,
           groupType: parsed.data.groupType,
-          preferredThemes: parsed.data.preferredThemes,
+          preferredThemes: storedPreferences,
           excludedThemes: parsed.data.excludedThemes,
           memo: parsed.data.memo ?? null,
         },

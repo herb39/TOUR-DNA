@@ -70,7 +70,7 @@ describe("ProjectInputForm", () => {
     expect((screen.getByLabelText("여행 월") as HTMLSelectElement).value).toBe("10");
     expect((screen.getByRole("radio", { name: "지자체/관광재단" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("radio", { name: "내국인" }) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("선호 테마 (쉼표로 구분, 선택)") as HTMLInputElement).value).toBe("문화, 역사");
+    expect(screen.getByRole("checkbox", { name: /^문화·역사/ })).toBeChecked();
   });
 
   it("프리셋 적용 후에도 사용자가 값을 자유롭게 다시 수정할 수 있다", () => {
@@ -82,5 +82,15 @@ describe("ProjectInputForm", () => {
     const monthSelect = screen.getByLabelText("여행 월") as HTMLSelectElement;
     fireEvent.change(monthSelect, { target: { value: "6" } });
     expect(monthSelect.value).toBe("6");
+  });
+
+  it("콘텐츠 테마와 여행 조건을 서로 독립적으로 선택한다", () => {
+    render(<ProjectInputForm regionOptions={regionOptions} baseYm="202509" />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^미식/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^무장애·이동약자/ }));
+
+    expect(screen.getByRole("checkbox", { name: /^미식/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /^무장애·이동약자/ })).toBeChecked();
   });
 });

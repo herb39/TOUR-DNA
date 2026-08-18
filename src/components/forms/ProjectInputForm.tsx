@@ -5,15 +5,18 @@ import {
   AGE_GROUP_OPTIONS,
   BUDGET_LEVEL_OPTIONS,
   COMPANION_TYPE_OPTIONS,
+  CONTENT_THEME_OPTIONS,
   DURATION_OPTIONS,
   GROUP_TYPE_OPTIONS,
   NATIONALITY_OPTIONS,
   PRIMARY_GOAL_OPTIONS,
   ROLE_OPTIONS,
+  TRAVEL_CONDITION_OPTIONS,
   TRANSPORT_OPTIONS,
   labelForNationality,
   labelForRole,
 } from "@/lib/validation/codes";
+import { themeCodeForLabel } from "@/lib/validation/project-preferences";
 import type { RegionOption } from "@/lib/services/regionQueries";
 import { createProjectAction, type CreateProjectFormState } from "@/app/projects/new/actions";
 import { formatBaseYm } from "@/lib/format";
@@ -23,6 +26,8 @@ const initialState: CreateProjectFormState = { success: true, errors: {} };
 
 /** 시나리오 카드 선택 시 폼 상태만 채운다 — 이 함수는 어떤 분석 결과도 만들지 않는다(단순 필드 매핑). */
 function scenarioToFormValues(s: RepresentativeScenario) {
+  const primaryGoal =
+    s.primaryGoal === "GOAL_STAY_SPEND_EXPANSION" ? "GOAL_STAY_EXPANSION" : s.primaryGoal;
   return {
     sidoCode: s.sidoCode,
     sigunguCode: s.sigunguCode,
@@ -30,13 +35,20 @@ function scenarioToFormValues(s: RepresentativeScenario) {
     nationality: s.nationality,
     ageGroups: s.ageGroups,
     companionType: s.companionType,
-    primaryGoal: s.primaryGoal,
+    primaryGoal,
     secondaryGoal: s.secondaryGoal ?? "",
     duration: s.duration,
     budgetLevel: s.budgetLevel,
     transport: s.transport,
     groupType: s.groupType,
-    preferredThemesText: s.preferredThemes.join(", "),
+    preferredThemeCodes: [
+      ...new Set(
+        s.preferredThemes
+          .map(themeCodeForLabel)
+          .filter((code): code is NonNullable<typeof code> => code !== undefined),
+      ),
+    ],
+    travelConditionCodes: [],
     excludedThemesText: s.excludedThemes.join(", "),
     travelYear: s.travelYear,
     travelMonth: s.travelMonth,
@@ -76,7 +88,8 @@ export function ProjectInputForm({
   const [budgetLevel, setBudgetLevel] = useState<string>("MID");
   const [transport, setTransport] = useState<string>("MIXED");
   const [groupType, setGroupType] = useState<string>("SMALL_10_20");
-  const [preferredThemesText, setPreferredThemesText] = useState("");
+  const [selectedThemeCodes, setSelectedThemeCodes] = useState<string[]>([]);
+  const [selectedTravelConditionCodes, setSelectedTravelConditionCodes] = useState<string[]>([]);
   const [excludedThemesText, setExcludedThemesText] = useState("");
   const [travelYear, setTravelYear] = useState(2026);
   const [travelMonth, setTravelMonth] = useState(9);
@@ -113,7 +126,8 @@ export function ProjectInputForm({
     setBudgetLevel(values.budgetLevel);
     setTransport(values.transport);
     setGroupType(values.groupType);
-    setPreferredThemesText(values.preferredThemesText);
+    setSelectedThemeCodes(values.preferredThemeCodes);
+    setSelectedTravelConditionCodes(values.travelConditionCodes);
     setExcludedThemesText(values.excludedThemesText);
     setTravelYear(values.travelYear);
     setTravelMonth(values.travelMonth);
@@ -531,23 +545,87 @@ export function ProjectInputForm({
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-sm font-semibold text-slate-900">테마 및 메모</h2>
-          <div className="mt-4 space-y-4">
-            <div>
-              <label htmlFor="preferredThemes" className="block text-sm font-medium text-slate-700">
-                선호 테마 (쉼표로 구분, 선택)
-              </label>
-              <input
-                id="preferredThemes"
-                name="preferredThemes"
-                type="text"
-                placeholder="예: 미식, 문화예술, 야경"
-                value={preferredThemesText}
-                onChange={(e) => setPreferredThemesText(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
+          <h2 className="text-sm font-semibold text-slate-900">콘텐츠 테마와 여행 조건</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            테마는 여행 콘텐츠, 조건은 이동·동행 제약입니다. 둘을 섞지 않고 선택하면 추천 후보와 이후 검증에
+            같은 기준으로 전달됩니다.
+          </p>
+          <div className="mt-4 space-y-5">
+            <fieldset>
+              <legend className="block text-sm font-medium text-slate-700">콘텐츠 테마 (복수 선택 가능)</legend>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {CONTENT_THEME_OPTIONS.map((option) => {
+                  const checked = selectedThemeCodes.includes(option.code);
+                  return (
+                    <label
+                      key={option.code}
+                      className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm transition-colors ${
+                        checked ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-400"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        name="preferredThemes"
+                        value={option.code}
+                        checked={checked}
+                        onChange={(e) =>
+                          setSelectedThemeCodes((current) =>
+                            e.target.checked
+                              ? [...current, option.code]
+                              : current.filter((code) => code !== option.code),
+                          )
+                        }
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block font-medium text-slate-800">{option.label}</span>
+                        <span className="block text-xs text-slate-500">{option.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
               <FieldError messages={errors.preferredThemes} />
-            </div>
+            </fieldset>
+
+            <fieldset>
+              <legend className="block text-sm font-medium text-slate-700">여행 조건 (복수 선택 가능)</legend>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {TRAVEL_CONDITION_OPTIONS.map((option) => {
+                  const checked = selectedTravelConditionCodes.includes(option.code);
+                  return (
+                    <label
+                      key={option.code}
+                      className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm transition-colors ${
+                        checked ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-400"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        name="travelConditions"
+                        value={option.code}
+                        checked={checked}
+                        onChange={(e) =>
+                          setSelectedTravelConditionCodes((current) =>
+                            e.target.checked
+                              ? [...current, option.code]
+                              : current.filter((code) => code !== option.code),
+                          )
+                        }
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block font-medium text-slate-800">{option.label}</span>
+                        <span className="block text-xs text-slate-500">{option.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <FieldError messages={errors.travelConditions} />
+              <p className="mt-2 text-[11px] text-slate-400">접근성·반려동물 가능 여부는 실제 시설 정보 확인 전까지 확정하지 않습니다.</p>
+            </fieldset>
+
             <div>
               <label htmlFor="excludedThemes" className="block text-sm font-medium text-slate-700">
                 제외 테마 (쉼표로 구분, 선택)
@@ -599,6 +677,22 @@ export function ProjectInputForm({
           <div className="flex justify-between">
             <dt>연령대</dt>
             <dd>{ageGroups.length > 0 ? `${ageGroups.length}개 선택` : "미선택"}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt>콘텐츠 테마</dt>
+            <dd className="text-right">
+              {selectedThemeCodes
+                .map((code) => CONTENT_THEME_OPTIONS.find((option) => option.code === code)?.label ?? code)
+                .join(", ") || "미선택"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt>여행 조건</dt>
+            <dd className="text-right">
+              {selectedTravelConditionCodes
+                .map((code) => TRAVEL_CONDITION_OPTIONS.find((option) => option.code === code)?.label ?? code)
+                .join(", ") || "미선택"}
+            </dd>
           </div>
         </dl>
         <div className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-500">

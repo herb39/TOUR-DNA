@@ -18,6 +18,7 @@ import { filterRecommendablePois, isRequiredSlotCategory, type PoiFitContext } f
 import { enrichKpis, type AxisScoreLike } from "@/lib/domain/kpiLinking";
 import { DNA_AXES, type AxisStatus } from "@/lib/domain/types";
 import { labelForPrimaryGoal } from "@/lib/validation/codes";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { fetchAdditionalGeneralPois, fetchAdditionalMealEligibleFood, fetchPoiDetailsInOrder, shoppingCoordKeysOf } from "./poiDetails";
 import { enrichCourseDaysWithRealRoutes } from "./route/courseRouteEnrichment";
 
@@ -148,7 +149,7 @@ export async function ensureSelectedPlan(projectId: string) {
     pois,
     strategy.templateId,
     project.travelMonth,
-    (project.input.preferredThemes as string[] | undefined) ?? [],
+    preferredThemeLabels(project.input.preferredThemes),
   );
 
   const transport = project.input.transport as TransportCode;

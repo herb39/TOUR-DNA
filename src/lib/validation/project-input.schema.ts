@@ -3,13 +3,16 @@ import {
   AGE_GROUP_CODES,
   BUDGET_LEVEL_CODES,
   COMPANION_TYPE_CODES,
+  CONTENT_THEME_CODES,
   DURATION_CODES,
   GROUP_TYPE_CODES,
   NATIONALITY_CODES,
   PRIMARY_GOAL_CODES,
   ROLE_CODES,
+  TRAVEL_CONDITION_CODES,
   TRANSPORT_CODES,
 } from "./codes";
+import { themeCodeForLabel } from "./project-preferences";
 
 const currentYear = 2026;
 
@@ -46,8 +49,19 @@ export const projectInputSchema = z
     transport: z.enum(TRANSPORT_CODES, { error: "이동 수단을 선택해주세요." }),
     groupType: z.enum(GROUP_TYPE_CODES, { error: "그룹 규모를 선택해주세요." }),
     preferredThemes: z
-      .array(z.string().trim().min(1).max(20))
-      .max(5, "선호 테마는 5개 이내로 입력해주세요.")
+      .array(z.string().trim().min(1).max(30))
+      .max(8, "콘텐츠 테마는 8개 이내로 선택해주세요.")
+      .refine(
+        (themes) =>
+          themes.every((theme) =>
+            CONTENT_THEME_CODES.includes(theme as (typeof CONTENT_THEME_CODES)[number]) || Boolean(themeCodeForLabel(theme)),
+          ),
+        "지원되는 콘텐츠 테마를 선택해주세요.",
+      )
+      .default([]),
+    travelConditions: z
+      .array(z.enum(TRAVEL_CONDITION_CODES))
+      .max(4, "여행 조건은 4개 이내로 선택해주세요.")
       .default([]),
     excludedThemes: z
       .array(z.string().trim().min(1).max(20))

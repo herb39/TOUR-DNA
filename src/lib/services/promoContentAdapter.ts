@@ -10,6 +10,7 @@ import {
   type PromoUserRole,
 } from "@/lib/domain/promoContent";
 import type { AdminLevel, DataProvenance, DnaAxisKey, EvidenceItem } from "@/lib/domain/types";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 
 /**
  * Prisma 조회 결과 → Phase 5-A 도메인 입력(BuildPromoContentInput) 변환 경계, 그리고 PromoContent →
@@ -189,7 +190,7 @@ export function buildPromoContentInputFromProjectData(data: {
       nationality: data.project.nationality,
       travelYear: data.project.travelYear,
       travelMonth: data.project.travelMonth,
-      preferredThemes: toStringArray(data.project.preferredThemes),
+      preferredThemes: preferredThemeLabels(data.project.preferredThemes),
     },
     strategy: { name: data.strategyName },
     plan: {

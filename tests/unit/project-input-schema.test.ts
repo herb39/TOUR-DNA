@@ -19,6 +19,7 @@ function validInput() {
     transport: "PUBLIC_TRANSPORT",
     groupType: "SMALL_10_20",
     preferredThemes: [],
+    travelConditions: [],
     excludedThemes: [],
     memo: "",
   };

@@ -14,6 +14,7 @@ import {
   type TransportCode,
 } from "@/lib/domain/strategy";
 import { buildAnalysisContext } from "@/lib/domain/audienceContext";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 import type { PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import type { DnaResult, EvidenceItem } from "@/lib/domain/types";
 import { getActiveDatasetBaseYm } from "./activeDataset";
@@ -280,7 +281,7 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
     budgetLevel: project.input.budgetLevel,
     transport: project.input.transport,
     groupType: project.input.groupType,
-    preferredThemes: project.input.preferredThemes as string[],
+    preferredThemes: preferredThemeLabels(project.input.preferredThemes),
     excludedThemes: project.input.excludedThemes as string[],
   });
 

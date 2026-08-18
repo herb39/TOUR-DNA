@@ -58,7 +58,7 @@ describe("ProjectEditForm — 현재 값 프리로드 및 변경사항 미리보
     expect(screen.getByLabelText("시·도")).toHaveValue("SIDO_GANGWON");
     expect(screen.getByLabelText("시·군·구")).toHaveValue("SGG_GANGNEUNG");
     expect(screen.getByLabelText("여행 월")).toHaveValue("9");
-    expect(screen.getByLabelText("선호 테마 (쉼표로 구분, 선택)")).toHaveValue("미식");
+    expect(screen.getByRole("checkbox", { name: /^미식/ })).toBeChecked();
   });
 
   it("지역을 바꾸지 않으면 'DNA는 바뀌지 않는다'는 안내를 보여준다", () => {

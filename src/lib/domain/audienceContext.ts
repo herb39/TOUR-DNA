@@ -1,4 +1,5 @@
 import type { PoiCategoryCode, StrategyTemplate } from "./strategyTemplates";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 
 /**
  * Phase 4: 역할·국적·테마·여행월이 실제 분석 결과(전략 점수/순위/근거, 실행안 체크리스트·위험요인)에
@@ -24,7 +25,9 @@ export type ThemeCategory =
   | "WELLNESS"
   | "FESTIVAL"
   | "PET_FRIENDLY"
-  | "LEISURE_ACTIVITY";
+  | "LEISURE_ACTIVITY"
+  | "K_CONTENT"
+  | "NIGHT_TOURISM";
 
 export type ContextAdjustmentSource = "role" | "nationality" | "theme" | "month";
 
@@ -65,6 +68,11 @@ export function normalizeThemeList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : [];
 }
 
+/** preferredThemes Json 컬럼의 신규 구조({ themes, travelConditions })와 레거시 string[]를 모두 읽는다. */
+export function normalizePreferredThemeList(value: unknown): string[] {
+  return preferredThemeLabels(value);
+}
+
 /**
  * 역할별 목표(primaryGoal/supportedGoals) 우선순위(CURATED, 0~100). 지자체는 지역경제·공공성·
  * 계절분산을, 여행사는 상품성·신규시장·재방문(판매 가능성)을, 축제 기획자는 방문객 유치·비수기 분산·
@@ -76,26 +84,38 @@ const ROLE_GOAL_PRIORITY: Record<UserRoleCode, Record<string, number>> = {
   LOCAL_GOV: {
     GOAL_LOCAL_ECONOMY: 100,
     GOAL_SEASONALITY_BALANCE: 95,
+    GOAL_OFF_SEASON_ACTIVATION: 95,
+    GOAL_VISITOR_DISTRIBUTION: 90,
     GOAL_VISITOR_GROWTH: 85,
     GOAL_REPEAT_VISIT: 75,
     GOAL_BRAND_IMAGE: 70,
     GOAL_NEW_MARKET: 55,
+    GOAL_SPEND_EXPANSION: 90,
+    GOAL_STAY_EXPANSION: 70,
     GOAL_STAY_SPEND_EXPANSION: 60,
   },
   TRAVEL_AGENCY: {
+    GOAL_STAY_EXPANSION: 100,
+    GOAL_SPEND_EXPANSION: 95,
     GOAL_STAY_SPEND_EXPANSION: 100,
     GOAL_NEW_MARKET: 90,
     GOAL_REPEAT_VISIT: 80,
     GOAL_VISITOR_GROWTH: 75,
+    GOAL_OFF_SEASON_ACTIVATION: 70,
+    GOAL_VISITOR_DISTRIBUTION: 65,
     GOAL_BRAND_IMAGE: 55,
     GOAL_LOCAL_ECONOMY: 45,
     GOAL_SEASONALITY_BALANCE: 45,
   },
   FESTIVAL_PLANNER: {
+    GOAL_OFF_SEASON_ACTIVATION: 100,
+    GOAL_VISITOR_DISTRIBUTION: 100,
     GOAL_SEASONALITY_BALANCE: 100,
     GOAL_VISITOR_GROWTH: 95,
     GOAL_BRAND_IMAGE: 80,
     GOAL_REPEAT_VISIT: 70,
+    GOAL_SPEND_EXPANSION: 70,
+    GOAL_STAY_EXPANSION: 65,
     GOAL_NEW_MARKET: 60,
     GOAL_STAY_SPEND_EXPANSION: 55,
     GOAL_LOCAL_ECONOMY: 50,
@@ -131,19 +151,21 @@ export function computeRoleFit(
 }
 
 /**
- * 자유 입력 테마 문구를 실제 서비스에 존재하는 관광 서비스 요소(언어/접근성/체험 성격)에 근거한 내부
- * 분류 카테고리로 매핑한다. 새 enum을 만드는 것이 아니라 이미 자유 텍스트로 저장되는 preferredThemes를
- * 해석하는 계층일 뿐이다(스키마 변경 없음). 국가별 고정관념이 아니라 키워드 매칭만 사용한다.
+ * 고정 테마 라벨과 기존 자유 입력 테마 문구를 실제 서비스에 존재하는 관광 서비스 요소(언어/접근성/
+ * 체험 성격)에 근거한 내부 분류 카테고리로 매핑한다. 기존 저장값도 읽어야 하므로 키워드 fallback을
+ * 유지하며, 국가별 고정관념이 아니라 입력 문구와 공식 POI 분류 신호만 사용한다.
  */
 const THEME_KEYWORDS: Record<ThemeCategory, string[]> = {
   FOOD: ["미식", "맛집", "먹거리", "시장", "음식"],
   NATURE: ["자연", "힐링", "휴양", "숲", "산", "바다", "경관"],
-  CULTURE_HISTORY: ["문화", "역사", "유적", "전통", "고궁", "박물관"],
+  CULTURE_HISTORY: ["문화·역사", "문화역사", "역사", "유적", "전통", "고궁", "박물관", "문화유산"],
   CULTURE_ARTS: ["문화예술", "문화 예술", "예술", "미술", "전시", "공연", "갤러리", "아트"],
   WELLNESS: ["웰니스", "의료", "스파", "온천", "건강"],
   FESTIVAL: ["축제", "이벤트", "행사", "페스티벌"],
   PET_FRIENDLY: ["반려동물", "반려견", "펫", "강아지", "고양이"],
   LEISURE_ACTIVITY: ["레저", "액티비티", "체험", "스포츠", "야외활동"],
+  K_CONTENT: ["k-콘텐츠", "k콘텐츠", "촬영지", "한류", "드라마", "뮤직비디오"],
+  NIGHT_TOURISM: ["야간관광", "야경", "야시장", "야간", "밤관광"],
 };
 
 export function classifyThemes(themes: string[]): ThemeCategory[] {
@@ -167,6 +189,8 @@ const THEME_TEMPLATE_BONUS: Partial<Record<ThemeCategory, Record<string, number>
   WELLNESS: { NATURE_WELLNESS: 10 },
   FESTIVAL: { FESTIVAL_EVENT: 12 },
   LEISURE_ACTIVITY: { NATURE_WELLNESS: 6, YOUTH_LOCAL_CONTENT: 6, NIGHT_STAY_EXTENSION: 4 },
+  K_CONTENT: { YOUTH_LOCAL_CONTENT: 8, CULTURE_ARTS: 5 },
+  NIGHT_TOURISM: { NIGHT_STAY_EXTENSION: 12, LOCAL_FOOD_MARKET: 4 },
 };
 
 const THEME_CATEGORY_BONUS_CAP = 15;
@@ -180,11 +204,11 @@ const THEME_CATEGORY_BONUS_CAP = 15;
  * 중 **최댓값**이면서 **10점 이상**이면 그 템플릿의 핵심 테마로 본다. THEME_TEMPLATE_BONUS의 값 분포를
  * 보면 12/10점(예: FOOD→LOCAL_FOOD_MARKET, NATURE→NATURE_WELLNESS, CULTURE_HISTORY→CULTURE_HISTORY,
  * FESTIVAL→FESTIVAL_EVENT, WELLNESS→NATURE_WELLNESS)은 "이 전략이 곧 이 테마"에 해당하는 정체성 값이고,
- * 3~6점(예: LEISURE_ACTIVITY가 NATURE_WELLNESS/YOUTH_LOCAL_CONTENT/NIGHT_STAY_EXTENSION 세 곳에 나눠
+ * 3~8점(예: LEISURE_ACTIVITY가 NATURE_WELLNESS/YOUTH_LOCAL_CONTENT/NIGHT_STAY_EXTENSION 세 곳에 나눠
  * 붙는 것)은 "그 테마와도 어느 정도 어울린다"는 부차적 가산일 뿐 그 전략의 정체성이라고 보기 어렵다 —
- * 10점 미만은 핵심 테마로 채택하지 않는다. 이 기준으로는 NIGHT_STAY_EXTENSION/FAMILY_EXPERIENCE/
- * YOUTH_LOCAL_CONTENT에 핵심 테마가 없다(THEME_TEMPLATE_BONUS에 이 세 템플릿을 최댓값으로 갖는
- * ThemeCategory가 없음) — 억지로 지어내지 않고 빈 배열을 반환한다.
+ * 10점 미만은 핵심 테마로 채택하지 않는다. 이 기준으로는 FAMILY_EXPERIENCE/YOUTH_LOCAL_CONTENT에
+ * 핵심 테마가 없다(THEME_TEMPLATE_BONUS에 이 두 템플릿을 최댓값으로 갖는 ThemeCategory가 없음) —
+ * 억지로 지어내지 않고 빈 배열을 반환한다. NIGHT_TOURISM은 NIGHT_STAY_EXTENSION의 핵심 테마다.
  */
 const TEMPLATE_CORE_THEME_MIN_BONUS = 10;
 
@@ -279,6 +303,8 @@ const THEME_POI_CATEGORY_MAP: Partial<Record<ThemeCategory, PoiCategoryCode[]>> 
   WELLNESS: ["EXPERIENCE", "LODGING"],
   FESTIVAL: ["FESTIVAL"],
   LEISURE_ACTIVITY: ["EXPERIENCE"],
+  K_CONTENT: ["ATTRACTION", "EXPERIENCE"],
+  NIGHT_TOURISM: ["ATTRACTION", "FOOD", "FESTIVAL"],
 };
 
 /** 선호 테마 카테고리들이 가리키는 PoiCategoryCode 전체를 중복 없이 반환한다(순서 보존). 테마가 없으면
@@ -522,7 +548,7 @@ export interface BuildAnalysisContextInput {
  * 잘못된 폼 입력 등) 없으면 각 필드가 조용히 undefined/빈 배열로 빠진다(하위 호환, 임의 문자열이
  * 그대로 분석·프롬프트에 들어가지 않는다). */
 export function buildAnalysisContext(input: BuildAnalysisContextInput): AnalysisContext {
-  const preferredThemes = normalizeThemeList(input.preferredThemes);
+  const preferredThemes = normalizePreferredThemeList(input.preferredThemes);
   return {
     role: normalizeRole(input.role),
     nationality: normalizeNationality(input.nationality),

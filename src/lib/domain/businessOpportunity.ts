@@ -324,6 +324,8 @@ const THEME_LABEL_KO: Record<ThemeCategory, string> = {
   FESTIVAL: "축제",
   PET_FRIENDLY: "반려동물 동반",
   LEISURE_ACTIVITY: "레저·액티비티",
+  K_CONTENT: "K-콘텐츠",
+  NIGHT_TOURISM: "야간관광",
 };
 
 /** 테마 카테고리 → 공급량을 비교할 대표 POI 카테고리. 반려동물 동반은 대응하는 POI 카테고리 자체가
@@ -336,6 +338,8 @@ const THEME_TO_POI_CATEGORY: Partial<Record<ThemeCategory, PoiCategoryCode>> = {
   WELLNESS: "EXPERIENCE",
   FESTIVAL: "FESTIVAL",
   LEISURE_ACTIVITY: "EXPERIENCE",
+  K_CONTENT: "ATTRACTION",
+  NIGHT_TOURISM: "ATTRACTION",
 };
 
 function buildTargetThemeGapOpportunity(

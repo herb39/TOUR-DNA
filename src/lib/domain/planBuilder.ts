@@ -20,8 +20,8 @@ import {
   computeThemeChecklistNotes,
   normalizeMonth,
   normalizeNationality,
+  normalizePreferredThemeList,
   normalizeRole,
-  normalizeThemeList,
   type NationalityCode,
   type UserRoleCode,
 } from "./audienceContext";
@@ -1223,7 +1223,7 @@ function normalizeAudienceContext(context: AudiencePlanContext | undefined): Nor
     role: normalizeRole(context?.role),
     nationality: normalizeNationality(context?.nationality),
     travelMonth: normalizeMonth(context?.travelMonth),
-    themeCategories: classifyThemes(normalizeThemeList(context?.preferredThemes)),
+    themeCategories: classifyThemes(normalizePreferredThemeList(context?.preferredThemes)),
   };
 }
 

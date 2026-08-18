@@ -36,6 +36,7 @@ import {
   EXECUTION_DIFFICULTY_LABEL_KO,
   formatRoleFitRanking,
 } from "@/lib/domain/strategyResourcePlan";
+import { preferredThemeLabels } from "@/lib/validation/project-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   if (!project.selectedPlan || !project.analysisResult) {
     redirect(`/projects/${id}/analysis`);
   }
+  const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
 
   const plan = project.selectedPlan;
   const analysisResult = project.analysisResult;
@@ -116,7 +118,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           regionCode: project.region.code,
           poiIds: poiIdsForFit,
           travelMonth: project.travelMonth,
-          preferredThemes: project.input.preferredThemes as string[],
+          preferredThemes,
           duration: project.input.duration as DurationCode,
         }).catch(() => null) // 적합도 표시는 부가 정보라 계산 실패해도 인쇄 화면 자체는 그대로 보여준다.
       : Promise.resolve(null),
@@ -150,7 +152,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         })),
         role: project.role,
         travelMonth: project.travelMonth,
-        preferredThemes: (project.input.preferredThemes as string[] | undefined) ?? [],
+        preferredThemes,
         poiCountByCategory,
       })
     : null;

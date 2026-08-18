@@ -53,6 +53,8 @@ const THEME_LABEL_KO: Record<ThemeCategory, string> = {
   FESTIVAL: "축제·이벤트",
   PET_FRIENDLY: "반려동물",
   LEISURE_ACTIVITY: "레저·액티비티",
+  K_CONTENT: "K-콘텐츠",
+  NIGHT_TOURISM: "야간관광",
 };
 
 type TravelSource = "ROUTE" | "ESTIMATE";

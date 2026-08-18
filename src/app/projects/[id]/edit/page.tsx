@@ -3,6 +3,7 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { getProjectDetail } from "@/lib/services/projectQueries";
 import { getRegionOptions } from "@/lib/services/regionQueries";
 import { ProjectEditForm } from "@/components/forms/ProjectEditForm";
+import { readProjectPreferences } from "@/lib/validation/project-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function EditProjectPage({ params }: { params: Promise<{ id
   const [project, regionOptions] = await Promise.all([getProjectDetail(id), getRegionOptions()]);
   if (!project) notFound();
   if (!project.input) notFound();
+  const preferences = readProjectPreferences(project.input.preferredThemes);
 
   return (
     <>
@@ -50,7 +52,9 @@ export default async function EditProjectPage({ params }: { params: Promise<{ id
               budgetLevel: project.input.budgetLevel,
               transport: project.input.transport,
               groupType: project.input.groupType,
-              preferredThemes: (project.input.preferredThemes as string[]).join(", "),
+              preferredThemes: preferences.themeLabels.join(", "),
+              preferredThemeCodes: preferences.themeCodes,
+              travelConditionCodes: preferences.travelConditionCodes,
               excludedThemes: (project.input.excludedThemes as string[]).join(", "),
               memo: project.input.memo ?? "",
             }}
