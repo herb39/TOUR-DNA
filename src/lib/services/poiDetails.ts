@@ -3,6 +3,7 @@ import { isAutoTourismCandidate, type PoiCurationStatusCode, type PoiRepresentat
 import type { PoiCategory } from "@/generated/prisma/enums";
 import type { PoiDetail } from "@/lib/domain/planBuilder";
 import { classifyFoodSubcategory, isMealEligibleFoodSubcategory, type FoodSubcategory } from "@/lib/domain/foodClassification";
+import { readOptionalPoiCuration, withOptionalPoiCuration } from "./optionalPoiCuration";
 
 /** Poi.rawPayload(Json?)에서 신 분류체계 lclsSystm3(소분류)를 안전하게 꺼낸다 — 스키마 변경 없이
  * 이미 저장된 원본 응답을 그대로 읽는다. DB 없이 직접 테스트할 수 있도록 export한다(순수 함수). */
@@ -93,18 +94,28 @@ function mapRowToPoiDetail(r: PoiRow): PoiDetail {
     sourceType: r.sourceType,
     lclsSystm1: extractLclsSystm1FromRawPayload(r.rawPayload),
     lclsSystm2: extractLclsSystm2FromRawPayload(r.rawPayload),
+    curationStatus: r.curation?.status ?? null,
+    representation: r.curation?.representation ?? null,
   };
+}
+
+function withCurationRow(row: unknown): PoiRow {
+  return { ...(row as Omit<PoiRow, "curation">), curation: readOptionalPoiCuration(row) };
 }
 
 /** poiIds 순서를 그대로 유지해 POI 상세정보를 조회한다. */
 export async function fetchPoiDetailsInOrder(poiIds: string[]): Promise<PoiDetail[]> {
   if (poiIds.length === 0) return [];
-  const rows = await prisma.poi.findMany({ where: { id: { in: poiIds } }, include: { curation: true } });
+  const where = { id: { in: poiIds } };
+  const rows = await withOptionalPoiCuration(
+    () => prisma.poi.findMany({ where, include: { curation: true } }),
+    () => prisma.poi.findMany({ where }),
+  );
   const byId = new Map(rows.map((r) => [r.id, r]));
   return poiIds
     .map((id) => byId.get(id))
     .filter((r): r is NonNullable<typeof r> => Boolean(r))
-    .map(mapRowToPoiDetail);
+    .map((r) => mapRowToPoiDetail(withCurationRow(r)));
 }
 
 /** 지역에서 여러 후보를 함께 뽑아 그 중 실제 식사 가능(mealEligible===true)한 것만 최대 limit개 반환한다
@@ -163,13 +174,14 @@ export async function fetchAdditionalGeneralPois(
   alreadySelectedShoppingCoordKeys: ReadonlySet<string> = new Set(),
 ): Promise<PoiDetail[]> {
   if (limit <= 0) return [];
-  const rows = await prisma.poi.findMany({
-    where: { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } },
-    include: { curation: true },
-    take: Math.min(limit * SUPPLEMENT_GENERAL_FETCH_MULTIPLIER, SUPPLEMENT_GENERAL_FETCH_CAP),
-  });
+  const where = { regionId, category: { in: GENERAL_BACKFILL_CATEGORIES }, id: { notIn: excludeIds } };
+  const take = Math.min(limit * SUPPLEMENT_GENERAL_FETCH_MULTIPLIER, SUPPLEMENT_GENERAL_FETCH_CAP);
+  const rows = await withOptionalPoiCuration(
+    () => prisma.poi.findMany({ where, include: { curation: true }, take }),
+    () => prisma.poi.findMany({ where, take }),
+  );
   const candidates = rows
-    .map(mapRowToPoiDetail)
+    .map((r) => mapRowToPoiDetail(withCurationRow(r)))
     .filter((candidate) => isAutoTourismCandidate(candidate, []));
   const seenShoppingCoordKeys = new Set(alreadySelectedShoppingCoordKeys);
   const result: PoiDetail[] = [];
@@ -201,13 +213,14 @@ const POI_SEARCH_LIMIT = 20;
 export async function searchPoisInRegion(regionId: string, query: string): Promise<PoiDetail[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
-  const rows = await prisma.poi.findMany({
-    where: { regionId, name: { contains: trimmed } },
-    orderBy: { name: "asc" },
-    include: { curation: true },
-    take: POI_SEARCH_LIMIT,
-  });
-  return rows.map((r) => ({
+  const where = { regionId, name: { contains: trimmed } };
+  const rows = await withOptionalPoiCuration(
+    () => prisma.poi.findMany({ where, orderBy: { name: "asc" }, include: { curation: true }, take: POI_SEARCH_LIMIT }),
+    () => prisma.poi.findMany({ where, orderBy: { name: "asc" }, take: POI_SEARCH_LIMIT }),
+  );
+  return rows.map((rawRow) => {
+    const r = withCurationRow(rawRow);
+    return {
     id: r.id,
     name: r.name,
     category: r.category,
@@ -223,5 +236,6 @@ export async function searchPoisInRegion(regionId: string, query: string): Promi
     lclsSystm2: extractLclsSystm2FromRawPayload(r.rawPayload),
     curationStatus: r.curation?.status ?? null,
     representation: r.curation?.representation ?? null,
-  }));
+    };
+  });
 }

@@ -49,6 +49,8 @@ export interface PoiDetail {
    * 키워드 판정으로 fallback한다. */
   lclsSystm1?: string | null;
   lclsSystm2?: string | null;
+  curationStatus?: "UNREVIEWED" | "APPROVED" | "REJECTED" | null;
+  representation?: "UNKNOWN" | "DESTINATION" | "SUPPORT" | "CONSUMPTION" | "LODGING" | null;
   /** POI 적합도 평가(poiFit.ts, P0-1)의 데이터 출처 판정에 쓴다 — Prisma PoiSourceType("API"|"FIXTURE")
    * 문자열 그대로. 값을 지정하지 않은 기존 호출부(테스트 등)는 undefined이며, 적합도 계산 쪽에서
    * 안전하게 CURATED로 취급한다(하위 호환). */

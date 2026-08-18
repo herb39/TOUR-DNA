@@ -7,15 +7,21 @@ import {
   extractLclsSystm1FromRawPayload,
   extractLclsSystm2FromRawPayload,
 } from "./poiDetails";
+import { readOptionalPoiCuration, withOptionalPoiCuration } from "./optionalPoiCuration";
 
 export async function fetchPoisByCategory(
   regionCode: string,
 ): Promise<Partial<Record<PoiCategoryCode, PoiLike[]>>> {
   const region = await prisma.region.findUniqueOrThrow({ where: { code: regionCode } });
-  const pois = await prisma.poi.findMany({ where: { regionId: region.id }, include: { curation: true } });
+  const where = { regionId: region.id };
+  const pois = await withOptionalPoiCuration(
+    () => prisma.poi.findMany({ where, include: { curation: true } }),
+    () => prisma.poi.findMany({ where }),
+  );
 
   const map: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};
   for (const p of pois) {
+    const curation = readOptionalPoiCuration(p);
     const category = p.category as PoiCategoryCode;
     const list = map[category] ?? [];
     // 거리 기반 선택(strategy.ts selectPois)이 실제 좌표를 쓸 수 있도록 채운다 — 이전에는 여기서
@@ -35,8 +41,8 @@ export async function fetchPoisByCategory(
       // TourAPI 공식 분류 신호 — computePoiFit과 동일한 신호를 재사용한다(새 판정 로직 아님).
       lclsSystm1: extractLclsSystm1FromRawPayload(p.rawPayload),
       lclsSystm2: extractLclsSystm2FromRawPayload(p.rawPayload),
-      curationStatus: p.curation?.status ?? null,
-      representation: p.curation?.representation ?? null,
+      curationStatus: curation?.status ?? null,
+      representation: curation?.representation ?? null,
     });
     map[category] = list;
   }
