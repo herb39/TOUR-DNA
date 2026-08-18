@@ -52,6 +52,23 @@ describe("computePoiFit — 저적합 POI 판정(2026-07-30 보완)", () => {
     expect(isExcludedFromRecommendation(fit)).toBe(false);
   });
 
+  it("레거시처럼 선호 테마가 비어 있어도 호출부가 전달한 활성 전략 테마로 평가할 수 있다", () => {
+    const fit = computePoiFit(
+      {
+        id: "p3-active",
+        name: "경주 첨성대",
+        category: "ATTRACTION",
+        sourceType: "API",
+        operatingHours: null,
+        closedDays: null,
+        lclsSystm1: "HS",
+        lclsSystm2: "HS01",
+      },
+      { template: cultureHistory, travelMonth: 10, preferredThemes: [], themeCategories: ["CULTURE_HISTORY"] },
+    );
+    expect(fit.breakdown.themeFit).toMatchObject({ evaluated: true, matched: true, source: "STRUCTURAL" });
+  });
+
   it("실제 선호 테마와 장소명 키워드가 일치하면 등급이 높고 추천 대상이다", () => {
     const fit = computePoiFit(
       { id: "p4", name: "경주 문화유적 전시관", category: "ATTRACTION", sourceType: "API", operatingHours: null, closedDays: null },

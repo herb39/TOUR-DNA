@@ -19,7 +19,7 @@ import {
 import {
   classifyStructuralPoiThemes,
   classifyThemes,
-  templateCoreThemeCategories,
+  activeThemeCategories,
   type ThemeCategory,
 } from "./audienceContext";
 import { classifyLeisureActivity } from "./leisureClassification";
@@ -463,9 +463,7 @@ function themeEvidence(item: CourseItem, requiredThemes: ThemeCategory[]): Theme
 
 function evaluateThemeWarnings(input: CourseQualityInput): CourseQualityWarning[] {
   if (!input.templateId) return [];
-  const requiredThemes = [
-    ...new Set([...templateCoreThemeCategories(input.templateId), ...classifyThemes(input.preferredThemes ?? [])]),
-  ];
+  const requiredThemes = activeThemeCategories(input.templateId, input.preferredThemes ?? []);
   if (requiredThemes.length === 0) return [];
 
   const hasNonFoodTheme = requiredThemes.some((theme) => theme !== "FOOD");

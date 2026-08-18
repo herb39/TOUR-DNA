@@ -66,7 +66,32 @@ describe("buildRecommendedPoiCandidates", () => {
       existingPoiIds: [],
     });
     const ids = result.map((c) => c.id);
-    expect(ids.indexOf("nature1")).toBeLessThan(ids.indexOf("shopping-like"));
+    expect(ids).toContain("nature1");
+    expect(ids).not.toContain("shopping-like");
+    expect(result.find((candidate) => candidate.id === "nature1")?.fit.breakdown.themeFit).toMatchObject({
+      evaluated: true,
+      matched: true,
+      source: "STRUCTURAL",
+    });
+  });
+
+  it("자연×레저 다중 테마에서는 공식 LS 구조 신호 후보를 제외하지 않는다", async () => {
+    setPool({
+      EXPERIENCE: [poi("ls1", "청주 수상레저", "EXPERIENCE", { lclsSystm1: "LS", lclsSystm2: "LS02" })],
+    });
+    const result = await buildRecommendedPoiCandidates({
+      templateId: "NATURE_WELLNESS",
+      regionCode: "region-1",
+      travelMonth: 8,
+      preferredThemes: ["자연", "레저·액티비티"],
+      existingPoiIds: [],
+    });
+    expect(result.map((candidate) => candidate.id)).toContain("ls1");
+    expect(result.find((candidate) => candidate.id === "ls1")?.fit.breakdown.themeFit).toMatchObject({
+      evaluated: true,
+      matched: true,
+      source: "STRUCTURAL",
+    });
   });
 
   it("동일 시설(동일 좌표) SHOPPING 후보는 대표 1건만 후보 풀에 포함한다", async () => {

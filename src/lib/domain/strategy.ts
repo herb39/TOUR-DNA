@@ -9,6 +9,7 @@ import { formatSignedPercent } from "@/lib/format";
 import {
   classifyStructuralPoiThemes,
   classifyThemes,
+  activeThemeCategories,
   computeNationalityFeasibilityDelta,
   computeRoleFit,
   computeThemeFit,
@@ -321,7 +322,7 @@ function selectPois(
   template: StrategyTemplate,
   poisByCategory: Partial<Record<PoiCategoryCode, PoiLike[]>>,
   duration: DurationCode,
-  preferredThemeCategories: ThemeCategory[] = [],
+  preferredThemes: string[] = [],
 ): { poiIds: string[]; touchpoints: ConsumptionTouchpoints } {
   // 이미 선택된 POI 중 좌표가 있는 것들의 무게중심 — 두 번째 선택부터 이 지점과 가까운 후보를 우선한다
   // (1단계: 날짜별로 나누는 것은 planBuilder.ts 책임이라 이 단계에서는 "전체적으로 뭉치게" 하는
@@ -347,7 +348,8 @@ function selectPois(
   // 핵심 테마(templateCoreThemeCategories, THEME_TEMPLATE_BONUS에서 도출)를 합친다. 사용자가
   // preferredThemes를 입력하지 않았어도(Production에서 실제로 흔한 경우) 전략 자체가 정체성으로 갖는
   // 테마(예: CULTURE_HISTORY 전략의 CULTURE_HISTORY 테마)가 있으면 그것만으로도 후보 랭킹에 반영된다.
-  const rankingThemeCategories = [...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(template.id)])];
+  const preferredThemeCategories = classifyThemes(preferredThemes);
+  const rankingThemeCategories = activeThemeCategories(template.id, preferredThemes);
 
   // 동일 시설의 대표 장소와 부속 시설을 한 관광 경험으로 취급한다(예: 생태공원·생태공원캠핑장).
   // 대표 선택은 관광지·체험·식음·쇼핑 순서로 두고, 숙박은 아래에서 별도 슬롯으로만 선택한다.
@@ -729,7 +731,7 @@ export function computeStrategies(
       roleFit,
       ...(roleAdjustment ? { roleFitReason: roleAdjustment.reason } : {}),
     };
-    const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration, preferredThemeCategories);
+    const { poiIds, touchpoints } = selectPois(template, poisByCategory, input.duration, input.preferredThemes);
 
     return {
       template,

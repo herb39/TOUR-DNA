@@ -6,7 +6,7 @@ import {
   type PoiFitResult,
 } from "@/lib/domain/poiFit";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
-import { classifyThemes, templateCoreThemeCategories } from "@/lib/domain/audienceContext";
+import { activeThemeCategories } from "@/lib/domain/audienceContext";
 import { themeRelevanceTier, type PoiLike } from "@/lib/domain/strategy";
 import { dedupeBySameCoordinates } from "@/lib/domain/poiDedup";
 import { dedupeBySameSite } from "@/lib/domain/poiDedup";
@@ -62,15 +62,17 @@ const CATEGORY_TIER_ORDER: Record<PoiCategoryTier, number> = { CORE: 0, SUPPLEME
 
 export async function buildRecommendedPoiCandidates(params: CandidatePoolParams): Promise<CandidatePoi[]> {
   const template = getTemplateById(params.templateId);
-  const context: PoiFitContext = { template, travelMonth: params.travelMonth, preferredThemes: params.preferredThemes };
+  const rankingThemeCategories = activeThemeCategories(params.templateId, params.preferredThemes);
+  const context: PoiFitContext = {
+    template,
+    travelMonth: params.travelMonth,
+    preferredThemes: params.preferredThemes,
+    themeCategories: rankingThemeCategories,
+  };
 
   // rankingThemeCategories: 사용자 선호 테마와 전략 자체의 핵심 테마(templateCoreThemeCategories)를
   // 합집합한다 — strategy.ts의 selectPois가 이미 쓰는 것과 정확히 같은 계산이라, preferredThemes가
   // 비어 있어도(청주 운영 사례) 전략 핵심 테마 기반 추천이 그대로 동작한다.
-  const preferredThemeCategories = classifyThemes(params.preferredThemes);
-  const rankingThemeCategories = [
-    ...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(params.templateId)]),
-  ];
 
   const poisByCategory = await fetchPoisByCategory(params.regionCode);
   const existingIds = new Set(params.existingPoiIds);

@@ -108,6 +108,8 @@ export interface PoiFitContext {
   template: StrategyTemplate;
   travelMonth: number;
   preferredThemes: string[];
+  /** 사용자가 고른 테마와 전략 핵심 테마를 합친 활성 테마. 없으면 기존 preferredThemes 분류를 사용한다. */
+  themeCategories?: ReturnType<typeof classifyThemes>;
 }
 
 export interface PoiFitResult {
@@ -161,10 +163,11 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
   // 않는다 — 테마별로 동일 정책을 강제하지 않고, 카테고리만으로 확정하기 어려운 테마(예:
   // CULTURE_HISTORY의 EXPERIENCE — "워터파크"류 오인 방지, 2026-07-30)는 기존 보수 정책을 그대로
   // 유지한다.
-  const themeCategories = context.preferredThemes.length > 0 ? classifyThemes(context.preferredThemes) : [];
+  const themeCategories = context.themeCategories ?? (context.preferredThemes.length > 0 ? classifyThemes(context.preferredThemes) : []);
+  const themeBasisLabel = context.themeCategories ? "활성 테마" : "선택한 선호 테마";
   const isPureFoodTheme = themeCategories.length === 1 && themeCategories[0] === "FOOD";
   const categoryIsThemeRelevant = !isPureFoodTheme || input.category === "FOOD";
-  const themeEvaluated = context.preferredThemes.length > 0 && categoryIsThemeRelevant;
+  const themeEvaluated = themeCategories.length > 0 && categoryIsThemeRelevant;
   const preferredCategories = themeEvaluated ? new Set(themeCategories) : null;
 
   // 2026-08-14(POI 추천 품질 2차 고도화): 이름 키워드보다 신뢰할 수 있는 공식 분류 신호
@@ -231,14 +234,14 @@ export function computePoiFit(input: PoiFitInput, context: PoiFitContext): PoiFi
     if (themeMatched) {
       positiveReasons.push(
         themeMatchSource === "STRUCTURAL"
-          ? "한국관광공사 관광정보의 공식 분류상 선택한 선호 테마와 일치하는 유형입니다."
-          : "선택한 선호 테마와 장소명 키워드가 일치합니다.",
+          ? `한국관광공사 관광정보의 공식 분류상 ${themeBasisLabel}와 일치하는 유형입니다.`
+          : `${themeBasisLabel}와 장소명 키워드가 일치합니다.`,
       );
     } else {
       cautions.push(
         themeMatchSource === "STRUCTURAL"
-          ? "한국관광공사 관광정보의 공식 분류상 선호 테마와 다른 유형으로 확인되었습니다(실제 성격은 다를 수 있어 별도 확인 권장)."
-          : "선호 테마와 일치하는 키워드를 장소명에서 확인하지 못했습니다(실제 성격은 다를 수 있어 별도 확인 권장).",
+          ? `한국관광공사 관광정보의 공식 분류상 ${themeBasisLabel}와 다른 유형으로 확인되었습니다(실제 성격은 다를 수 있어 별도 확인 권장).`
+          : `${themeBasisLabel}와 일치하는 키워드를 장소명에서 확인하지 못했습니다(실제 성격은 다를 수 있어 별도 확인 권장).`,
       );
     }
   }

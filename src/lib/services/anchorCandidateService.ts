@@ -12,7 +12,7 @@ import {
   type PoiFitContext,
   type PoiFitResult,
 } from "@/lib/domain/poiFit";
-import { classifyThemes, templateCoreThemeCategories } from "@/lib/domain/audienceContext";
+import { activeThemeCategories, classifyThemes } from "@/lib/domain/audienceContext";
 import { dedupeBySameCoordinates, dedupeBySameSite } from "@/lib/domain/poiDedup";
 import {
   decidePoiRecommendation,
@@ -170,10 +170,7 @@ export async function buildAnchorCandidateSuggestions(
 
   const template = getTemplateById(params.templateId);
   const context: PoiFitContext = { template, travelMonth: params.travelMonth, preferredThemes: params.preferredThemes };
-  const preferredThemeCategories = classifyThemes(params.preferredThemes);
-  const rankingThemeCategories = [
-    ...new Set([...preferredThemeCategories, ...templateCoreThemeCategories(params.templateId)]),
-  ];
+  const rankingThemeCategories = activeThemeCategories(params.templateId, params.preferredThemes);
   const existingIds = new Set(params.existingPoiIds);
   const poisByCategory = await fetchPoisByCategory(params.regionCode);
   const allNonLodging = dedupeBySameSite(

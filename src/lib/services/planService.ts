@@ -14,6 +14,7 @@ import {
   type DurationCode,
 } from "@/lib/domain/strategy";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
+import { activeThemeCategories } from "@/lib/domain/audienceContext";
 import { filterRecommendablePois, isRequiredSlotCategory, type PoiFitContext } from "@/lib/domain/poiFit";
 import { enrichKpis, type AxisScoreLike } from "@/lib/domain/kpiLinking";
 import { DNA_AXES, type AxisStatus } from "@/lib/domain/types";
@@ -62,7 +63,12 @@ function excludeBelowMinimumFitPois(
   preferredThemes: string[],
 ): PoiDetail[] {
   const template = getTemplateById(templateId);
-  const context: PoiFitContext = { template, travelMonth, preferredThemes };
+  const context: PoiFitContext = {
+    template,
+    travelMonth,
+    preferredThemes,
+    themeCategories: activeThemeCategories(templateId, preferredThemes),
+  };
 
   const generalPois = pois.filter((p) => !isRequiredSlotCategory(p.category as PoiCategoryCode));
   const fitInputs = generalPois.map((p) => ({

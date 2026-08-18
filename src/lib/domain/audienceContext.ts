@@ -236,6 +236,12 @@ export function templateCoreThemeCategories(templateId: string): ThemeCategory[]
   return TEMPLATE_CORE_THEMES[templateId] ?? [];
 }
 
+/** 자동 초안·일반 후보·실시간 검증이 함께 보는 활성 테마 집합이다. 사용자가 선택한 테마를 먼저
+ * 보존하고, 전략 템플릿의 핵심 테마를 합친다. 중복은 제거하되 어느 한쪽을 버리지 않는다. */
+export function activeThemeCategories(templateId: string, preferredThemes: string[]): ThemeCategory[] {
+  return [...new Set([...classifyThemes(preferredThemes), ...templateCoreThemeCategories(templateId)])];
+}
+
 /**
  * TourAPI 신 분류체계(lclsSystm1 대분류/lclsSystm2 중분류) → ThemeCategory 공식 신호 매핑(2026-08-14,
  * POI 추천 품질 2차 고도화). THEME_KEYWORDS(자유 텍스트 이름 substring 매칭)와 달리, 한국관광공사가

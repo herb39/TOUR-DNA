@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyThemes,
   classifyStructuralPoiThemes,
+  activeThemeCategories,
   computeNationalityChecklistNotes,
   computeNationalityFeasibilityDelta,
   computeRoleChecklistNotes,
@@ -119,6 +120,20 @@ describe("classifyThemes — 자유 텍스트 테마를 내부 카테고리로 �
 
   it("전시시설(VE07)은 기존 문화·역사와 문화예술 신호를 함께 제공한다", () => {
     expect(classifyStructuralPoiThemes("VE", "VE07")).toEqual(["CULTURE_HISTORY", "CULTURE_ARTS"]);
+  });
+});
+
+describe("activeThemeCategories — 사용자 테마와 전략 핵심 테마의 공통 집합", () => {
+  it("사용자 테마를 보존하면서 전략 핵심 테마를 함께 활성화한다", () => {
+    expect(activeThemeCategories("NATURE_WELLNESS", ["레저·액티비티"])).toEqual([
+      "LEISURE_ACTIVITY",
+      "NATURE",
+      "WELLNESS",
+    ]);
+  });
+
+  it("사용자 테마가 비어 있어도 템플릿 핵심 테마를 반환한다", () => {
+    expect(activeThemeCategories("CULTURE_HISTORY", [])).toEqual(["CULTURE_HISTORY"]);
   });
 });
 

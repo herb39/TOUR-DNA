@@ -51,7 +51,10 @@ function hasNatureWellnessConflict(
   const natureWellnessContext = themeCategories.includes("NATURE") || themeCategories.includes("WELLNESS");
   if (!natureWellnessContext) return false;
   if (structuralThemes.length > 0) {
-    return !structuralThemes.some((theme) => theme === "NATURE" || theme === "WELLNESS");
+    // 다중 테마에서는 선택한 테마 중 하나라도 공식 구조 신호와 일치하면 보존한다. 기존에는
+    // 자연·웰니스가 활성화된 순간 LS(레저)·VE(문화예술)까지 모두 충돌로 제외해, 자연×레저와
+    // 자연×문화예술 조합에서 사용자의 두 번째 테마가 자동 초안·후보 풀에 반영되지 않았다.
+    return !structuralThemes.some((theme) => themeCategories.includes(theme));
   }
 
   // 공식 분류가 아직 세부 테마로 매핑되지 않은 경우에도, 자연·웰니스와 명백히 다른 대분류만

@@ -7,6 +7,7 @@ import {
   type PoiFitResult,
 } from "@/lib/domain/poiFit";
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
+import { activeThemeCategories } from "@/lib/domain/audienceContext";
 import {
   MEAL_RESERVE_TARGET_BY_DURATION,
   NON_LODGING_POI_TARGET_BY_DURATION,
@@ -56,7 +57,12 @@ export async function buildStrategyPoiFitSummary(params: {
   duration: DurationCode;
 }): Promise<StrategyPoiFitSummary> {
   const template = getTemplateById(params.templateId);
-  const context = { template, travelMonth: params.travelMonth, preferredThemes: params.preferredThemes };
+  const context = {
+    template,
+    travelMonth: params.travelMonth,
+    preferredThemes: params.preferredThemes,
+    themeCategories: activeThemeCategories(params.templateId, params.preferredThemes),
+  };
 
   const details = await fetchPoiDetailsInOrder(params.poiIds);
   // 2026-08-13: params.poiIds는 이미 실제 코스에 포함된 POI 목록이다 — 여기서 각 POI의 raw fit만
