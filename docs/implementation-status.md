@@ -99,6 +99,11 @@
 
 - `tests/unit/festivalAnchorCourse.test.ts`: 정확 시각, 미확정 차단, 지정 일차 삽입, 중복·stale, 고정·일반 POI 이동, 좌표 없음, 코스만 제거를 검증한다.
 - `tests/unit/PlanEditor.test.tsx`: 명시적 고정 버튼, 기존 POI 보존, 고정 일정 표시, 미확정 안내, 코스에서만 제거를 검증한다.
+- 2026-08-18 실제 Chromium E2E를 추가 확인했다. Playwright `1.61.1`의 Chromium revision `1228`을 로컬에 설치하고, `localhost:3000`과 로컬 PostgreSQL(`localhost:5432/tour_dna_local`)만 사용했다. Production Neon에는 접근·migration·데이터 쓰기를 하지 않았다.
+- 이전에 남아 있던 `e2e/core-flow.spec.ts` 읽기 전용 브라우저 검증 3건(홈 데모의 DNA 5축·전략 3안, 근거 보기 원값·정규화값·출처, Kakao 지도 컨테이너)을 실제 Chromium에서 모두 통과시켰다. 기본 30초 제한에서는 로컬 개발 서버의 분석 페이지 초기 응답이 약 29초까지 걸려 timeout이 발생했지만, 앱 오류가 아닌 로컬 개발 응답 시간 문제로 확인해 해당 실행만 `--timeout=120000`으로 재실행했으며 3건 모두 통과했다. 같은 파일의 Cron 401 읽기 전용 검증도 통과했다.
+- `e2e/plan-drag-drop.spec.ts` 9건과 `e2e/plan-map-live-update.spec.ts` 6건을 실제 Chromium에서 재실행해 모두 통과했다. 같은 날짜 재정렬, 날짜 간 이동, 추천 후보 추가·삭제, 키보드 DnD, 저장·reload, SHOPPING 중복 회귀, 375px fallback, 지도 marker·동선 유지와 저장 시 서버 요청 증가 정책을 확인했다. 키보드 검증에는 hydration 직후 센서 연결을 기다리는 테스트 대기와, 모바일에서 접힌 추천 후보 패널을 여는 동작만 보강했으며 앱 코드는 수정하지 않았다.
+- `e2e/plan-festival-anchor.spec.ts`를 실제 사용자 흐름 기준으로 보강했다. 고정 전후 기존 POI 보존·Anchor 잠금, 저장·reload, 별도 브라우저 context 공유, `코스에서만 제거`와 ProjectAnchor 확정 유지, ProjectAnchor 변경 stale 재반영·저장, ProjectAnchor 삭제 orphan 제거·저장·reload를 각각 실제 Chromium에서 통과시켰다. stale/orphan 상태는 로컬 QA fixture에만 만들고 브라우저에서 화면·저장 결과를 확인했다.
+- 브라우저 검증에서 앱 기능 버그는 발견되지 않았다. dnd-kit hydration 경고(`aria-describedby` mismatch)는 기존 경고로 동작 실패가 아니며 이번 단계에서 앱 코드를 수정하지 않았다. 실제 touch pointer drag 자체는 Playwright synthetic touch의 신뢰도 한계로 미검증 상태로 남긴다.
 
 ### 2026-08-18 갱신 — P1-2a 프로젝트 Anchor 저장·확정
 

@@ -130,14 +130,17 @@ test.describe("코스 Drag & Drop 실제 pointer 상호작용 검증(경주, 로
 
     const firstHandle = scheduleHandle(page, beforeNames[0]);
     await firstHandle.focus();
+    // 페이지가 보이는 시점과 dnd-kit KeyboardSensor가 hydration을 마친 시점이 다를 수 있다.
+    // 실제 키보드 사용자가 겪는 이벤트 순서를 안정적으로 관찰하기 위해 센서가 연결될 여유를 둔다.
+    await page.waitForTimeout(500);
     // dnd-kit KeyboardSensor 활성화(Space) → 이동(ArrowDown) → 드롭(Space) 사이에 React state가
     // 반영될 시간을 준다(연속 press 사이 지연 없이 보내면 활성화 전에 ArrowDown이 무시된다).
     await page.keyboard.press("Space");
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(500);
     await page.keyboard.press("ArrowDown");
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(500);
     await page.keyboard.press("Space");
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(500);
 
     const afterNames = (await items.locator("span.font-medium.text-slate-800").allTextContents()).map((t) => t.trim());
     expect(afterNames[1]).toBe(beforeNames[0]);
@@ -242,7 +245,10 @@ test.describe("코스 Drag & Drop 실제 pointer 상호작용 검증(청주, 로
     expect(overflow.scrollWidth).toBe(overflow.clientWidth);
 
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    // 모바일에서는 후보 패널이 기본 접힘 상태라, DOM에 있어도 카드를 조작할 수 없다.
+    await candidateSection.locator("summary").click();
     const firstCandidateCard = candidateSection.locator("ul > li").first();
+    await expect(firstCandidateCard).toBeVisible();
     const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
     expect(candidateName).toBeTruthy();
 
