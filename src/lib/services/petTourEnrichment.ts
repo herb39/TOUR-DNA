@@ -28,6 +28,8 @@ export interface PetTourEnrichmentParams {
   maxListPages: number;
   delayMs: number;
   dryRun?: boolean;
+  /** 현재 후보·코스 감사에서 런타임으로 계산한 contentId 우선순위. 프로젝트/POI를 하드코딩하지 않는다. */
+  priorityContentIds?: string[];
 }
 
 export interface PetTourEnrichmentResult {
@@ -360,7 +362,13 @@ export async function enrichPetTourEvidence(params: PetTourEnrichmentParams): Pr
     countLocalApiPois(regionIds),
     findExistingEvidence(allOfficialContentIds),
   ]);
-  const selection = selectPetTourTargets({ officialItems, localPois, existingEvidence, maxItems: params.maxItems });
+  const selection = selectPetTourTargets({
+    officialItems,
+    localPois,
+    existingEvidence,
+    maxItems: params.maxItems,
+    priorityContentIds: params.priorityContentIds,
+  });
   const categoryDistribution = emptyDistribution();
   const regionDistribution = emptyDistribution();
   for (const poi of selection.matchedPois) {

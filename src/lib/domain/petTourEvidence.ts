@@ -148,6 +148,8 @@ export function selectPetTourTargets(params: {
   localPois: PetTourLocalPoi[];
   existingEvidence: ExistingPetTourEvidence[];
   maxItems: number;
+  /** 런타임에서 계산한 사용자 노출 우선순위. 없으면 기존 contentId 순서를 유지한다. */
+  priorityContentIds?: string[];
 }): PetTourTargetSelection {
   const allOfficialItems = deduplicatePetTourList(params.officialItems);
   const hiddenItems = allOfficialItems.filter((item) => item.sourceShowFlag === "0");
@@ -175,6 +177,13 @@ export function selectPetTourTargets(params: {
     else changedTargets.push(target);
   }
 
+  const priority = new Map(params.priorityContentIds?.map((contentId, index) => [contentId, index]) ?? []);
+  const prioritizedChangedTargets = [...changedTargets].sort(
+    (left, right) =>
+      (priority.get(left.contentid) ?? Number.MAX_SAFE_INTEGER) - (priority.get(right.contentid) ?? Number.MAX_SAFE_INTEGER) ||
+      left.contentid.localeCompare(right.contentid),
+  );
+
   return {
     officialItems,
     hiddenItems,
@@ -182,7 +191,7 @@ export function selectPetTourTargets(params: {
     unmatchedContentIds,
     cacheHits,
     changedTargets,
-    fetchTargets: changedTargets.slice(0, params.maxItems),
+    fetchTargets: prioritizedChangedTargets.slice(0, params.maxItems),
   };
 }
 

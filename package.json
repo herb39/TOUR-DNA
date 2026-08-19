@@ -29,6 +29,7 @@
     "verify:visitor-api": "tsx --env-file-if-exists=.env.local scripts/verify-visitor-api.ts",
     "audit:region-codes": "tsx --env-file=.env.local scripts/audit-region-codes.ts",
     "audit:tourism-data": "tsx --env-file=.env.local scripts/audit-tourism-data.ts",
+    "audit:pet-candidate-coverage": "tsx --env-file=.env.local scripts/audit-pet-candidate-coverage.mts",
     "dataset:activate": "tsx --env-file=.env.local scripts/activate-dataset.ts",
     "dataset:status": "tsx --env-file=.env.local scripts/dataset-status.ts",
     "dataset:discover": "tsx --env-file=.env.local scripts/dataset-discover.ts",

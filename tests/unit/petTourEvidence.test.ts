@@ -54,4 +54,24 @@ describe("petTour evidence", () => {
     expect(result.changedTargets.map((item) => item.contentid)).toEqual(["2"]);
     expect(result.unmatchedContentIds).toEqual(["3"]);
   });
+
+  it("런타임 우선순위가 있으면 contentId 순서보다 먼저 상세 대상이 된다", () => {
+    const result = selectPetTourTargets({
+      officialItems: [
+        { contentid: "1", modifiedtime: "20260819010101", showflag: "1" },
+        { contentid: "2", modifiedtime: "20260819010101", showflag: "1" },
+        { contentid: "3", modifiedtime: "20260819010101", showflag: "1" },
+      ],
+      localPois: [
+        { id: "poi-1", externalId: "1", regionId: "r", sourceType: "API", category: "ATTRACTION", regionCode: "R", regionName: "지역" },
+        { id: "poi-2", externalId: "2", regionId: "r", sourceType: "API", category: "ATTRACTION", regionCode: "R", regionName: "지역" },
+        { id: "poi-3", externalId: "3", regionId: "r", sourceType: "API", category: "ATTRACTION", regionCode: "R", regionName: "지역" },
+      ],
+      existingEvidence: [],
+      maxItems: 2,
+      priorityContentIds: ["3", "1"],
+    });
+
+    expect(result.fetchTargets.map((item) => item.contentid)).toEqual(["3", "1"]);
+  });
 });

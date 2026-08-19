@@ -3399,3 +3399,55 @@ soft ranking 준비도는 **PARTIAL**이다. 6개 지역의 저장된 상세 row
 청주·대전의 목록이 SHOPPING에 과도하게 집중되어 있다. 따라서 이번 단위에서는 ranking/filter·자동
 코스·전략 점수를 변경하지 않는다. 다음은 대표 지역의 남은 교집합을 더 채우되, 목록 순서가 아닌
 현재 recommendable 후보와 FOOD/LODGING/ATTRACTION category를 균형 표본으로 검증하는 단계다.
+## 2026-08-19 갱신(4) — PET 후보·코스 coverage ceiling 재검증
+
+직전 계획대로 상세 API를 먼저 확장하지 않고, 6개 대표 프로젝트의 현재 사용자 노출 대상을 공식
+`areaBasedList2` 목록과 대조했다. 대상은 일반 추천 후보 풀, 저장된 실행안의 일반 POI·숙박, 현재
+Anchor 연계 후보이며, 축제 Anchor 자체는 제외했다. 감사 스크립트는 목록 조회와 로컬 DB 읽기를
+수행하고, 실제 `LISTED_NOT_ENRICHED`가 있을 때만 런타임 우선순위로 상세 보강한다.
+
+### 3상태 결과
+
+| 대상 | 전체 | `EVIDENCE_AVAILABLE` | `LISTED_NOT_ENRICHED` | `NOT_IN_OFFICIAL_LIST` | 현재 coverage | 보강 후 ceiling |
+|---|---:|---:|---:|---:|---:|---:|
+| 일반 추천 후보 | 46 | 3 | 0 | 43 | 6.5% | 6.5% |
+| 대표 코스 POI·숙박 | 99 | 5 | 0 | 94 | 5.1% | 5.1% |
+| 후보+코스 | 145 | 8 | 0 | 137 | 5.5% | 5.5% |
+| Anchor 연계 후보 | 24 | 1 | 0 | 23 | 4.2% | 4.2% |
+
+상세 보강 전 후보는 `1/46`, `LISTED_NOT_ENRICHED 2건`이었다. 두 건 모두 강릉의 현재 일반
+추천 후보였고, 코스·Anchor 연계 후보에는 공식 목록에 있으나 상세가 없는 대상이 없었다. 따라서
+후보의 실제 사용자 coverage를 올리는 두 건만 처리했다. 공식 목록에 없는 POI 137건은 이용 불가로
+해석하지 않고 `NOT_IN_OFFICIAL_LIST`로 남겼다.
+
+### 실제 보강과 결과
+
+- 런타임 계산 순서는 현재 recommendable 후보 → 코스 POI·숙박 → 핵심 상품 category
+  `ATTRACTION/FOOD/LODGING/EXPERIENCE` → 그 밖의 대상이다. 프로젝트명·장소명으로 대상을
+  고정하지 않으며, 보강 대상은 감사 시점의 교집합에서 계산한다.
+- 상세 API는 2회만 호출했고 모두 `SUCCESS`로 저장했다. 결과는 후보 `1/46 → 3/46`이며 두
+  원문은 모두 `CONDITIONAL`이었다. 후보 ceiling은 2.2%에서 6.5%로 상승했고 미보강 대상은
+  0건이 됐다.
+- 6개 대표 단위의 공식 목록 교집합 309건 중 저장 evidence는 `139건(45.0%)`이다. 저장된
+  evidence 상태는 `SUCCESS 139`, `EMPTY 0`, `ERROR 0`, 정규화 availability는
+  `CONFIRMED 101`, `CONDITIONAL 38`, `UNKNOWN 0`이다. 공식 목록 미등재는 `UNKNOWN`과
+  별도 상태이며, 이를 불가로 해석하지 않는다.
+- 후보+코스 category는 `ATTRACTION 6/42`, `FOOD 0/69`, `LODGING 0/16`,
+  `EXPERIENCE 0/4`, `SHOPPING 2/9`가 evidence available이다. `SHOPPING`을 제외한
+  핵심 상품 category는 `6/131`이며, 이 수치는 목록 밖 POI를 불가로 세지 않은 교집합 기준이다.
+
+### Anchor·soft ranking 판정
+
+대전 유성구와 세종의 Anchor 연계 후보가 각각 역할별 12건으로 계산됐고, 제천은 `EMPTY`, 나머지
+대표 프로젝트는 `NOT_READY`였다. Anchor 자체는 측정에서 제외했으며, Anchor 후보 24건 중
+evidence available은 1건이고 목록 미보강 대상은 0건이다.
+
+이번 결과는 **soft ranking을 바로 구현할 근거로는 부족하다**. 현재 후보 coverage는 6.5%로
+개선됐지만 공식 목록 미등재 후보가 43/46이고, 공식 PET 목록 자체도 지역별로 `SHOPPING`에
+치우친다. 따라서 ranking/filter·자동 코스·UI는 변경하지 않았다. 다음 PET 작업은 무차별 상세
+수집이 아니라 새로 노출되는 listed 후보가 생길 때만 같은 방식으로 소량 보강하는 것으로 종료한다.
+제품 로드맵의 다음 우선순위는 무장애 API 권한 확인과 조건 근거 pipeline 검증이며, 그 뒤 후보를
+일정에 추가한 직후의 동선·거리 재정렬 및 체류시간·관광가치 검토로 이동한다.
+
+이번 실행은 목록 7회, 상세 2회로 외부 API 요청 9회였고, 로컬 PostgreSQL에 evidence 2건만
+추가했다. Production Neon에는 접근·migration·write를 수행하지 않았다.
