@@ -16,6 +16,7 @@ import {
 } from "@/lib/domain/petTourEvidence";
 import { ALLOW_REMOTE_DATA_SYNC_ENV, checkDataSyncTarget } from "@/lib/services/dataSyncTargetGuard";
 import { MAX_PET_TOUR_DETAIL_ITEMS_PER_RUN, MAX_PET_TOUR_LIST_PAGES_PER_RUN } from "@/lib/domain/petTourLimits";
+import { resolvePetTourRegionCodes } from "@/lib/domain/petTourRegion";
 
 export const PET_TOUR_LIST_PAGE_SIZE = 1000;
 
@@ -95,24 +96,6 @@ const EMPTY_RESULT = (params: PetTourEnrichmentParams, scope: string): PetTourEn
   regionDistribution: {},
   messages: [],
 });
-
-function normalizeLdongSignguCode(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const digits = value.replace(/\D/g, "");
-  return digits.length >= 3 ? digits.slice(-3) : null;
-}
-
-function resolveRegionCodes(region: {
-  apiAreaCode: string | null;
-  apiSigunguCode: string | null;
-  tourApiLdongRegnCd: string | null;
-  tourApiLdongSignguCd: string | null;
-}): { lDongRegnCd: string | null; lDongSignguCd: string | null } {
-  return {
-    lDongRegnCd: region.tourApiLdongRegnCd ?? region.apiAreaCode,
-    lDongSignguCd: region.tourApiLdongSignguCd ?? normalizeLdongSignguCode(region.apiSigunguCode),
-  };
-}
 
 function emptyDistribution(): Record<string, number> {
   return {};
@@ -351,7 +334,7 @@ export async function enrichPetTourEvidence(params: PetTourEnrichmentParams): Pr
     code: region.code,
     name: region.name,
     level: region.level,
-    ...resolveRegionCodes(region),
+    ...resolvePetTourRegionCodes(region),
   }));
   const listRegion = params.mode === "area" ? regionScopes[0] : undefined;
   const list = await fetchPetTourList({ serviceKey, mode: params.mode, region: listRegion, maxListPages: params.maxListPages });

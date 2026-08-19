@@ -560,3 +560,20 @@ weight·drift threshold·Demand/Network metric·LLM·전략 scoring·유사도 �
 
 반려동물 다음 단계는 실제 QA에서 확인된 공식 evidence coverage를 더 넓히는 것과 soft ranking 중 하나를
 선택하는 일이며, hard filter는 아직 도입하지 않는다.
+
+## 2026-08-19 추가 계획 — PET coverage 실측 후 다음 우선순위
+
+6개 대표 조사 단위의 공식 PET 목록은 309개 local POI와 교집합했고, 현재 로컬 evidence는 137개로
+`44.3%`를 덮는다. 저장된 상세는 모두 `SUCCESS`이며 `CONFIRMED 101`·`CONDITIONAL 36`이지만,
+실제 화면의 현재 추천 후보 풀은 `46건 중 1건(2.2%)`만 usable이고 대표 코스는 `99건 중 5건(5.1%)`이다.
+강릉·경주는 관광지·음식·숙박이 섞인 반면 청주 흥덕구·대전 유성구·세종은 공식 PET 목록이 쇼핑
+입점 매장에 크게 편중되어 있다.
+
+따라서 soft ranking은 **PARTIAL**로 판정하고 아직 구현하지 않는다. 다음 P1 우선 작업은 **PET coverage
+추가 확대**다. 지역별 남은 공식 교집합을 현재 recommendable 후보·코스에 실제로 사용되는 POI와
+ATTRACTION/FOOD/LODGING category가 균형을 이루도록 증분 검증한다. 이 단계에서도 missing을 불가로
+해석하지 않으며, hard filter·자동 코스 변경·추천 순서 변경·전략 점수 변경은 하지 않는다.
+
+세종 단일 코드(`36110`)는 특정 지역 예외가 아닌 Region master 구조 신호로 일반화해 PET 수집 경로에
+반영했고, 관련 단위 테스트를 추가했다. API 호출은 개발계정 1,000건 한도 안에서 제한하고 로컬
+PostgreSQL만 사용한다. Production Neon migration·sync·evidence write는 금지 원칙을 유지한다.

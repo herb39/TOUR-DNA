@@ -3317,3 +3317,85 @@ production build는 커밋 전 최종 검증에서 다시 실행한다.
 반려동물 사용자 기능 1차 연결은 구현 완료다. 공식 evidence가 없는 POI가 많으므로 아직 PET 적합성 확정 필터나
 후보 정렬 보정은 하지 않는다. 다음 판단은 coverage를 소량 확대해 상태 분포와 장소 유형별 품질을 확인한 뒤
 `soft ranking`을 도입할지 결정하는 것이다. 무장애는 API 권한 확보 후 같은 모델과 read/advisory 원칙을 적용한다.
+
+## 2026-08-19 갱신(3) — 6개 지역 PET coverage 실측과 soft ranking 판정
+
+이번 단위에서는 사용자 화면·추천 순서·hard filter를 바꾸지 않고, 로컬 PostgreSQL의
+`PoiConditionEvidence(conditionType=PET)` coverage를 6개 대표 조사 단위로 넓혀 정량 감사했다.
+공식 목록과 local `Poi.externalId`의 교집합만 상세 대상에 포함했으며 Production Neon에는 접근하지 않았다.
+
+### 공식 목록·local POI 교집합
+
+| Region master code | 표시 지역 | 공식 API 코드 | 공식 PET 목록 | local API POI | 교집합 | 목록/local POI |
+|---|---|---|---:|---:|---:|---:|
+| `SGG_GYEONGJU` | 경주시 | `47/130` | 48 | 620 | 48 | 7.7% |
+| `SGG_GANGNEUNG` | 강릉시 | `51/150` | 110 | 1,001 | 107 | 10.7% |
+| `SGG_JECHEON` | 제천시 | `43/150` | 10 | 246 | 10 | 4.1% |
+| `SGG_CHUNGBUK_113` | 청주시 흥덕구 | `43/113` | 47 | 141 | 47 | 33.3% |
+| `SGG_DAEJEON` | 유성구(대전 대표) | `30/200` | 80 | 388 | 80 | 20.6% |
+| `SGG_SEJONG` | 세종특별자치시 | `36110/36110` | 17 | 204 | 17 | 8.3% |
+
+세종은 Region master가 `tourApiLdongRegnCd=36110`, `tourApiLdongSignguCd=null`로 보존하는 단일
+행정 조회 단위다. 이를 지역명 특례로 처리하지 않고 `apiSigunguCode`와 `tourApiLdongRegnCd`가 같은
+단일 코드라는 일반 신호로 두 API 파라미터에 전달하도록 보완했다.
+
+공식 목록 교집합의 category 분포는 경주 `ATTRACTION 23 / SHOPPING 19 / FOOD 2 / LODGING 3 /
+EXPERIENCE 1`, 강릉 `ATTRACTION 30 / SHOPPING 46 / FOOD 21 / LODGING 8 / EXPERIENCE 2`, 제천
+`ATTRACTION 4 / SHOPPING 5 / FOOD 1`, 청주 흥덕구 `ATTRACTION 1 / SHOPPING 46`, 대전 유성구
+`ATTRACTION 3 / SHOPPING 77`, 세종 `ATTRACTION 2 / SHOPPING 14 / LODGING 1`이었다. 청주·대전은
+공식 PET 목록이 관광지보다 쇼핑 입점 매장에 집중되어 있어, 목록 존재만으로 관광상품 후보의 대표성을
+보장하지 않는다.
+
+### 상세 수집·상태·정규화
+
+- 지역별 균형 상한은 경주 20, 강릉 20, 제천 10, 청주 20, 대전 20, 세종 17건으로 잡았다.
+- 최종 evidence row는 137건이며, 기존 경주 10건을 제외한 신규 저장은 127건이다. 청주 일괄 실행
+  완료 여부를 확인하기 전에 한 번 더 실행해 신규 20건이 추가됐다는 운영 기록을 남긴다. 동일
+  `conditionType/contentId` row가 중복 생성되지는 않았다.
+- 수집 결과는 `SUCCESS 137`, `EMPTY 0`, `ERROR 0`이다. 정규화 결과는 `CONFIRMED 101`,
+  `CONDITIONAL 36`, `UNKNOWN 0`이다.
+- 지역별 상세 evidence coverage는 경주 `30/48=62.5%`, 강릉 `20/107=18.7%`, 제천
+  `10/10=100%`, 청주 흥덕구 `40/47=85.1%`, 대전 유성구 `20/80=25.0%`, 세종
+  `17/17=100%`이다. 현재 수집된 row 안에서는 6개 지역 모두 usable(`CONFIRMED+CONDITIONAL`)이다.
+- 실제 원문 패턴은 `전구역 동반가능 101건`과 `일부구역 동반가능 36건`뿐이었다. 조건부 원문에서
+  확인된 요구사항은 목줄, 입마개, 이동장(켄넬), 반려동물 유모차, 매너벨트, 기타이며, 원문 시설
+  메모에는 전 견종·일부 견종·3kg/7kg/10kg 제한·맹견 제외·사전 운영정책 확인 등이 나타났다.
+- `UNKNOWN` 원인은 전체 공식 교집합 기준으로 상세 row 없음 172건, `EMPTY` 0건, `ERROR` 0건,
+  `SUCCESS지만 판정 근거 부족` 0건으로 분리된다. 사용자 화면에서는 모두 기존대로 `동반 정보
+  미확인`으로 표시하며 missing을 불가로 해석하지 않는다.
+- 137개 원문에 대해 기존 normalizer의 독립 기대값(`전구역+동반가능`→CONFIRMED,
+  `동반가능`이면서 전구역 아님→CONDITIONAL, 그 외→UNKNOWN)을 대조한 결과 mismatch 0건이다.
+  명백한 조건부→CONFIRMED 또는 명백한 가능→UNKNOWN 사례가 없어 normalizer 규칙은 바꾸지 않았다.
+
+### 대표 후보 풀·코스 coverage
+
+현재 recommendable 후보 풀과 저장 코스를 읽기 전용으로 재계산했다. 후보 순서와 코스는 수정하지 않았다.
+
+| 지역 프로젝트 | 후보 수 | 후보 CONFIRMED/CONDITIONAL/UNKNOWN | 코스 POI 수 | 코스 CONFIRMED/CONDITIONAL/UNKNOWN |
+|---|---:|---:|---:|---:|
+| 경주 `[QA PET 사용자]` | 10 | 0/0/10 | 12 | 2/2/8 |
+| 강릉 `강원특별자치도 8월 소규모 여행 기획` | 12 | 0/0/12 | 4 | 0/0/4 |
+| 제천 `[QA E2E] 제천 no-candidate Anchor` | 4 | 0/0/4 | 66 | 0/0/66 |
+| 청주 흥덕구 `[QA E2E] 청주 흥덕구 자연웰니스` | 1 | 0/0/1 | 8 | 1/0/7 |
+| 대전 유성구 `[QA E2E] 대전 축제 Anchor` | 9 | 1/0/8 | 7 | 0/0/7 |
+| 세종 `[QA E2E] 세종 축제 Anchor` | 10 | 0/0/10 | 2 | 0/0/2 |
+
+후보 풀은 합계 `46건 중 1건만 usable(2.2%)`, 코스는 `99건 중 5건 usable(5.1%)`이다. 공식
+교집합 상세를 지역 목록 순서대로 채우는 것과 실제 추천 가능한 POI에 근거가 붙는 것은 별개이며,
+현재 데이터는 쇼핑 category와 목록 앞부분에 편중되어 있다.
+
+### API 호출·판정
+
+이번 작업에서 목록 측정·dry-run·수집에 사용한 실제 외부 API 요청은 목록 31건, 상세 127건, 합계
+158건이다. 기존 경주 row 재사용으로 상세 cache hit 10건, 실행 확인 과정에서 청주 기존 row
+재사용 20건, 강릉 local 교집합 불일치 3건은 상세 호출하지 않았다. API result code 22/23과
+`ERROR`는 발생하지 않았다. 개발계정 신청 가능 traffic 1,000건 기준으로 이번 작업 합계는 약 15.8%이며,
+추가 수집은 현재 단위에서 중단했다.
+
+### 최종 판정
+
+soft ranking 준비도는 **PARTIAL**이다. 6개 지역의 저장된 상세 row 자체는 모두 usable이지만 공식
+교집합 전체 coverage가 `137/309=44.3%`이고, 현재 사용자 후보 풀 coverage는 2.2%에 불과하며,
+청주·대전의 목록이 SHOPPING에 과도하게 집중되어 있다. 따라서 이번 단위에서는 ranking/filter·자동
+코스·전략 점수를 변경하지 않는다. 다음은 대표 지역의 남은 교집합을 더 채우되, 목록 순서가 아닌
+현재 recommendable 후보와 FOOD/LODGING/ATTRACTION category를 균형 표본으로 검증하는 단계다.
