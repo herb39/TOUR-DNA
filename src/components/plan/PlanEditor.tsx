@@ -1012,7 +1012,7 @@ export function PlanEditor({
                 <button
                   type="button"
                   onClick={() => removeChecklistItem(i)}
-                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                  className="no-print shrink-0 cursor-pointer whitespace-nowrap rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
                   aria-label={`체크리스트 "${c}" 삭제`}
                 >
                   삭제
@@ -1052,7 +1052,7 @@ export function PlanEditor({
                 <button
                   type="button"
                   onClick={() => removeRisk(i)}
-                  className="no-print cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                  className="no-print shrink-0 cursor-pointer whitespace-nowrap rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
                   aria-label={`위험 요인 "${r.risk}" 삭제`}
                 >
                   삭제
@@ -1102,7 +1102,7 @@ export function PlanEditor({
                   <button
                     type="button"
                     onClick={() => removeKpi(i)}
-                    className="no-print shrink-0 cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                    className="no-print shrink-0 cursor-pointer whitespace-nowrap rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
                     aria-label={`KPI "${k.name}" 삭제`}
                   >
                     삭제
@@ -1509,7 +1509,7 @@ function ScheduleItemRow({
               summary={
                 <>
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
+                    className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
                   >
                     {resolveFitBadge(fit).label}
                   </span>
@@ -1594,7 +1594,7 @@ function ScheduleItemRow({
             <button
               type="button"
               onClick={() => onRemoveItem(day.dayIndex, idx)}
-              className="cursor-pointer rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+              className="shrink-0 cursor-pointer whitespace-nowrap rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
               aria-label={`${item.poiName} 삭제`}
             >
               삭제

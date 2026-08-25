@@ -80,9 +80,11 @@ test.describe("TOUR DNA 핵심 플로우 (신규 프로젝트, 상태 변경 포
     await page.waitForURL(/\/projects\/.+\/plan/);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
     await expect(page.getByTestId("course-map-container")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "운영 체크리스트" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "KPI" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /운영 체크리스트 보기/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /KPI 보기/ })).toBeVisible();
 
+    await page.getByRole("button", { name: "상품 기획 요약" }).click();
+    await expect(page.getByLabel("상품명")).toBeVisible();
     const newName = `${projectName} - 수정됨`;
     await page.getByLabel("상품명").fill(newName);
     await page.getByRole("button", { name: "저장" }).click();
@@ -110,12 +112,18 @@ test.describe("TOUR DNA 핵심 플로우 (신규 프로젝트, 상태 변경 포
   test("다른 지역으로 분석하면 전략 순위/점수가 달라진다", async ({ page, context }) => {
     const nameA = `E2E 대전 비교 ${Date.now()}`;
     await submitProjectForm(page, { projectName: nameA, sido: "대전광역시", travelMonth: "9월", ageGroup: "20대" });
-    const strategyTextA = await page.locator("h2:has-text('전략 3안 비교') ~ div").first().innerText();
+    const comparisonA = page.locator("#strategies details").first();
+    await comparisonA.locator("summary").click();
+    await expect(comparisonA.locator("table")).toBeVisible();
+    const strategyTextA = await comparisonA.innerText();
 
     const page2 = await context.newPage();
     const nameB = `E2E 양양 비교 ${Date.now()}`;
     await submitProjectForm(page2, { projectName: nameB, sido: "강원특별자치도", travelMonth: "9월", ageGroup: "20대" });
-    const strategyTextB = await page2.locator("h2:has-text('전략 3안 비교') ~ div").first().innerText();
+    const comparisonB = page2.locator("#strategies details").first();
+    await comparisonB.locator("summary").click();
+    await expect(comparisonB.locator("table")).toBeVisible();
+    const strategyTextB = await comparisonB.innerText();
 
     expect(strategyTextA).not.toEqual(strategyTextB);
   });
