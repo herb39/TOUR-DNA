@@ -42,6 +42,7 @@ import { CourseMap } from "@/components/map/CourseMap";
 import { CourseQualityPanel } from "@/components/plan/CourseQualityPanel";
 import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
 import { AccessibilityEvidenceBadge } from "@/components/plan/AccessibilityEvidenceBadge";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
 import { unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
 import { unknownAccessibilityEvidence, type AccessibilityEvidenceDisplay } from "@/lib/domain/accessibilityEvidenceDisplay";
@@ -711,8 +712,11 @@ export function PlanEditor({
 
       <DndContext id="plan-editor-dnd" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="space-y-6">
-        <details className="rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">상품 기획 요약</summary>
+        <AnimatedDetails
+          className="rounded-lg border border-slate-200 bg-white p-5"
+          summary="상품 기획 요약"
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <label htmlFor="productName" className="block text-sm font-medium text-slate-700">
             상품명
           </label>
@@ -748,7 +752,7 @@ export function PlanEditor({
               <li key={i}>{s}</li>
             ))}
           </ul>
-        </details>
+        </AnimatedDetails>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
@@ -996,10 +1000,11 @@ export function PlanEditor({
           </div>
         </section>
 
-        <details className="rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-            운영 체크리스트 보기 ({operationChecklist.length}개)
-          </summary>
+        <AnimatedDetails
+          className="rounded-lg border border-slate-200 bg-white p-5"
+          summary={`운영 체크리스트 보기 (${operationChecklist.length}개)`}
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
             {operationChecklist.map((c, i) => (
               <li key={i} className="flex items-center justify-between gap-2">
@@ -1031,12 +1036,13 @@ export function PlanEditor({
               추가
             </button>
           </div>
-        </details>
+        </AnimatedDetails>
 
-        <details className="rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-            위험과 대응안 보기 ({risks.length}개)
-          </summary>
+        <AnimatedDetails
+          className="rounded-lg border border-slate-200 bg-white p-5"
+          summary={`위험과 대응안 보기 (${risks.length}개)`}
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <ul className="mt-2 space-y-1 text-sm text-slate-600">
             {risks.map((r, i) => (
               <li key={i} className="flex items-center justify-between gap-2">
@@ -1079,10 +1085,13 @@ export function PlanEditor({
               </button>
             </div>
           </div>
-        </details>
+        </AnimatedDetails>
 
-        <details className="rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">KPI 보기 ({kpis.length}개)</summary>
+        <AnimatedDetails
+          className="rounded-lg border border-slate-200 bg-white p-5"
+          summary={`KPI 보기 (${kpis.length}개)`}
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <ul className="mt-2 space-y-2 text-sm text-slate-600">
             {kpis.map((k, i) => (
               <li key={i} className="rounded-md border border-slate-100 bg-slate-50 p-2">
@@ -1162,10 +1171,13 @@ export function PlanEditor({
             onChange={(e) => setKpiMemo(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </details>
+        </AnimatedDetails>
 
-        <details className="rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">운영 메모 보기</summary>
+        <AnimatedDetails
+          className="rounded-lg border border-slate-200 bg-white p-5"
+          summary="운영 메모 보기"
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <label htmlFor="memo" className="mt-2 block text-sm font-medium text-slate-700">
             메모
           </label>
@@ -1177,7 +1189,7 @@ export function PlanEditor({
             onChange={(e) => setMemo(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </details>
+        </AnimatedDetails>
       </div>
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">
         {plan.festivalAnchor && anchorCandidates !== undefined ? (
@@ -1287,14 +1299,13 @@ export function PlanEditor({
             코스 아래에 길게 나열하지 않고 별도 패널에서 검토합니다. 관광 목적지와 보조 자원을 구분하며,
             마음에 드는 장소만 날짜를 선택해 추가할 수 있습니다.
           </p>
-          <details
+          <AnimatedDetails
             className="mt-3"
             open={candidatePanelOpen}
-            onToggle={(event) => setCandidatePanelOpen(event.currentTarget.open)}
+            onOpenChange={setCandidatePanelOpen}
+            summary={`후보 목록 ${candidatePanelOpen ? "닫기" : "열기"}`}
+            summaryClassName="cursor-pointer rounded border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
-            <summary className="cursor-pointer rounded border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              후보 목록 {candidatePanelOpen ? "닫기" : "열기"}
-            </summary>
             <div className="mt-2 max-h-[min(70vh,640px)] overflow-y-auto pr-1">
               {candidatePois === null ? (
                 <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1334,7 +1345,7 @@ export function PlanEditor({
                 </ul>
               )}
             </div>
-          </details>
+          </AnimatedDetails>
         </section>
         {state.message ? (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
@@ -1493,15 +1504,20 @@ function ScheduleItemRow({
             <p className="mt-0.5 text-xs font-medium text-red-600">일정 조정 필요: {feasibilityReason}</p>
           ) : null}
           {fit && !isAnchor ? (
-            <details className="mt-1">
-              <summary className="cursor-pointer text-xs">
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
-                >
-                  {resolveFitBadge(fit).label}
-                </span>
-                <span className="ml-1 text-slate-400">이동·선택 근거</span>
-              </summary>
+            <AnimatedDetails
+              className="mt-1"
+              summary={
+                <>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveFitBadge(fit).className}`}
+                  >
+                    {resolveFitBadge(fit).label}
+                  </span>
+                  <span className="ml-1 text-slate-400">이동·선택 근거</span>
+                </>
+              }
+              summaryClassName="cursor-pointer text-xs"
+            >
               <div className="mt-1 max-w-md space-y-1 rounded border border-slate-100 bg-white p-2 text-[11px] text-slate-600">
                 {fit.positiveReasons.length > 0 ? (
                   <ul className="list-disc space-y-0.5 pl-4">
@@ -1525,7 +1541,7 @@ function ScheduleItemRow({
                 </p>
                 {leisureType ? <p className="text-slate-400">공식 레저 분류: {leisureType.label}</p> : null}
               </div>
-            </details>
+            </AnimatedDetails>
           ) : null}
           {petEvidence && !isAnchor ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
           {accessibilityEvidence && !isAnchor ? <AccessibilityEvidenceBadge evidence={accessibilityEvidence} compact /> : null}

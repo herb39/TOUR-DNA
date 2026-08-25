@@ -23,6 +23,7 @@ import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
 import { buildAnchorCandidateSuggestions, type AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
 import { getPetEvidenceForPoiIds } from "@/lib/services/petTourEvidenceRead";
 import { getAccessibilityEvidenceForPoiIds } from "@/lib/services/accessibilityEvidenceRead";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 export const dynamic = "force-dynamic";
 
@@ -288,8 +289,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             {shortRationale ? (
               <p className="mt-1 text-xs text-slate-600">선택 전략 근거: {shortRationale}</p>
             ) : null}
-            <details className="mt-2">
-              <summary className="cursor-pointer font-medium text-slate-600">전략 방향 상세 보기</summary>
+            <AnimatedDetails
+              className="mt-2"
+              summary="전략 방향 상세 보기"
+              summaryClassName="cursor-pointer font-medium text-slate-600"
+            >
               <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
                 <dt className="font-medium text-slate-500">해결하려는 문제</dt>
@@ -308,7 +312,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 <dd>{selectedStrategy.expectedEffect ?? "재분석 필요"}</dd>
               </div>
               </dl>
-            </details>
+            </AnimatedDetails>
           </section>
         ) : null}
         {preLaunchValidation ? (

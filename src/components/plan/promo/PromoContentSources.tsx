@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PromoCourseHighlight, PromoEvidenceReference } from "@/lib/domain/promoContent";
 import { formatBaseYm } from "@/lib/format";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 interface Props {
   evidenceReferences: PromoEvidenceReference[];
@@ -15,15 +16,12 @@ export function PromoContentSources({ evidenceReferences, courseHighlights }: Pr
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        className="cursor-pointer text-sm font-semibold text-slate-900"
+      <AnimatedDetails
+        open={open}
+        onOpenChange={setOpen}
+        summary={open ? "생성 근거 숨기기 ▲" : "생성 근거 보기 ▼"}
+        summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
       >
-        {open ? "생성 근거 숨기기 ▲" : "생성 근거 보기 ▼"}
-      </button>
-      {open ? (
         <div className="mt-3 space-y-4">
           {evidenceReferences.length > 0 ? (
             <div>
@@ -56,7 +54,7 @@ export function PromoContentSources({ evidenceReferences, courseHighlights }: Pr
             <p className="text-xs text-slate-400">참고할 생성 근거가 없습니다.</p>
           ) : null}
         </div>
-      ) : null}
+      </AnimatedDetails>
     </div>
   );
 }

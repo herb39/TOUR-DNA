@@ -5,6 +5,7 @@ import {
   type StrategyComparisonRow,
 } from "@/lib/domain/strategyResourcePlan";
 import type { UserRoleCode } from "@/lib/domain/audienceContext";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 export type { StrategyComparisonRow };
 
@@ -25,10 +26,10 @@ export function StrategyComparisonTable({
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white">
-      <details>
-        <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-slate-500">
-          핵심 비교표 보기 (4개 항목)
-        </summary>
+      <AnimatedDetails
+        summary="핵심 비교표 보기 (4개 항목)"
+        summaryClassName="cursor-pointer px-3 py-2 text-[11px] font-medium text-slate-500"
+      >
         <div className="overflow-x-auto border-t border-slate-100">
           <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-xs">
             <thead>
@@ -93,12 +94,13 @@ export function StrategyComparisonTable({
             </tbody>
           </table>
         </div>
-      </details>
+      </AnimatedDetails>
 
-      <details className="border-t border-slate-100">
-        <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-slate-500">
-          활용 자원·체류 방식·적합 역할 더보기
-        </summary>
+      <AnimatedDetails
+        className="border-t border-slate-100"
+        summary="활용 자원·체류 방식·적합 역할 더보기"
+        summaryClassName="cursor-pointer px-3 py-2 text-[11px] font-medium text-slate-500"
+      >
         <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-xs">
           <tbody className="align-top">
             <tr className="border-t border-slate-100">
@@ -143,7 +145,7 @@ export function StrategyComparisonTable({
           ※ 적합 역할은 실제 역할별 성과 데이터가 아니라, 업무 목적과의 적합성을 기준으로 세 역할을
           비교한 참고 정보입니다.
         </p>
-      </details>
+      </AnimatedDetails>
     </div>
   );
 }

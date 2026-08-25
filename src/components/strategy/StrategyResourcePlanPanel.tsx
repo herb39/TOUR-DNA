@@ -1,4 +1,5 @@
 import type { StrategyBudgetItem, StrategyPartnerLink } from "@/lib/domain/strategyResourcePlan";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 /** 전략별 예산 항목·협력 대상을 보여주는 패널 — 분석 화면(전략 3안 각각)과 인쇄 화면(선택 전략)이
  * 동일한 데이터·레이아웃을 공유한다(2026-08-04). 금액은 항상 BUDGET_AMOUNT_PLACEHOLDER("기관 산정
@@ -16,10 +17,11 @@ export function StrategyResourcePlanPanel({
   partners: StrategyPartnerLink[];
 }) {
   return (
-    <details className="print-expand-details mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-      <summary className="cursor-pointer text-xs font-medium text-slate-700">
-        예산 및 협력 대상 보기 (예산 카테고리 {budgetItems.length} · 협력 대상 {partners.length})
-      </summary>
+    <AnimatedDetails
+      className="print-expand-details mt-3 rounded-md border border-slate-100 bg-slate-50 p-3"
+      summary={`예산 및 협력 대상 보기 (예산 카테고리 ${budgetItems.length} · 협력 대상 ${partners.length})`}
+      summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
+    >
       <div className="mt-3 grid grid-cols-1 gap-3 text-xs text-slate-600 sm:grid-cols-2">
         <div>
           <p className="font-medium text-slate-700">예상 예산 항목</p>
@@ -49,6 +51,6 @@ export function StrategyResourcePlanPanel({
           </ul>
         </div>
       </div>
-    </details>
+    </AnimatedDetails>
   );
 }

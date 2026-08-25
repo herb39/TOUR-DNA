@@ -1,3 +1,4 @@
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 import type { ComparedRegion } from "@/lib/domain/regionSimilarity";
 
 /** 유사지역 비교 카드 — 전략·기회 카드와 달리 "선택" 개념이 없다(정보 제공용, 저장하지 않음). */
@@ -29,10 +30,11 @@ export function RegionComparisonCard({
         </p>
       ) : null}
 
-      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-slate-700">
-          축별 차이·벤치마킹 보기 ({comparison.axisDifferences.length}축)
-        </summary>
+      <AnimatedDetails
+        className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3"
+        summary={`축별 차이·벤치마킹 보기 (${comparison.axisDifferences.length}축)`}
+        summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
+      >
         <div className="mt-2">
           <dl className="space-y-1.5 text-xs text-slate-700">
             <div>
@@ -80,7 +82,7 @@ export function RegionComparisonCard({
             <p className="mt-3 text-[11px] text-slate-500">{comparison.poiCompositionNote}</p>
           ) : null}
         </div>
-      </details>
+      </AnimatedDetails>
     </div>
   );
 }

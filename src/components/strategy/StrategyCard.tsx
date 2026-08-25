@@ -1,4 +1,5 @@
 import { EvidenceTable, type EvidenceRow } from "@/components/evidence/EvidenceTable";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 import { buildStrategyRationale } from "@/lib/domain/strategyRationale";
 import type { UserRoleCode } from "@/lib/domain/audienceContext";
 
@@ -130,8 +131,11 @@ export function StrategyCard({
       </p>
 
       {rationale ? (
-        <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-          <summary className="cursor-pointer text-xs font-semibold text-slate-800">추천 근거</summary>
+        <AnimatedDetails
+          className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3"
+          summary="추천 근거"
+          summaryClassName="cursor-pointer text-xs font-semibold text-slate-800"
+        >
           <dl className="mt-2 space-y-1.5 text-xs text-slate-600">
             <div>
               <dt className="font-medium text-slate-500">① 데이터 진단</dt>
@@ -150,7 +154,7 @@ export function StrategyCard({
               <dd>{rationale.executionDirection}</dd>
             </div>
           </dl>
-        </details>
+        </AnimatedDetails>
       ) : (
         <div className="mt-3">
           <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
@@ -170,8 +174,11 @@ export function StrategyCard({
       {/* 해결 문제·활용 자원·체류 방식·실행 난이도·기대 효과는 위쪽 "전략 3안 비교" 표에 이미 나란히
        * 표시되므로 카드에서는 중복 제거한다(2026-08-06) — 점수 세부·소비 접점·위험은 표에 없는
        * 전략별 고유 정보라 삭제하지 않고 접어서 유지한다. */}
-      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-slate-700">점수 세부·소비 접점·위험 보기</summary>
+      <AnimatedDetails
+        className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3"
+        summary="점수 세부·소비 접점·위험 보기"
+        summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
+      >
         <div className="mt-2">
           {/* rationale이 있으면(1순위) reasons 전체가 이미 위 "추천 근거" 4단계에 녹아 있으므로
            * 여기서 다시 나열하지 않는다(2026-08-13, 중복 문구 방지) — 2·3순위(rationale 없음)는
@@ -221,14 +228,17 @@ export function StrategyCard({
             </ul>
           </div>
         </div>
-      </details>
+      </AnimatedDetails>
 
-      <details className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-slate-700">근거 보기</summary>
+      <AnimatedDetails
+        className="mt-3 rounded-md border border-slate-100 bg-slate-50 p-3"
+        summary="근거 보기"
+        summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
+      >
         <div className="mt-2">
           <EvidenceTable items={strategy.evidences} />
         </div>
-      </details>
+      </AnimatedDetails>
 
       <form action={onSelect} className="mt-4">
         <button

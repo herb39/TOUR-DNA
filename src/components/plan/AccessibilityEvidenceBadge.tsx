@@ -1,4 +1,5 @@
 import type { AccessibilityEvidenceDisplay } from "@/lib/domain/accessibilityEvidenceDisplay";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 const STATUS_STYLE: Record<AccessibilityEvidenceDisplay["status"], string> = {
   OFFICIAL_INFO_AVAILABLE: "border-sky-200 bg-sky-50 text-sky-800",
@@ -28,13 +29,17 @@ export function AccessibilityEvidenceBadge({
       className={compact ? "mt-1" : "mt-2 rounded border border-slate-200 bg-white p-2"}
       data-testid="accessibility-evidence"
     >
-      <details>
-        <summary className="cursor-pointer list-none">
-          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[evidence.status]}`}>
-            {evidence.status === "OFFICIAL_INFO_AVAILABLE" ? "♿ 공식 접근성 정보" : evidence.label}
-          </span>
-          <span className="ml-1 text-[10px] text-slate-400">상세 보기</span>
-        </summary>
+      <AnimatedDetails
+        summary={
+          <>
+            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[evidence.status]}`}>
+              {evidence.status === "OFFICIAL_INFO_AVAILABLE" ? "♿ 공식 접근성 정보" : evidence.label}
+            </span>
+            <span className="ml-1 text-[10px] text-slate-400">상세 보기</span>
+          </>
+        }
+        summaryClassName="cursor-pointer list-none"
+      >
         <div className="mt-1 space-y-1 text-[10px] text-slate-600">
           {evidence.status === "OFFICIAL_INFO_UNKNOWN" ? (
             <p>{evidence.repositoryUnavailable ? "현재 환경에서 공식 정보를 확인할 수 없습니다." : "공식 목록 또는 상세 근거가 확인되지 않았습니다."} {"정보 미확인은 접근 불가를 뜻하지 않습니다."}</p>
@@ -57,7 +62,7 @@ export function AccessibilityEvidenceBadge({
             </p>
           ) : null}
         </div>
-      </details>
+      </AnimatedDetails>
     </div>
   );
 }

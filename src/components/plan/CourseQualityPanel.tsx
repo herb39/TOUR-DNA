@@ -1,4 +1,5 @@
 import type { CourseQualityReport, CourseQualityWarning } from "@/lib/domain/courseQualityValidation";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 const SEVERITY_ORDER: CourseQualityWarning["severity"][] = ["BLOCKER", "REVIEW", "INFO"];
 const SEVERITY_LABEL: Record<CourseQualityWarning["severity"], string> = {
@@ -68,20 +69,19 @@ export function CourseQualityPanel({ report }: { report: CourseQualityReport }) 
       {grouped.length > 0 ? (
         <div className="mt-2 space-y-2">
           {grouped.map((group) => (
-            <details
+            <AnimatedDetails
               key={group.severity}
-              open={group.severity === "BLOCKER"}
               className={`rounded border px-2 py-1.5 ${SEVERITY_STYLE[group.severity]}`}
+              defaultOpen={group.severity === "BLOCKER"}
+              summaryClassName="cursor-pointer font-medium"
+              summary={`${SEVERITY_LABEL[group.severity]} ${group.warnings.length}건`}
             >
-              <summary className="cursor-pointer font-medium">
-                {SEVERITY_LABEL[group.severity]} {group.warnings.length}건
-              </summary>
               <ul className="mt-2 space-y-2">
                 {group.warnings.map((warning) => (
                   <WarningItem key={warning.id} warning={warning} />
                 ))}
               </ul>
-            </details>
+            </AnimatedDetails>
           ))}
         </div>
       ) : (

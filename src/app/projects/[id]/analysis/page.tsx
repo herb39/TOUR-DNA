@@ -43,6 +43,7 @@ import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionCom
 import { RegionComparisonCard } from "@/components/comparison/RegionComparisonCard";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 import { readProjectPreferences } from "@/lib/validation/project-preferences";
 import { FestivalAnchorPanel } from "@/components/festival/FestivalAnchorPanel";
 import { fetchFestivalAnchorCandidates } from "@/lib/services/festivalAnchorService";
@@ -491,8 +492,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </section>
         )}
 
-        <details className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">입력 조건 보기</summary>
+        <AnimatedDetails
+          className="mt-6 rounded-lg border border-slate-200 bg-white p-5"
+          summary="입력 조건 보기"
+          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+        >
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-600 sm:grid-cols-4">
             <div>
               <dt className="text-xs text-slate-400">내/외국인</dt>
@@ -542,7 +546,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           <p className="mt-3 text-xs text-slate-400">
             ※ 선택한 역할·타깃·여행 시기를 반영해 추천 전략과 실행안을 조정했습니다.
           </p>
-        </details>
+        </AnimatedDetails>
 
         <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
           <div className="rounded-lg border border-slate-200 bg-white p-5">
@@ -593,23 +597,29 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                       <span className="text-xs font-medium text-amber-700">개선 필요</span>
                     ) : null}
                   </p>
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-slate-500">근거 보기</summary>
+                  <AnimatedDetails
+                    className="mt-2"
+                    summary="근거 보기"
+                    summaryClassName="cursor-pointer text-xs text-slate-500"
+                  >
                     <div className="mt-2">
                      <EvidenceTable
                        items={axisEvidenceByAxis.get(a.axisKey) ?? []}
                        note="정규화값은 개별 지표 값입니다. 위 카드의 DNA 상대지수는 이 축에 포함된 지표들을 종합한 표시값입니다."
                      />
                     </div>
-                  </details>
+                  </AnimatedDetails>
                 </div>
               );
             })}
           </div>
         </section>
 
-        <details className="mt-8 rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-base font-semibold text-slate-900">유사지역 비교 보기</summary>
+        <AnimatedDetails
+          className="mt-8 rounded-lg border border-slate-200 bg-white p-5"
+          summary="유사지역 비교 보기"
+          summaryClassName="cursor-pointer text-base font-semibold text-slate-900"
+        >
           <div className="mt-2">
           <p
             className="mt-1 text-xs text-slate-500"
@@ -687,12 +697,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </div>
           ) : null}
           </div>
-        </details>
+        </AnimatedDetails>
 
-        <details className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-          <summary className="cursor-pointer text-xs font-semibold text-slate-700">
-            강점·기회·주의 상세 보기
-          </summary>
+        <AnimatedDetails
+          className="mt-6 rounded-lg border border-slate-200 bg-white p-4"
+          summary="강점·기회·주의 상세 보기"
+          summaryClassName="cursor-pointer text-xs font-semibold text-slate-700"
+        >
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <h3 className="text-xs font-semibold text-slate-500">강점</h3>
@@ -719,10 +730,13 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
               </ul>
             </div>
           </div>
-        </details>
+        </AnimatedDetails>
 
-        <details className="mt-8 rounded-lg border border-slate-200 bg-white p-5">
-          <summary className="cursor-pointer text-base font-semibold text-slate-900">관광사업 기회 3안 보기</summary>
+        <AnimatedDetails
+          className="mt-8 rounded-lg border border-slate-200 bg-white p-5"
+          summary="관광사업 기회 3안 보기"
+          summaryClassName="cursor-pointer text-base font-semibold text-slate-900"
+        >
           <div className="mt-2">
           <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
           {usingLivePoiFallback ? (
@@ -746,7 +760,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
           ) : null}
           </div>
-        </details>
+        </AnimatedDetails>
 
         <section id="strategies" className="mt-8 scroll-mt-6">
           <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
@@ -787,10 +801,11 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
          * 통합한다(2026-08-07) — 삭제가 아니라 위치 이동이며, 문구 자체도 유지한다. 화면이 계속
          * 스스로 결과를 부정하는 인상을 주지 않도록 접힌 상세 영역에 한 번만 정리해서 둔다. */}
         {(regionComparisonAnalysis.commonLimitationNote || opportunityAnalysis.commonLimitationNote) ? (
-          <details className="mt-8 rounded-lg border border-slate-200 bg-white p-4">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-700">
-              데이터 기준 및 확인사항
-            </summary>
+          <AnimatedDetails
+            className="mt-8 rounded-lg border border-slate-200 bg-white p-4"
+            summary="데이터 기준 및 확인사항"
+            summaryClassName="cursor-pointer text-xs font-semibold text-slate-700"
+          >
             <div className="mt-3 space-y-2 text-xs text-slate-600">
               <p>
                 공공데이터와 지역 비교 분석을 바탕으로 도출한 사업 검토안입니다. 실제 추진 전 현장
@@ -809,7 +824,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 </p>
               ) : null}
             </div>
-          </details>
+          </AnimatedDetails>
         ) : null}
 
         <div className="mt-8 text-xs text-slate-400">

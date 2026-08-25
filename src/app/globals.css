@@ -18,6 +18,28 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+.tour-dna-expandable-content {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    height 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 160ms ease,
+    transform 220ms ease;
+}
+
+.tour-dna-expandable-content[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-dna-expandable-content {
+    transform: none;
+    transition-duration: 1ms;
+  }
+}
+
 .no-print {
   display: revert;
 }
@@ -42,5 +64,12 @@ body {
 
   .print-expand-details:not([open]) > *:not(summary) {
     display: block !important;
+  }
+
+  .print-expand-details .tour-dna-expandable-content {
+    height: auto !important;
+    overflow: visible;
+    opacity: 1;
+    transform: none;
   }
 }

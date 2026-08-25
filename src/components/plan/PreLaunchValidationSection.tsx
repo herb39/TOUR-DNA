@@ -6,6 +6,7 @@ import type {
 } from "@/lib/domain/preLaunchValidation";
 import { findRelatedKpiNames, type EnrichedKpi } from "@/lib/domain/kpiLinking";
 import { AXIS_LABEL_KO } from "@/lib/domain/types";
+import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 const RECOMMENDATION_STYLE: Record<PreLaunchRecommendation, string> = {
   RECOMMENDED: "border-emerald-300 bg-emerald-50 text-emerald-800",
@@ -106,8 +107,11 @@ export function PreLaunchValidationSection({
       </div>
 
       {compact ? (
-        <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <summary className="cursor-pointer text-xs font-medium text-slate-700">세부 검증 신호 보기</summary>
+        <AnimatedDetails
+          className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+          summary="세부 검증 신호 보기"
+          summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
+        >
           <div className="mt-3">
             <ValidationDetails
               report={report}
@@ -116,7 +120,7 @@ export function PreLaunchValidationSection({
               weakAxisKpis={weakAxisKpis}
             />
           </div>
-        </details>
+        </AnimatedDetails>
       ) : (
         <div className="mt-3">
           <ValidationDetails
