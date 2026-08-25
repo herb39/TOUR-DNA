@@ -4,6 +4,7 @@ import {
   orderByNearestNeighbor,
   classifyTravelMinutes,
   estimateTravelMinutes,
+  isReasonableKoreanCoordinate,
   CAUTION_TRAVEL_MINUTES,
   EXCESSIVE_TRAVEL_MINUTES,
 } from "@/lib/domain/geo";
@@ -81,5 +82,17 @@ describe("estimateTravelMinutes", () => {
     const walk = estimateTravelMinutes(a, b, "WALK");
     const car = estimateTravelMinutes(a, b, "PRIVATE_VEHICLE");
     expect(car).toBeLessThan(walk);
+  });
+});
+
+describe("isReasonableKoreanCoordinate", () => {
+  it("국내 관광 좌표와 위·경도 순서가 정상인 좌표를 허용한다", () => {
+    expect(isReasonableKoreanCoordinate({ lat: 36.5, lng: 127.2 })).toBe(true);
+  });
+
+  it("다른 국가 좌표·위경도 뒤바뀜·NaN을 차단한다", () => {
+    expect(isReasonableKoreanCoordinate({ lat: 19.69442748, lng: 117.9925662504 })).toBe(false);
+    expect(isReasonableKoreanCoordinate({ lat: 127.2, lng: 36.5 })).toBe(false);
+    expect(isReasonableKoreanCoordinate({ lat: Number.NaN, lng: 127.2 })).toBe(false);
   });
 });

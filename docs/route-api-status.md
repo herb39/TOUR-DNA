@@ -1,5 +1,26 @@
 # 실제 경로 API(Phase 12) 무료 사용 조건 확인 현황 — 2026-08-06(5차) 갱신: 이동수단 무관 전체 적용
 
+> **2026-08-25 로컬 지도 E2E 400 원인 조사 결과**
+>
+> 최근 400은 경주·청주 코스가 아니라 세종 Anchor 코스의 마지막 구간에서 발생했다. 일반 POI의 좌표는
+> `127.2347633922,36.5053618828`이었지만 Anchor `sourceId=3529946`의 저장 좌표는
+> `117.9925662504,19.69442748`이었다. 주소는 세종특별자치시 조치원읍으로 저장되어 있으나, 원천
+> `Poi.rawPayload`도 `mapx=117.9925662504`, `mapy=19.69442748`을 담고 있었고
+> `ProjectAnchor.sourceSnapshot.qa=true`였다. 좌표쌍을 직접 호출한 결과 Kakao가 HTTP 400,
+> `code=-2`, `msg="경로의 총 거리가 허용된 최대 거리를 초과했습니다."`를 반환했다.
+>
+> 원인은 인증키·endpoint·위경도 serialization·waypoint 초과가 아니라 **local QA/원천 Anchor 좌표가
+> 한국 주소와 불일치한 데이터 오류가 Kakao의 총 경로거리 제한에 걸린 것**이다. Kakao 공식 자동차
+> 길찾기 문서는 `GET /v1/directions`, `Authorization: KakaoAK ...`, `Content-Type: application/json`,
+> origin/destination X,Y 순서를 요구하고, 경유지를 포함한 총 경로 거리를 1,500km 미만으로 제한한다
+> ([공식 요청 문서](https://developers.kakaomobility.com/guide/navi-api/directions)).
+>
+> 이번 수정은 두 REST adapter에 공식 `Content-Type` 헤더를 추가하고, 400 응답의 `code`/`msg`만 안전하게
+> 구조화 로그와 오류 객체에 보존하도록 했다. 또한 국내 관광 범위 밖 좌표는 `INVALID_COORDINATE`로
+> 외부 호출 전에 차단해 해당 구간만 기존 직선 fallback으로 처리한다. 정상 2점 요청은 HTTP 200과
+> `result_code=0`, 실제 도로 vertex를 반환했고, 수정 후 세종 E2E에서는 HTTP 400 없이
+> `INVALID_COORDINATE` fallback만 발생했다.
+
 > **2026-08-06(5차) 갱신 — 이 절이 최신 상태다.**
 >
 > ## -2. 모든 이동수단에 이동 경로 표시(2026-08-06 5차 — PRIVATE_VEHICLE 전용 조건 제거)

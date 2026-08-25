@@ -9,6 +9,19 @@ export interface GeoPoint {
   lng: number;
 }
 
+/** TOUR-DNA가 다루는 국내 관광 좌표의 넓은 sanity 범위. 정밀한 주소 검증이 아니라, 원천 데이터의
+ * 위·경도 뒤바뀜이나 다른 국가 좌표가 Kakao 국내 길찾기 요청으로 넘어가는 것을 막는 1차 방어선이다. */
+export function isReasonableKoreanCoordinate(point: GeoPoint): boolean {
+  return (
+    Number.isFinite(point.lat) &&
+    Number.isFinite(point.lng) &&
+    point.lat >= 32 &&
+    point.lat <= 39.5 &&
+    point.lng >= 124 &&
+    point.lng <= 132.5
+  );
+}
+
 export function haversineDistanceKm(a: GeoPoint, b: GeoPoint): number {
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);

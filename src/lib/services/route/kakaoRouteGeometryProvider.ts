@@ -1,4 +1,5 @@
 import type { KakaoRouteFailureReason } from "./kakaoRouteProvider";
+import { isReasonableKoreanCoordinate } from "@/lib/domain/geo";
 
 const KAKAO_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions";
 const REQUEST_TIMEOUT_MS = 4000;
@@ -9,6 +10,8 @@ export class KakaoGeometryError extends Error {
   constructor(
     public readonly reason: KakaoGeometryFailureReason,
     public readonly status?: number,
+    public readonly apiCode?: string | number,
+    public readonly apiMessage?: string,
   ) {
     super(`kakao route geometry failed: ${reason}`);
     this.name = "KakaoGeometryError";
@@ -27,6 +30,20 @@ interface KakaoDirectionsGeometryResponse {
       roads?: Array<{ vertexes?: number[] }>;
     }>;
   }>;
+}
+
+async function readKakaoErrorDetails(response: Response): Promise<{ code?: string | number; message?: string }> {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    const body = JSON.parse(text) as { code?: unknown; msg?: unknown };
+    return {
+      code: typeof body.code === "string" || typeof body.code === "number" ? body.code : undefined,
+      message: typeof body.msg === "string" ? body.msg : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 /** `roads[].vertexes`는 [lng, lat, lng, lat, ...] 순서의 평탄화 배열이다(2026-08-06 실측 확인) — 이
@@ -61,6 +78,9 @@ export async function fetchKakaoRouteGeometry(from: LatLng, to: LatLng): Promise
   if (!Number.isFinite(from.lat) || !Number.isFinite(from.lng) || !Number.isFinite(to.lat) || !Number.isFinite(to.lng)) {
     throw new KakaoGeometryError("MISSING_COORDS");
   }
+  if (!isReasonableKoreanCoordinate(from) || !isReasonableKoreanCoordinate(to)) {
+    throw new KakaoGeometryError("INVALID_COORDINATE");
+  }
 
   const params = new URLSearchParams({
     origin: `${from.lng},${from.lat}`,
@@ -76,7 +96,10 @@ export async function fetchKakaoRouteGeometry(from: LatLng, to: LatLng): Promise
   try {
     res = await fetch(`${KAKAO_DIRECTIONS_URL}?${params.toString()}`, {
       method: "GET",
-      headers: { Authorization: `KakaoAK ${apiKey}` },
+      headers: {
+        Authorization: `KakaoAK ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       signal: controller.signal,
     });
   } catch (e) {
@@ -101,8 +124,18 @@ export async function fetchKakaoRouteGeometry(from: LatLng, to: LatLng): Promise
     throw new KakaoGeometryError("SERVER_ERROR", res.status);
   }
   if (!res.ok) {
-    console.error(JSON.stringify({ level: "warn", source: "kakaoRouteGeometryProvider", reason: "INVALID_RESPONSE", status: res.status }));
-    throw new KakaoGeometryError("INVALID_RESPONSE", res.status);
+    const details = await readKakaoErrorDetails(res);
+    console.error(
+      JSON.stringify({
+        level: "warn",
+        source: "kakaoRouteGeometryProvider",
+        reason: "INVALID_RESPONSE",
+        status: res.status,
+        apiCode: details.code,
+        apiMessage: details.message,
+      }),
+    );
+    throw new KakaoGeometryError("INVALID_RESPONSE", res.status, details.code, details.message);
   }
 
   let body: KakaoDirectionsGeometryResponse;

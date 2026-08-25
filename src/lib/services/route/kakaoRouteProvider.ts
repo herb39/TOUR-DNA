@@ -1,4 +1,4 @@
-import type { TransportModeCode } from "@/lib/domain/geo";
+import { isReasonableKoreanCoordinate, type TransportModeCode } from "@/lib/domain/geo";
 import type { RouteProvider, RoutePoint, RouteResult } from "./types";
 
 const KAKAO_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions";
@@ -9,6 +9,7 @@ const REQUEST_TIMEOUT_MS = 5000;
 export type KakaoRouteFailureReason =
   | "NO_API_KEY"
   | "MISSING_COORDS"
+  | "INVALID_COORDINATE"
   | "TIMEOUT"
   | "UNAUTHORIZED" // 401/403
   | "RATE_LIMITED" // 429
@@ -21,9 +22,25 @@ export class KakaoRouteError extends Error {
   constructor(
     public readonly reason: KakaoRouteFailureReason,
     public readonly status?: number,
+    public readonly apiCode?: string | number,
+    public readonly apiMessage?: string,
   ) {
     super(`kakao route failed: ${reason}`);
     this.name = "KakaoRouteError";
+  }
+}
+
+async function readKakaoErrorDetails(response: Response): Promise<{ code?: string | number; message?: string }> {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    const body = JSON.parse(text) as { code?: unknown; msg?: unknown };
+    return {
+      code: typeof body.code === "string" || typeof body.code === "number" ? body.code : undefined,
+      message: typeof body.msg === "string" ? body.msg : undefined,
+    };
+  } catch {
+    return {};
   }
 }
 
@@ -53,6 +70,12 @@ export const kakaoRouteProvider: RouteProvider = {
     if (from.lat == null || from.lng == null || to.lat == null || to.lng == null) {
       throw new KakaoRouteError("MISSING_COORDS");
     }
+    if (
+      !isReasonableKoreanCoordinate({ lat: from.lat, lng: from.lng }) ||
+      !isReasonableKoreanCoordinate({ lat: to.lat, lng: to.lng })
+    ) {
+      throw new KakaoRouteError("INVALID_COORDINATE");
+    }
 
     const params = new URLSearchParams({
       origin: `${from.lng},${from.lat}`,
@@ -67,7 +90,10 @@ export const kakaoRouteProvider: RouteProvider = {
     try {
       res = await fetch(`${KAKAO_DIRECTIONS_URL}?${params.toString()}`, {
         method: "GET",
-        headers: { Authorization: `KakaoAK ${apiKey}` },
+        headers: {
+          Authorization: `KakaoAK ${apiKey}`,
+          "Content-Type": "application/json",
+        },
         signal: controller.signal,
       });
     } catch (e) {
@@ -92,8 +118,18 @@ export const kakaoRouteProvider: RouteProvider = {
       throw new KakaoRouteError("SERVER_ERROR", res.status);
     }
     if (!res.ok) {
-      console.error(JSON.stringify({ level: "error", source: "kakaoRouteProvider", reason: "INVALID_RESPONSE", status: res.status }));
-      throw new KakaoRouteError("INVALID_RESPONSE", res.status);
+      const details = await readKakaoErrorDetails(res);
+      console.error(
+        JSON.stringify({
+          level: "error",
+          source: "kakaoRouteProvider",
+          reason: "INVALID_RESPONSE",
+          status: res.status,
+          apiCode: details.code,
+          apiMessage: details.message,
+        }),
+      );
+      throw new KakaoRouteError("INVALID_RESPONSE", res.status, details.code, details.message);
     }
 
     let body: KakaoDirectionsResponse;

@@ -44,6 +44,16 @@ describe("kakaoRouteProvider — 실제 호출 없이 fetch만 모킹해 요청/
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("국내 범위를 벗어난 좌표는 fetch를 호출하지 않고 INVALID_COORDINATE로 실패한다", async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+
+    await expect(
+      kakaoRouteProvider.getRoute({ poiId: "a", lat: 19.69442748, lng: 117.9925662504 }, TO, "PRIVATE_VEHICLE"),
+    ).rejects.toMatchObject({ reason: "INVALID_COORDINATE" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("정상 응답을 거리(km)·시간(분)으로 올바르게 변환한다(미터→km, 초→분)", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       jsonResponse(200, {

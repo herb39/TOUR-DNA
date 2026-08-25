@@ -70,6 +70,7 @@ npm run dev
 | `OPENROUTER_API_KEY` | 선택적 홍보 문구 생성 API 키. 없으면 결정론적 rule 생성기를 사용 |
 | `OPENROUTER_PROMO_MODEL` | 선택적 홍보 문구 모델 지정 |
 | `NEXT_PUBLIC_KAKAO_MAP_KEY` | Kakao Map JavaScript SDK 키 |
+| `KAKAO_REST_API_KEY` | Kakao Mobility 서버 REST 경로 조회 키. 클라이언트·문서·로그에 노출하지 않음 |
 | `NEXT_PUBLIC_APP_URL` | 애플리케이션 기준 URL |
 | `DATA_MODE` | `live`, `hybrid`, `snapshot` 데이터 모드 |
 | `CRON_SECRET` | cron·admin 동기화 Route Handler 인증 |
