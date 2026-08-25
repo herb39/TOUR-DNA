@@ -1,4 +1,4 @@
-# 구현 상태 (2026-08-25 갱신 — PET 유지보수 전환·무장애 API 실호출 검증 반영)
+# 구현 상태 (2026-08-25 갱신 — PET 유지보수 전환·무장애 조사 완료 반영)
 
 > **2026-08-13 최신 요약**: Network DNA 산식을 attraction+PoiRelation(연관관광지)+coverage(50/20/30)에서
 > attraction+음식/숙박/체험 조합 가능성(B/H1, 50/50)으로 재설계했다(Phase 3) — PoiRelation이 대전/
@@ -48,11 +48,11 @@
 | 1. 지역과 기획 조건 | 완료 | 지역·여행월·역할·기간을 포함해 목표, 이동수단, 동행 유형, 예산 등을 입력 | 입력 항목 간 의미와 저장 모델을 계속 정리 |
 | 2. 해결하고 싶은 관광 문제 | 완료 | 체류 확대·지역 소비 확대·비수기 활성화·관광객 분산을 분리한 목표 선택과 DNA 연결. 기존 통합 목표 코드는 하위 호환 | 목표별 전략 문구·KPI를 더 세밀하게 차등화 |
 | 3. 콘텐츠 테마 | 완료(핵심 테마 연결) | 8개 고정 선택·기존 자유 입력 자동 변환. 자동 초안·추천 후보·실시간 검증이 사용자 테마와 전략 핵심 테마의 공통 활성 집합을 사용 | K-콘텐츠·야간관광의 공식 구조 신호 확보와 운영정보 확장 |
-| 4. 여행 조건 | PET 완료·무장애 실응답 부분 확인 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 경주·강릉·대전 유성구 목록과 경주 상세 8건의 실제 응답을 확인 | 2~3개 대표 지역 추가 상세 표본·ACCESSIBILITY evidence pipeline |
+| 4. 여행 조건 | PET 완료·무장애 조사 완료 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 3개 지역 전체 목록·local POI overlap·지역별 상세 8건을 검증 | 차원별 `ACCESSIBILITY` evidence pipeline 구현 및 최소 migration |
 | 5. 특별한 기획 계기 | 부분 완료(P1-2c, 로컬 구현) | 공식 후보 조회 → 프로젝트 Anchor 확정 저장·변경·삭제 → 실행안 고정 → 행사 전·식사·행사 후·숙박 후보를 역할별로 제안·추가. 기존 POI 보존·Anchor snapshot 저장·stale 저장 거부까지 연결 | Production migration 적용, 후보의 핵심 테마 슬롯·접근성 근거 고도화 |
 | 6. TOUR-DNA 분석 | 완료 | 지역 진단 → 기회 3개 → 전략 3안, 근거·비교·역할 요약 제공 | 텍스트 우선순위와 설명량은 계속 다듬되 핵심 흐름은 구현됨 |
 | 7. 코스 스튜디오 | 완료(핵심 테마 연결) | 자동 초안과 추천 후보가 같은 활성 테마·공식 분류·기존 대표성 정책으로 정렬 | 수동 추가 직후 남은 후보를 거리·동선 기준으로 재정렬 |
-| 8. 실시간 검증 | 부분 완료(PET advisory 완료·무장애 근거 검증 대기) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애 API 응답 구조는 표본 검증만 완료 | 무장애 evidence 연결과 조건별 미확인 상태 검증 |
+| 8. 실시간 검증 | 부분 완료(PET advisory 완료·무장애 계약 확정) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애는 차원별 상태 계약과 cache 전략까지 검증 | 무장애 evidence 저장·읽기 연결 |
 | 9. 실행안 확정 | 완료 | 확정안 저장, KPI·위험, 홍보자료 생성·편집, 인쇄 화면 제공 | 자가용 외 이동수단의 실제 경로 연동과 최종 품질 리포트 고도화 |
 
 ### 현재 판단
@@ -62,7 +62,7 @@
 - 전략의 기존 `CORE_THEME_FLOOR_SHARE=0.3`은 임의로 올리지 않았다. 템플릿 핵심 테마 최소 비중은 그대로 두고, 사용자가 선택한 두 번째 테마는 자동 초안·후보 재정렬·적합도·검증에서 함께 활성화한다.
 - 8개 테마 중 `FOOD`, `NATURE`, `WELLNESS(EX05)`, `CULTURE_HISTORY(HS/VE07)`, `CULTURE_ARTS(VE07)`, `LEISURE_ACTIVITY(LS)`는 확인된 TourAPI 구조 신호가 있다. `K_CONTENT`, `NIGHT_TOURISM`은 현재 공식 구조 신호가 없어 이름 키워드 fallback만 사용하며 강한 구조 지원으로 표시하지 않는다.
 - 기획 입력의 콘텐츠 테마 8종, 여행 조건 4종, 관광 문제 목표 분리는 완료했다. 기존 `preferredThemes` 배열은 자동 변환해 읽고, 새 입력은 버전 있는 JSON 구조로 저장하므로 별도 DB 컬럼이나 migration이 필요하지 않다.
-- 반려동물 여행 조건은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 완료했다. 6개 대표 지역 재감사에서 현재 일반 추천 후보 ceiling은 6.5%, 코스 ceiling은 5.1%, Anchor 연계 후보 ceiling은 4.2%였고 `LISTED_NOT_ENRICHED`는 0건이었다. 공식 목록에 없다는 이유로 동반 불가로 판단하지 않고 계속 `UNKNOWN`으로 유지한다. 무장애는 경주·강릉·대전 유성구의 승인 목록 endpoint가 HTTP 200/`0000 OK`로 응답하는 것을 확인했고, 경주 교집합 상세 8건도 모두 HTTP 200/`0000 OK`였다. 다만 아직 제품 evidence pipeline은 구현하지 않았다.
+- 반려동물 여행 조건은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 완료했다. 6개 대표 지역 재감사에서 현재 일반 추천 후보 ceiling은 6.5%, 코스 ceiling은 5.1%, Anchor 연계 후보 ceiling은 4.2%였고 `LISTED_NOT_ENRICHED`는 0건이었다. 공식 목록에 없다는 이유로 동반 불가로 판단하지 않고 계속 `UNKNOWN`으로 유지한다. 무장애는 경주·강릉·대전 유성구의 공식 목록 전체를 수신했고, 각 지역 상세 8건씩 총 24건을 모두 HTTP 200/`0000 OK`로 확인했다. 차원별 상태 정규화와 `modifiedtime`·`showflag` cache 전략을 확정했으며, 제품 evidence pipeline은 다음 작업으로 남겨 두었다.
 - 축제 연계는 P1-1의 한국관광공사 `searchFestival2` 후보를 P1-2a에서 서버 확정 흐름으로 확장하고, P1-2b에서 실행안의 명시적 코스 고정까지 연결했다. 서버는 확정 시 공식 후보를 다시 조회해 `contentid`·행사 기간·지역을 검증하고, 사용자가 직접 고른 연계 날짜·여행 일차·시간 조건과 최소 스냅샷만 `ProjectAnchor`에 저장한다. 행사 시각이 API에 없으면 `UNCONFIRMED`로 보존하며 코스에 가짜 시각을 만들지 않는다. P1-2b는 `USER_CONFIRMED`·`CUSTOM`·정확한 시작/종료 시각일 때만 `FESTIVAL_ANCHOR` CourseItem으로 반영하고, 지정 일차·시간을 보존하며 기존 POI를 삭제·자동 이동하지 않는다. Anchor는 드래그·시간·일차 변경에서 제외하고, 프로젝트 Anchor 삭제와 코스에서만 제거를 분리한다. 저장 시 현재 Anchor snapshot·`updatedAt`을 다시 검증해 stale 코스를 거부한다.
 - P1-2c는 현재 코스에 고정된 유효 Anchor가 있을 때만 같은 지역 POI를 한 번에 읽어 행사 전(`PRE_EVENT`), 식사(`MEAL`), 행사 후(`POST_EVENT`), 숙박(`STAY`) 후보를 별도 패널로 제안한다. 후보는 기존 후보·적합도·테마·동일 시설/좌표 중복 로직을 재사용하고 역할 적합도 → 테마/전략 관련성 → Haversine 직선거리 → 카테고리 tier → 이름/ID 순으로 결정적으로 정렬한다. 자동 삽입·전체 재계획·전략 점수 변경은 하지 않으며, 선택 시 행사 전은 Anchor 앞, 행사 후·식사는 선택 위치, 숙박은 날짜별 lodging 슬롯에만 추가한다.
 - P1-2c는 `ProjectAnchor`와 현재 코스 snapshot·정확한 사용자 확정 시각·좌표·지역이 모두 맞을 때만 후보를 표시한다. stale/orphan·좌표/시각 미확정·저장 구조 미적용은 기존 코스를 막지 않고 안내·빈 상태로 처리한다. 후보 카드는 이름·분류·거리·역할 적합도·이유·운영시간 확인 상태를 제공하며 일반 `추천 후보` 풀과 분리한다.
@@ -71,7 +71,7 @@
 
 ### 다음 작업 순서
 
-1. **무장애 대표 지역 추가 표본 → ACCESSIBILITY evidence pipeline 판단**: 경주에서 확인한 필드 구조를 강릉·대전 유성구 등 2~3개 대표 지역의 최소 상세 표본으로 보완한 뒤, 차원별 JSON evidence 계약과 cache 경로를 설계한다. PET는 새 공식 목록 대상이 실제 노출될 때만 targeted enrichment를 수행한다.
+1. **ACCESSIBILITY evidence pipeline 구현**: 전체 목록 overlap과 3개 지역 상세 표본으로 확정한 차원별 JSON 근거·`UNKNOWN` 규칙·`modifiedtime`/`showflag` cache를 최소 범위로 구현한다. 전체 가능/불가 overall 상태는 만들지 않으며, PET는 새 공식 목록 대상이 실제 노출될 때만 targeted enrichment를 수행한다.
 2. **편집 후 후보 재정렬·일정 현실성 강화**: 수동 추가 직후 남은 후보를 현재 동선·거리·테마 기준으로 재정렬하고, POI 유형별 권장 체류시간을 검토한다.
 3. **축제 연계·관광 가치 확장**: 축제 수혜 범위·상권 확산과 외지인 방문 가치를 장기 품질 신호로 검토한다.
 
@@ -3582,3 +3582,95 @@ Production Neon 접근·쓰기·migration은 없었다. 무장애 API 준비도�
 유성구에서 상세를 무작정 늘리는 것이 아니라 2~3개 대표 지역의 최소 표본을 추가 확인한 뒤
 `ACCESSIBILITY` evidence 계약을 확정하는 작업이다. 그 전까지 ranking·hard filter·자동 코스·전략
 점수·DNA는 변경하지 않는다.
+
+## 2026-08-25 최종 갱신 — 무장애 전체 목록·차원 계약 확정
+
+이전 첫 페이지 검증을 종료하고, `numOfRows=1000` 요청으로 세 지역의 공식 목록 전체를 다시
+확보했다. 세 지역 모두 첫 응답에서 전체 `totalCount`를 반환했으며, 실제 수신 건수·고유
+`contentid` 수가 `totalCount`와 일치했다. `modifiedtime`과 `showflag`는 세 지역 전체 목록에서
+모두 비어 있지 않았다.
+
+### 공식 목록 전체와 local POI overlap
+
+| 지역 | 공식 전체/실제 수신 | local API POI | 전체 교집합 | 교집합률 |
+|---|---:|---:|---:|---:|
+| 경주시 | 140 / 140 | 620 | 126 | 20.3% |
+| 강릉시 | 803 / 803 | 1,001 | 729 | 72.8% |
+| 대전 유성구 | 79 / 79 | 388 | 69 | 17.8% |
+
+전체 교집합의 category 분포는 경주 `ATTRACTION 79 / FOOD 15 / LODGING 23 / EXPERIENCE 4 /
+SHOPPING 5`, 강릉 `119 / 391 / 165 / 17 / 37`, 대전 유성구 `32 / 25 / 7 / 3 / 2`다. 이전
+첫 100건 기준 경주 88건·강릉 91건과 달리, 강릉은 전체 목록을 확보하자 729건으로 늘어났다.
+따라서 첫 페이지 overlap을 전체 coverage로 사용하지 않는다.
+
+### 현재 후보·코스·Anchor overlap
+
+| 지역 | 일반 후보 LISTED/전체 | 코스 LISTED/전체 | Anchor 후보 LISTED/전체 |
+|---|---:|---:|---:|
+| 경주 | 2/10 (20.0%) | 3/12 (25.0%) | `NOT_AVAILABLE` |
+| 강릉 | 9/12 (75.0%) | 4/4 (100.0%) | `NOT_AVAILABLE` |
+| 대전 유성구 | 3/9 (33.3%) | 4/7 (57.1%) | 6/12 (50.0%) |
+
+세 지역 합산으로는 일반 후보 14/31(45.2%), 코스 11/23(47.8%), 측정 가능한 Anchor 후보
+6/12(50.0%)다. 공식 목록에 없다는 뜻은 이 전체 목록 기준에서의 `NOT_LISTED`이며, 이를
+무장애 동반 불가로 해석하지 않는다. Festival Anchor 자체는 코스 overlap에서 제외했다.
+
+### 지역별 상세 표본과 필드 품질
+
+경주·강릉·대전 유성구에서 각각 `ATTRACTION 5`, `FOOD 1`, `LODGING 1`, `EXPERIENCE 1`로
+8건씩 선정해 총 24건을 호출했다. 24건 모두 HTTP 200, `resultCode=0000`, `resultMsg=OK`,
+item 1건이었다. 실제 응답 필드는 29개이며, 접근성 관련 필드의 값 존재율은 다음과 같다.
+
+| 필드 | 값 있음 | 존재율 | 필드 | 값 있음 | 존재율 |
+|---|---:|---:|---|---:|---:|
+| `route` | 19/24 | 79.2% | `exit` | 18/24 | 75.0% |
+| `restroom` | 16/24 | 66.7% | `parking` | 15/24 | 62.5% |
+| `elevator` | 7/24 | 29.2% | `handicapetc` | 6/24 | 25.0% |
+| `wheelchair` | 5/24 | 20.8% | `braileblock` | 5/24 | 20.8% |
+| `publictransport` | 5/24 | 20.8% | `infantsfamilyetc` | 3/24 | 12.5% |
+| `stroller` | 3/24 | 12.5% | `auditorium` | 2/24 | 8.3% |
+| `lactationroom` | 2/24 | 8.3% | `room` | 2/24 | 8.3% |
+| `guidesystem` | 1/24 | 4.2% | 그 밖의 필드 | 0/24 | 0.0% |
+
+`audioguide`, `bigprint`, `blindhandicapetc`, `brailepromotion`, `guidehuman`,
+`hearinghandicapetc`, `hearingroom`, `helpdog`, `promotion`, `signguide`, `ticketoffice`,
+`videoguide`, `babysparechair`는 표본에서 모두 빈 문자열이었다.
+
+### 정규화 감사와 dimension 확정
+
+실제 필드 문구를 휴리스틱으로 분류한 결과 명시적 가능은 `exit 17`, `restroom 14`, `route 18`,
+`parking 14`, `elevator 7`, `wheelchair 3` 등에서 확인됐다. 명시적 불가는 `exit 1`,
+`restroom 1`에서 확인됐다. 조건·문의 문구는 `handicapetc 1`에서 확인됐고, 자유 서술은
+`wheelchair 2`, `handicapetc 1`, `parking 1`, `publictransport 5`, `restroom 1`, `route 1`,
+`stroller 1` 등에서 확인됐다. 빈 문자열·누락·판정 불가능 값은 모두 `UNKNOWN`으로 남긴다.
+
+첫 제품 dimension은 `wheelchair`, `entrance/exit`, `elevator`, `restroom`, `parking`, `route`,
+`visualGuide(실제 값이 있는 braileblock 중심)`, `stroller/family`, `otherSupport`로 제한한다.
+표본에서 값이 전혀 없는 `hearingGuide`와 `guideDog`, 대부분의 시청각·안내 필드는 초기 제품
+표면에 노출하지 않는다.
+
+overall 접근성 상태는 **사용하지 않는다(B: dimension별 evidence만 제공)**. 주차 가능·엘리베이터
+미확인 같은 혼합 상태를 전체 무장애 가능으로 표시할 수 없기 때문이다.
+
+### `PoiConditionEvidence`·cache 계약
+
+기존 `PoiConditionEvidence` envelope의 `poiId`, `conditionType=ACCESSIBILITY`, `contentId`,
+`sourceCode`, `endpoint`, `apiVersion`, `status`, `fetchedAt`, `rawPayload`,
+`sourceModifiedTime`, `sourceShowFlag`, 오류 필드는 재사용한다. `rawPayload Json?`에는 API 원문만
+보존하고, 정규화된 차원 상태까지 섞지 않기 위해 다음 구현 단계에서 `dimensionDetails Json?`
+최소 migration을 추가하는 설계를 확정했다. 기존 `availability`는 전체 접근성 가능/불가로
+사용하지 않고 `UNKNOWN`을 유지한다.
+
+목록의 `contentid`·`modifiedtime`·`showflag`를 cache key와 freshness 판단에 사용한다.
+동일 수정시각·표시상태의 `SUCCESS/EMPTY`는 상세를 건너뛰고, 변경 대상은 재조회하며, `ERROR`는
+재시도한다. 이번 조사에는 저장 pipeline이 없어 cache hit는 0건이다.
+
+### 최종 판정
+
+전체 목록 1,022건, local POI 교집합 924건, 추천 후보·코스·Anchor 비교, 지역별 상세 24건이
+확인됐고, FOOD·LODGING·EXPERIENCE에도 공식 목록과 실제 후보 overlap이 존재한다. 따라서
+`ACCESSIBILITY` pipeline 준비도는 **READY**다. 다음 작업부터 차원별 evidence 증분 pipeline을
+구현하되, 사용자 UI·ranking·hard filter·자동 코스·DNA·전략 점수·PET는 변경하지 않는다.
+
+이번 전체 조사 실행은 목록 3회와 상세 24회로 27회였고, 출력 구조 수정 후 목록 3회를 추가해
+총 외부 API 호출은 30회다. 모두 로컬 읽기와 API 읽기였으며 Production Neon에는 접근하지 않았다.

@@ -683,3 +683,40 @@ category 분포는 각각 경주 `ATTRACTION 58 / FOOD 9 / LODGING 15 / EXPERIEN
 pipeline은 구현하지 않았고 evidence cache hit는 0건이다. 따라서 준비도는 **PARTIAL**로 두며,
 다음 단계는 2~3개 지역의 최소 상세 표본 비교 후 계약을 확정하는 것이다. Production Neon에는
 접근하거나 쓰지 않았다.
+
+## 2026-08-25 최종 갱신 — 무장애 전체 목록·ACCESSIBILITY pipeline 구현 준비 완료
+
+첫 페이지 검증을 전체 목록 검증으로 교체했다. `numOfRows=1000` 요청으로 경주 140/140,
+강릉 803/803, 대전 유성구 79/79를 수신했고, 세 지역 모두 `contentid` 고유 수와 실제 수신
+건수가 `totalCount`와 일치했다. 세 지역 local API POI와의 전체 교집합은 각각 경주 126/620,
+강릉 729/1,001, 대전 유성구 69/388이다. 강릉은 첫 100건 기준 91건에서 전체 기준 729건으로
+변경됐으므로, 이후 판단은 반드시 전체 목록 기준으로 한다.
+
+category별 교집합은 경주 `ATTRACTION 79 / FOOD 15 / LODGING 23 / EXPERIENCE 4 / SHOPPING 5`,
+강릉 `119 / 391 / 165 / 17 / 37`, 대전 유성구 `32 / 25 / 7 / 3 / 2`다. FOOD·LODGING·
+EXPERIENCE에도 실제 공식 overlap이 충분히 존재하므로, 무장애 데이터가 관광지에만 한정된다는
+불확실성은 해소됐다.
+
+대표 프로젝트의 공식 목록 overlap은 경주 후보 2/10·코스 3/12, 강릉 후보 9/12·코스 4/4,
+대전 유성구 후보 3/9·코스 4/7이다. 대전 유성구 Anchor 연계 후보는 6/12이며, 경주·강릉은
+`NOT_AVAILABLE`다. Festival Anchor 자체는 코스 집계에서 제외한다.
+
+상세는 세 지역에서 각각 8건씩 총 24건을 category 균형으로 조회했고, 모두 HTTP 200/
+`0000/OK`였다. 값 존재율이 높은 dimension은 `route 19/24`, `exit 18/24`, `restroom 16/24`,
+`parking 15/24`, `elevator 7/24`, `wheelchair 5/24`다. `hearingGuide`, `guideDog`와 다수의
+점자·청각·안내 필드는 표본에서 빈 문자열이므로 초기 제품 표면에서 제외한다. 빈 문자열은
+`UNAVAILABLE`이 아니라 `UNKNOWN`이다.
+
+overall 접근성 상태는 사용하지 않고, `wheelchair`, `entrance/exit`, `elevator`, `restroom`,
+`parking`, `route`, 실제 값이 있는 시각·점자 보조, `stroller/family`, 기타 보조 정보의
+dimension별 evidence만 제공한다. 명시적 가능·불가·조건·자유 서술·미확인을 차원별로 보존한다.
+
+기존 `PoiConditionEvidence` envelope와 `rawPayload Json?` 원문 보존은 재사용하되, 원문과 정규화
+결과를 혼합하지 않기 위해 다음 구현 단위에서 `dimensionDetails Json?` 최소 migration을 추가한다.
+`modifiedtime`·`showflag`·`contentid` 기반으로 동일 `SUCCESS/EMPTY`는 건너뛰고 변경 대상만
+재조회하는 cache 정책도 확정했다. 이번 조사에서는 DB 저장과 cache hit가 없었다.
+
+최종 준비도는 **READY**다. 다음 작업은 **ACCESSIBILITY evidence 증분 pipeline 구현**이며,
+이번 조사에서 금지한 UI·ranking·hard filter·자동 코스·DNA·전략 점수·PET 변경은 포함하지 않는다.
+이번 조사와 출력 재검증의 외부 API 호출은 목록 6회, 상세 24회, 합계 30회였고 Production Neon은
+접근하지 않았다.
