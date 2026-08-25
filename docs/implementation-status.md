@@ -37,6 +37,70 @@
 > 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
+## 2026-08-25 갱신 — 대표 프로젝트 사용자 노출 대상 targeted enrichment 완료
+
+기존 generic 지역 수집기의 기본 동작은 유지하고, 프로젝트 ID를 코드에 고정하지 않는 targeted
+실행 경로를 추가했다. 경주·강릉·대전 유성구에서 분석 결과·저장 코스·Anchor 존재 여부와
+최신성을 기준으로 대표 프로젝트를 동적으로 선택한 뒤, 실제 사용자 노출 후보·코스/숙박·Anchor
+연계 후보만 읽었다. Festival Anchor 자체는 코스에서 제외했으며, 공식 목록에 없는 POI는
+계속 `UNKNOWN`으로 남겼다.
+
+### 대표 프로젝트와 노출 집합
+
+| 지역 | 동적으로 선택된 프로젝트 | 노출 행 | 고유 POI | 후보 | 코스/숙박 | Anchor 후보 |
+|---|---|---:|---:|---:|---:|---:|
+| 경주시 | `[QA PET 사용자] 경주` | 22 | 22 | 10 | 12 | 0 |
+| 강릉시 | `강원특별자치도 8월 소규모 여행 기획` | 16 | 16 | 12 | 4 | 0 |
+| 대전 유성구 | `[QA E2E] 대전 축제 Anchor` | 28 | 23 | 9 | 7 | 12 |
+
+전체는 노출 행 66건·고유 POI 61건이다. 중복 POI가 후보와 코스 또는 Anchor 후보에 함께
+나타날 수 있으므로, collection별 coverage는 화면 노출 행 기준으로 계산하고 상세 API 호출은
+고유 `contentId` 기준으로 한 번만 수행했다.
+
+### targeted before/after
+
+| 대상 | 전체 | before evidence | before listed 미수집 | before 목록 외 | after evidence | after listed 미수집 | after 목록 외 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 전체 노출 | 66 | 3 | 28 | 35 | 31 | 0 | 35 |
+| 일반 후보 | 31 | 1 | 13 | 17 | 14 | 0 | 17 |
+| 코스/숙박 | 23 | 1 | 10 | 12 | 11 | 0 | 12 |
+| Anchor 후보 | 12 | 1 | 5 | 6 | 6 | 0 | 6 |
+
+전체 노출 기준 coverage는 `3/66=4.5%`에서 `31/66=47.0%`로 상승했고, 공식 목록에 포함된
+노출 POI는 모두 evidence를 확보했다. 목록 외 35건은 접근 불가가 아니라 계속 `UNKNOWN`이다.
+
+### category별 targeted 결과
+
+| category | 전체 | before evidence/미수집/목록 외 | after evidence/미수집/목록 외 | after coverage |
+|---|---:|---:|---:|---:|
+| `ATTRACTION` | 28 | 3 / 15 / 10 | 18 / 0 / 10 | 64.3% |
+| `FOOD` | 20 | 0 / 5 / 15 | 5 / 0 / 15 | 25.0% |
+| `LODGING` | 6 | 0 / 4 / 2 | 4 / 0 / 2 | 66.7% |
+| `EXPERIENCE` | 4 | 0 / 0 / 4 | 0 / 0 / 4 | 0.0% |
+| `SHOPPING` | 6 | 0 / 4 / 2 | 4 / 0 / 2 | 66.7% |
+
+`FOOD`, `LODGING`, `SHOPPING`은 실제 사용자 노출 대상에서 공식 목록 교집합이 있어 보강됐다.
+`EXPERIENCE` 4건은 이번 대표 프로젝트 노출 집합에서 공식 목록과 겹치는 POI가 0건이므로
+추가 상세 호출 대상이 없었다. 이는 수집 상한 문제가 아니라 이번 노출 집합과 공식 목록의
+교집합 결과이며, 해당 POI를 불가로 판단하지 않는다. 별도로 후보 풀에 있던 일반 `FESTIVAL`
+2건은 Anchor 자체가 아니며 공식 목록 외 상태로 남겼다.
+
+### API 호출·저장·cache
+
+첫 targeted 실행은 dry-run 6회(공식 목록 3회 + 실행 계획 목록 3회), 실제 저장 26회(목록 6회 +
+상세 20회)였다. 동일 조건 재실행은 목록 6회·상세 6회였으며, 기존 대표 노출 evidence 22건은
+cache hit으로 건너뛰고 남은 `LISTED_NOT_ENRICHED` 6건만 새로 호출했다. 이번 단계 전체
+targeted 실행에는 초기 maxItems=12 dry-run을 포함해 목록 24회·상세 26회가 사용됐다.
+
+현재 local `ACCESSIBILITY` evidence는 총 46건이며 `SUCCESS 46 / EMPTY 0 / ERROR 0`,
+고유 `contentId` 46건이다. 새로 저장된 모든 행에서 `rawPayload`, `dimensionDetails`,
+`sourceModifiedTime`, `sourceShowFlag`가 존재하고 `availability=UNKNOWN`을 유지한다.
+
+이번 targeted 모드의 사용자 advisory 연결 준비도는 **READY**다. 실제 대표 후보·코스·숙박·
+Anchor 후보에서 `ATTRACTION`, `FOOD`, `LODGING`, `SHOPPING` 근거가 확보됐고, 남은 목록 외
+POI와 공식 교집합이 없는 `EXPERIENCE`는 `UNKNOWN`으로 안전하게 표시할 수 있다. 다음 단계는
+ranking이나 hard filter가 아니라 `dimensionDetails`를 읽기 전용 advisory로 연결하는 것이다.
+
 ## 2026-08-25 갱신 — ACCESSIBILITY evidence 증분 수집 구현 완료
 
 이번 단계에서 한국관광공사 `KorWithService2`의 무장애 공식 목록과 local `Poi.externalId`의
@@ -106,11 +170,11 @@ ranking·hard filter·자동 코스·전략 점수·DNA·PET 로직은 변경하
 | 1. 지역과 기획 조건 | 완료 | 지역·여행월·역할·기간을 포함해 목표, 이동수단, 동행 유형, 예산 등을 입력 | 입력 항목 간 의미와 저장 모델을 계속 정리 |
 | 2. 해결하고 싶은 관광 문제 | 완료 | 체류 확대·지역 소비 확대·비수기 활성화·관광객 분산을 분리한 목표 선택과 DNA 연결. 기존 통합 목표 코드는 하위 호환 | 목표별 전략 문구·KPI를 더 세밀하게 차등화 |
 | 3. 콘텐츠 테마 | 완료(핵심 테마 연결) | 8개 고정 선택·기존 자유 입력 자동 변환. 자동 초안·추천 후보·실시간 검증이 사용자 테마와 전략 핵심 테마의 공통 활성 집합을 사용 | K-콘텐츠·야간관광의 공식 구조 신호 확보와 운영정보 확장 |
-| 4. 여행 조건 | PET 완료·ACCESSIBILITY evidence 저장 기반 완료 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 공식 목록 교집합·차원 정규화·local 증분 저장까지 경주·대전 유성구에서 검증 | 제품 조건 화면의 무장애 근거 표시와 사용자 advisory 연결 |
+| 4. 여행 조건 | PET 완료·ACCESSIBILITY targeted evidence 완료 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 대표 프로젝트의 후보·코스/숙박·Anchor 후보를 공식 목록과 대조하고, 겹치는 POI의 차원 정규화·local 증분 저장까지 완료 | 제품 조건 화면의 무장애 근거 표시와 사용자 advisory 연결 |
 | 5. 특별한 기획 계기 | 부분 완료(P1-2c, 로컬 구현) | 공식 후보 조회 → 프로젝트 Anchor 확정 저장·변경·삭제 → 실행안 고정 → 행사 전·식사·행사 후·숙박 후보를 역할별로 제안·추가. 기존 POI 보존·Anchor snapshot 저장·stale 저장 거부까지 연결 | Production migration 적용, 후보의 핵심 테마 슬롯·접근성 근거 고도화 |
 | 6. TOUR-DNA 분석 | 완료 | 지역 진단 → 기회 3개 → 전략 3안, 근거·비교·역할 요약 제공 | 텍스트 우선순위와 설명량은 계속 다듬되 핵심 흐름은 구현됨 |
 | 7. 코스 스튜디오 | 완료(핵심 테마 연결) | 자동 초안과 추천 후보가 같은 활성 테마·공식 분류·기존 대표성 정책으로 정렬 | 수동 추가 직후 남은 후보를 거리·동선 기준으로 재정렬 |
-| 8. 실시간 검증 | 부분 완료(PET advisory·ACCESSIBILITY 저장 기반) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애는 차원별 evidence를 저장하지만 아직 검증 패널에 연결하지 않는다 | 무장애 차원 evidence 읽기·표시 연결 여부를 제품 요구사항으로 확정 |
+| 8. 실시간 검증 | 부분 완료(PET advisory·ACCESSIBILITY targeted 저장 기반) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애는 대표 사용자 노출 대상의 차원별 evidence를 저장하고, 목록 외 POI는 UNKNOWN으로 유지한다 | 무장애 차원 evidence 읽기·표시 연결 여부를 제품 요구사항으로 확정 |
 | 9. 실행안 확정 | 완료 | 확정안 저장, KPI·위험, 홍보자료 생성·편집, 인쇄 화면 제공 | 자가용 외 이동수단의 실제 경로 연동과 최종 품질 리포트 고도화 |
 
 ### 현재 판단

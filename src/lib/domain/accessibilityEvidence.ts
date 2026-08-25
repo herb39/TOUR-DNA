@@ -125,10 +125,17 @@ export function selectAccessibilityTargets(params: {
   localPois: AccessibilityLocalPoi[];
   existingEvidence: ExistingAccessibilityEvidence[];
   maxItems: number;
+  priorityContentIds?: string[];
+  restrictToPriorityContentIds?: boolean;
 }): AccessibilityTargetSelection {
   const allOfficialItems = deduplicateAccessibilityTargets(params.officialItems);
   const hiddenItems = allOfficialItems.filter((item) => item.sourceShowFlag === "0");
   const officialItems = allOfficialItems.filter((item) => item.sourceShowFlag !== "0");
+  const priorityContentIds = params.priorityContentIds ?? [];
+  const priorityRank = new Map(priorityContentIds.map((contentId, index) => [contentId, index]));
+  const consideredItems = params.restrictToPriorityContentIds
+    ? officialItems.filter((item) => priorityRank.has(item.contentid))
+    : officialItems;
   const poisByExternalId = new Map(
     params.localPois.filter((poi) => poi.externalId !== null).map((poi) => [poi.externalId as string, poi]),
   );
@@ -139,7 +146,7 @@ export function selectAccessibilityTargets(params: {
   const cacheHits: AccessibilityTarget[] = [];
   const changedTargets: AccessibilityTarget[] = [];
 
-  for (const target of officialItems) {
+  for (const target of consideredItems) {
     const poi = poisByExternalId.get(target.contentid);
     if (!poi) {
       unmatchedContentIds.push(target.contentid);
@@ -151,6 +158,14 @@ export function selectAccessibilityTargets(params: {
     else changedTargets.push(target);
   }
 
+  const orderedChangedTargets = priorityContentIds.length === 0
+    ? changedTargets
+    : [...changedTargets].sort((left, right) => {
+        const leftRank = priorityRank.get(left.contentid);
+        const rightRank = priorityRank.get(right.contentid);
+        return (leftRank ?? Number.MAX_SAFE_INTEGER) - (rightRank ?? Number.MAX_SAFE_INTEGER);
+      });
+
   return {
     officialItems,
     hiddenItems,
@@ -158,8 +173,8 @@ export function selectAccessibilityTargets(params: {
     matchedPois,
     unmatchedContentIds,
     cacheHits,
-    changedTargets,
-    fetchTargets: changedTargets.slice(0, params.maxItems),
+    changedTargets: orderedChangedTargets,
+    fetchTargets: orderedChangedTargets.slice(0, params.maxItems),
   };
 }
 

@@ -7,7 +7,46 @@
 
 ---
 
-## 현재 로드맵 갱신 — 2026-08-25 ACCESSIBILITY evidence 단계 완료
+## 현재 로드맵 갱신 — 2026-08-25 대표 프로젝트 targeted enrichment 완료
+
+### 이번 단계
+
+경주·강릉·대전 유성구에서 프로젝트 ID를 하드코딩하지 않고, 분석 결과·저장 코스·Anchor가
+가장 완전한 최신 프로젝트를 동적으로 선택했다. 실제 노출 후보 31건, 코스·숙박 23건,
+Anchor 후보 12건을 공식 목록과 대조했다.
+
+첫 targeted 실행은 `maxItems=20`으로 상세 20건을 저장했고, 동일 조건 재실행에서 cache hit
+22건과 신규 상세 6건을 확인했다. 최종 사용자 노출 기준은 전체 66건 중
+`EVIDENCE_AVAILABLE 31 / LISTED_NOT_ENRICHED 0 / NOT_IN_OFFICIAL_LIST 35`다.
+
+category별로는 `ATTRACTION 18`, `FOOD 5`, `LODGING 4`, `SHOPPING 4`가 evidence를 확보했다.
+`EXPERIENCE`는 노출 4건 모두 공식 목록 외라 상세 호출 대상이 없었다. 이는 접근 불가 판정이
+아니며 계속 `UNKNOWN`이다.
+
+이번 targeted 사용자 advisory 연결 준비도는 **READY**다. 단, 실제 UI 연결은 아직 하지 않았고,
+다음 단계에서 차원별 `dimensionDetails`를 읽기 전용 advisory로 연결할지 결정한다.
+
+### 현재 로드맵 순서
+
+1. **완료 — ACCESSIBILITY generic evidence 저장 기반**: adapter, 정규화, cache, local-only guard,
+   호출 상한, dry-run, 단위 테스트.
+2. **완료 — 대표 프로젝트 targeted enrichment**: 후보·코스/숙박·Anchor 후보 상태 분류,
+   category-balanced 우선순위, 기존 generic 동작을 보존한 targeted 범위 제한, before/after와
+   cache 재실행 검증.
+3. **다음 — ACCESSIBILITY advisory UI 연결**: `dimensionDetails`와 확인 시각을 읽기 전용으로
+   표시한다. 전체 무장애 가능/불가 상태, ranking, hard filter, 자동 코스, DNA, 전략 점수는
+   변경하지 않는다.
+4. **그 다음 — 코스 편집 품질**: 수동 추가 뒤 후보 재정렬, 이동 현실성, POI 유형별 체류시간,
+   동일 시설 중복 검토.
+5. **장기 — 관광 가치·축제 수혜 범위**: 생활시설과 외지인 방문 목적지 구분, 축제 전후 상권·
+   숙박 확산 분석 검토.
+
+운영자 화면은 제품 범위에 포함하지 않는다. 공식 상세 API는 실제 사용자 노출 대상과 겹치는
+변경 대상이 있을 때만 소량 호출한다.
+
+---
+
+## 이전 로드맵 갱신 — 2026-08-25 ACCESSIBILITY evidence 단계 완료
 
 ### 이번 작업 결과
 

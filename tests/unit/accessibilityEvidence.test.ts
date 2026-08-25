@@ -3,6 +3,7 @@ import {
   normalizeAccessibilityDetail,
   selectAccessibilityTargets,
 } from "@/lib/domain/accessibilityEvidence";
+import { orderTargetedAccessibilityRows } from "@/lib/domain/accessibilityTargeting";
 
 describe("accessibility evidence", () => {
   it("차원별 가능·불가·조건부·unknown을 분리한다", () => {
@@ -87,5 +88,42 @@ describe("accessibility evidence", () => {
     expect(result.changedTargets.map((item) => item.contentid)).toEqual(["1", "3"]);
     expect(result.fetchTargets.map((item) => item.contentid)).toEqual(["1"]);
     expect(result.hiddenItems.map((item) => item.contentid)).toEqual(["2"]);
+  });
+
+  it("targeted 모드는 명시한 contentId 범위만 보고 category 우선순위를 따른다", () => {
+    const result = selectAccessibilityTargets({
+      officialItems: [
+        { contentid: "a", modifiedtime: "same", showflag: "1" },
+        { contentid: "b", modifiedtime: "same", showflag: "1" },
+        { contentid: "c", modifiedtime: "same", showflag: "1" },
+      ],
+      localPois: [
+        { id: "poi-a", externalId: "a", category: "ATTRACTION" },
+        { id: "poi-b", externalId: "b", category: "FOOD" },
+        { id: "poi-c", externalId: "c", category: "LODGING" },
+      ],
+      existingEvidence: [
+        { contentId: "a", status: "SUCCESS", sourceModifiedTime: "same", sourceShowFlag: "1" },
+      ],
+      maxItems: 1,
+      priorityContentIds: ["a", "b"],
+      restrictToPriorityContentIds: true,
+    });
+
+    expect(result.cacheHits.map((item) => item.contentid)).toEqual(["a"]);
+    expect(result.changedTargets.map((item) => item.contentid)).toEqual(["b"]);
+    expect(result.fetchTargets.map((item) => item.contentid)).toEqual(["b"]);
+  });
+
+  it("targeted 노출 대상은 후보 우선·category round-robin으로 정렬한다", () => {
+    const ordered = orderTargetedAccessibilityRows([
+      { id: "a1", name: "관광지", category: "ATTRACTION", externalId: "a1", projectId: "p", regionCode: "R", collection: "CANDIDATE" },
+      { id: "a2", name: "관광지2", category: "ATTRACTION", externalId: "a2", projectId: "p", regionCode: "R", collection: "CANDIDATE" },
+      { id: "f1", name: "식당", category: "FOOD", externalId: "f1", projectId: "p", regionCode: "R", collection: "CANDIDATE" },
+      { id: "l1", name: "숙박", category: "LODGING", externalId: "l1", projectId: "p", regionCode: "R", collection: "COURSE" },
+      { id: "x1", name: "체험", category: "EXPERIENCE", externalId: "x1", projectId: "p", regionCode: "R", collection: "ANCHOR_CANDIDATE" },
+    ]);
+
+    expect(ordered.map((row) => row.id)).toEqual(["a1", "f1", "a2", "l1", "x1"]);
   });
 });

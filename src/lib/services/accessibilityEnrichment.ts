@@ -28,6 +28,9 @@ export interface AccessibilityEnrichmentParams {
   maxListPages: number;
   delayMs: number;
   dryRun?: boolean;
+  /** targeted 실행에서만 사용한다. 기본 generic 실행은 기존 정렬·범위를 유지한다. */
+  priorityContentIds?: string[];
+  restrictToPriorityContentIds?: boolean;
 }
 
 export interface AccessibilityEnrichmentResult {
@@ -53,13 +56,16 @@ export interface AccessibilityEnrichmentResult {
   savedSuccess: number;
   savedEmpty: number;
   savedError: number;
+  plannedDetailContentIds: string[];
+  detailContentIds: string[];
+  cacheHitContentIds: string[];
   dryRun: boolean;
   categoryDistribution: Record<string, number>;
   dimensionStatusDistribution: Record<AccessibilityDimensionKey, Record<AccessibilityDimensionStatus, number>>;
   messages: string[];
 }
 
-type RegionScope = {
+export type AccessibilityRegionScope = {
   id: string;
   code: string;
   name: string;
@@ -104,9 +110,9 @@ function sleep(milliseconds: number): Promise<void> {
   return milliseconds > 0 ? new Promise((resolve) => setTimeout(resolve, milliseconds)) : Promise.resolve();
 }
 
-async function fetchAccessibilityList(params: {
+export async function fetchAccessibilityOfficialList(params: {
   serviceKey: string;
-  region: RegionScope;
+  region: AccessibilityRegionScope;
   maxListPages: number;
 }): Promise<{ ok: boolean; items: AccessibilityListItem[]; pagesFetched: number; totalCount: number; message?: string }> {
   if (!params.region.lDongRegnCd || !params.region.lDongSignguCd) {
@@ -247,6 +253,9 @@ function emptyResult(params: AccessibilityEnrichmentParams): AccessibilityEnrich
     savedSuccess: 0,
     savedEmpty: 0,
     savedError: 0,
+    plannedDetailContentIds: [],
+    detailContentIds: [],
+    cacheHitContentIds: [],
     dryRun: Boolean(params.dryRun),
     categoryDistribution: {},
     dimensionStatusDistribution: emptyDimensionDistribution(),
@@ -276,8 +285,8 @@ export async function enrichAccessibilityEvidence(params: AccessibilityEnrichmen
   if (!region) return { ...empty, messages: [`지역 코드를 찾을 수 없습니다: ${params.regionCode}`] };
   if (region.level !== "SIGUNGU") return { ...empty, regionName: region.name, messages: ["무장애 증분 수집은 SIGUNGU 지역만 지원합니다."] };
   const codes = resolvePetTourRegionCodes(region);
-  const scope: RegionScope = { ...region, ...codes };
-  const list = await fetchAccessibilityList({ serviceKey, region: scope, maxListPages: params.maxListPages });
+  const scope: AccessibilityRegionScope = { ...region, ...codes };
+  const list = await fetchAccessibilityOfficialList({ serviceKey, region: scope, maxListPages: params.maxListPages });
   if (!list.ok) return { ...empty, regionName: region.name, listPagesFetched: list.pagesFetched, listTotalCount: list.totalCount, messages: [list.message ?? "공식 무장애 목록을 가져오지 못했습니다."] };
 
   const officialTargets = deduplicateAccessibilityTargets(list.items);
@@ -292,6 +301,8 @@ export async function enrichAccessibilityEvidence(params: AccessibilityEnrichmen
     localPois: localPois as AccessibilityLocalPoi[],
     existingEvidence,
     maxItems: params.maxItems,
+    priorityContentIds: params.priorityContentIds,
+    restrictToPriorityContentIds: params.restrictToPriorityContentIds,
   });
   const poiByContentId = new Map(localPois.filter((poi) => poi.externalId).map((poi) => [poi.externalId as string, poi]));
   const categoryDistribution: Record<string, number> = {};
@@ -322,6 +333,9 @@ export async function enrichAccessibilityEvidence(params: AccessibilityEnrichmen
     savedSuccess: 0,
     savedEmpty: 0,
     savedError: 0,
+    plannedDetailContentIds: fetchTargets.map((target) => target.contentid),
+    detailContentIds: [],
+    cacheHitContentIds: selection.cacheHits.map((target) => target.contentid),
     dryRun: Boolean(params.dryRun),
     categoryDistribution,
     dimensionStatusDistribution: emptyDimensionDistribution(),
@@ -335,6 +349,7 @@ export async function enrichAccessibilityEvidence(params: AccessibilityEnrichmen
   for (const target of fetchTargets) {
     if (result.detailCallsAttempted > 0) await sleep(params.delayMs);
     result.detailCallsAttempted++;
+    result.detailContentIds.push(target.contentid);
     const detail = await fetchAccessibilityDetail({ serviceKey, contentId: target.contentid });
     const poi = poiByContentId.get(target.contentid);
     if (!poi) continue;
