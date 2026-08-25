@@ -604,3 +604,54 @@ POI는 `NOT_IN_OFFICIAL_LIST`로 사용자에게 미확인으로 남기며, 불�
 PET 상세 수집은 앞으로도 현재 후보·코스에 `LISTED_NOT_ENRICHED`가 실제로 생길 때만 실행한다.
 그 외에는 상세 API 0회가 정상 결과이며, 이 기준을 벗어난 전국 전수 수집·Neon 데이터 작업은
 로드맵에 포함하지 않는다.
+## 2026-08-25 로드맵 갱신 — PET 유지보수 전환과 무장애 승인 반영 대기
+
+### PET 상태
+
+다음 항목은 완료됐다.
+
+- 공식 PET 데이터 가용성 조사
+- 공식 목록 교집합 기반 증분 수집 pipeline
+- 최신 evidence cache와 재호출 방지
+- 사용자 공식 근거 표시 및 `CONFIRMED`·`CONDITIONAL`·`UNKNOWN` advisory
+- 6개 대표 지역 일반 추천 후보·저장 코스·Anchor 연계 후보 overlap 검증
+- 상세를 모두 수집했을 때의 coverage ceiling 검증
+
+최근 결과는 일반 추천 후보 `3/46=6.5%`, 저장 코스 `5/99=5.1%`, Anchor 연계 후보 `1/24=4.2%`다.
+세 대상 모두 `LISTED_NOT_ENRICHED`가 0건이므로 추가 상세 수집만으로 현재 화면 coverage를 개선할
+수 없다. `FOOD`·`LODGING`·`EXPERIENCE`의 후보+코스 공식 PET overlap도 0이다.
+
+따라서 다음 항목은 보류한다.
+
+- PET soft ranking
+- PET hard filter
+- PET 기반 자동 코스 변경
+- PET 기반 전략 점수·DNA 변경
+
+PET는 단기 핵심 개발 우선순위에서 제외하고 유지보수 단계로 전환한다. 새 candidate/course에 공식
+PET 목록 대상이 실제 등장할 때만 targeted enrichment를 수행하며, 공식 목록 전체 전수 수집은 하지
+않는다. 공식 목록에 없는 POI는 동반 불가가 아니라 계속 `UNKNOWN`으로 처리한다.
+
+### 무장애 승인 확인
+
+사용자가 공공데이터포털에서 한국관광공사 무장애 여행정보 API 활용신청 승인을 직접 확인했다.
+승인 상세기능에는 `/areaCode2`, `/categoryCode2`, `/areaBasedList2`, `/locationBasedList2`,
+`/searchKeyword2`, `/detailCommon2`, `/detailIntro2`, `/detailInfo2`, `/detailImage2`,
+`/detailWithTour2`, `/areaBasedSyncList2`, `/ldongCode2`, `/lclsSystmCode2`가 포함되어 있으며,
+각 상세기능의 현재 표시 일일 트래픽은 1,000건이다.
+
+이는 활용신청 승인 확인이지 기존 HTTP 403 해결 확인이 아니다. `/detailWithTour2`와
+`/areaBasedSyncList2`가 승인 목록에 표시되는 사실은 확인했지만, 승인 반영 후 실제 HTTP 200과
+응답 필드 정상성은 아직 확인하지 않았다. 이번 문서 작업에서는 무장애 API를 호출하지 않는다.
+
+### 다음 P1 우선순위
+
+**무장애 API 승인 반영 확인 → ACCESSIBILITY evidence pipeline 검증**을 다음 P1로 확정한다.
+
+1. 승인된 목록 endpoint 중 필요한 최소 호출로 HTTP 200과 지역 목록 응답을 확인한다.
+2. local POI와 공식 목록의 교집합만 만든다.
+3. 승인된 `detailWithTour2`를 소량 호출해 접근성 필드와 빈 값 구조를 확인한다.
+4. 최신성 cache·`AVAILABLE`·`UNKNOWN`을 분리한 `ACCESSIBILITY` evidence 계약을 검증한다.
+5. 검증 전에는 접근성 ranking·hard filter·자동 코스 변경을 구현하지 않는다.
+
+이후에는 편집 후 후보 재정렬, 이동 현실성, POI별 체류시간, 관광 가치 검토를 진행한다.
