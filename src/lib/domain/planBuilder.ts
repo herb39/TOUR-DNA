@@ -7,6 +7,7 @@ import {
   AVERAGE_SPEED_KMH,
   classifyTravelMinutes,
   EXCESSIVE_TRAVEL_MINUTES,
+  hasReasonableKoreanCoordinate,
 } from "./geo";
 import type { FoodSubcategory } from "./foodClassification";
 import {
@@ -223,8 +224,15 @@ const TRANSPORT_LABEL: Record<TransportCode, string> = {
   MIXED: "도보/대중교통 혼합",
 };
 
-function hasCoords(p: { lat?: number; lng?: number }): p is { lat: number; lng: number } {
-  return Number.isFinite(p.lat) && Number.isFinite(p.lng);
+function hasCoords<T extends { lat?: number; lng?: number }>(p: T): p is T & { lat: number; lng: number } {
+  return hasReasonableKoreanCoordinate(p);
+}
+
+/** 좌표가 없는 POI는 원본 일정에서 보존하되, 최근접 이웃 순서에는 참여시키지 않는다. */
+function orderWithReliableCoordinates<T extends { lat?: number; lng?: number }>(points: T[]): T[] {
+  const located = points.filter(hasCoords);
+  const unlocated = points.filter((point) => !hasCoords(point));
+  return [...orderByNearestNeighbor(located), ...unlocated];
 }
 
 /** "HH:MM" → 자정 기준 분. 형식이 이상하면 null(검증 불가로 처리하고 오류로 보지 않는다). */
@@ -1094,8 +1102,8 @@ function repairExcessiveTravelSegments(dayPoisList: PoiDetail[][], transport: Tr
 
       dayPoisList[d].splice(outlier.index, 1);
       dayPoisList[destDay].push(outlierPoi);
-      dayPoisList[d] = orderByNearestNeighbor(dayPoisList[d]);
-      dayPoisList[destDay] = orderByNearestNeighbor(dayPoisList[destDay]);
+      dayPoisList[d] = orderWithReliableCoordinates(dayPoisList[d]);
+      dayPoisList[destDay] = orderWithReliableCoordinates(dayPoisList[destDay]);
       changedInPass = true;
     }
     if (!changedInPass) break;
@@ -1222,7 +1230,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
   const nonLodgingPois = pois.filter((p) => p.category !== LODGING_CATEGORY);
   const selectedLodging = lodgingCandidates.slice(0, nights);
 
-  const ordered = orderByNearestNeighbor(nonLodgingPois);
+  const ordered = orderWithReliableCoordinates(nonLodgingPois);
   const counts = distributeDailyCounts(ordered.length, dailyTargets);
 
   const daySlotsForDayList: string[][] = [];

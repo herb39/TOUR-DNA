@@ -15,6 +15,7 @@ import {
   CAUTION_TRAVEL_MINUTES,
   classifyTravelMinutes,
   EXCESSIVE_TRAVEL_MINUTES,
+  hasReasonableKoreanCoordinate,
 } from "./geo";
 import {
   classifyStructuralPoiThemes,
@@ -193,6 +194,7 @@ function evaluateOperatingHoursWarnings(input: CourseQualityInput): CourseQualit
 }
 
 function resolveTravel(prev: CourseItem, current: CourseItem, transport: TransportCode): ResolvedTravel | null {
+  if (!hasReasonableKoreanCoordinate(prev) || !hasReasonableKoreanCoordinate(current)) return null;
   const storedMinutes = current.travelMinutes;
   if (Number.isFinite(storedMinutes)) {
     const isRoute = current.travelSource === "LIVE_API" || current.travelSource === "CACHED_API";
@@ -421,7 +423,7 @@ function evaluateShoppingWarnings(input: CourseQualityInput): CourseQualityWarni
   const groups = new Map<string, string[]>();
   for (const day of input.days) {
     for (const item of day.items) {
-      if (item.category !== "SHOPPING" || !Number.isFinite(item.lat) || !Number.isFinite(item.lng)) continue;
+      if (item.category !== "SHOPPING" || !hasReasonableKoreanCoordinate(item)) continue;
       const key = `${item.lat}|${item.lng}`;
       const names = groups.get(key) ?? [];
       names.push(`${day.dayIndex}일차 ${item.poiName}`);

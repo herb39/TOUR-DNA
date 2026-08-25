@@ -1,5 +1,6 @@
 import {
   AVERAGE_SPEED_KMH,
+  hasReasonableKoreanCoordinate,
   haversineDistanceKm,
   estimateTravelMinutesForDistance,
   type TransportModeCode,
@@ -13,7 +14,7 @@ export const haversineRouteProvider: RouteProvider = {
   name: "HAVERSINE",
   async getRoute(from: RoutePoint, to: RoutePoint, transport: TransportModeCode): Promise<RouteResult> {
     const distanceKm =
-      from.lat != null && from.lng != null && to.lat != null && to.lng != null
+      hasReasonableKoreanCoordinate(from) && hasReasonableKoreanCoordinate(to)
         ? haversineDistanceKm({ lat: from.lat, lng: from.lng }, { lat: to.lat, lng: to.lng })
         : 0;
     const minutes = estimateTravelMinutesForDistance(distanceKm, AVERAGE_SPEED_KMH[transport]);

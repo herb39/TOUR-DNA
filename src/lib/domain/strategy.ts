@@ -1,5 +1,5 @@
 import { clamp, roundForDisplay } from "./normalize";
-import { haversineDistanceKm, type GeoPoint } from "./geo";
+import { hasReasonableKoreanCoordinate, haversineDistanceKm, type GeoPoint } from "./geo";
 import { STRATEGY_TEMPLATES, type PoiCategoryCode, type StrategyTemplate } from "./strategyTemplates";
 import type { FoodSubcategory } from "./foodClassification";
 import { dedupeBySameCoordinates, dedupeBySameSite } from "./poiDedup";
@@ -76,7 +76,7 @@ export interface PoiLike {
 }
 
 function hasPoiCoords(p: PoiLike): p is PoiLike & GeoPoint {
-  return Number.isFinite(p.lat) && Number.isFinite(p.lng);
+  return hasReasonableKoreanCoordinate(p);
 }
 
 export interface StrategyScoreBreakdown {

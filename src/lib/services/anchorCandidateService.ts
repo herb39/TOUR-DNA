@@ -4,7 +4,7 @@ import {
   validateFestivalAnchorCourseDays,
   type FestivalAnchorCourseSource,
 } from "@/lib/domain/festivalAnchorCourse";
-import { haversineDistanceKm } from "@/lib/domain/geo";
+import { hasReasonableKoreanCoordinate, haversineDistanceKm } from "@/lib/domain/geo";
 import {
   classifyPoiCategoryTier,
   computePoiFit,
@@ -81,7 +81,7 @@ const EMPTY_GROUPS = (): Record<AnchorCandidateRole, AnchorCandidate[]> => ({
 });
 
 function hasCoords<T extends { lat?: number | null; lng?: number | null }>(value: T): value is T & { lat: number; lng: number } {
-  return Number.isFinite(value.lat) && Number.isFinite(value.lng);
+  return hasReasonableKoreanCoordinate(value);
 }
 
 function formatDistance(distanceKm: number): string {
@@ -150,7 +150,7 @@ export async function buildAnchorCandidateSuggestions(
     };
   }
   if ((anchor.regionCode && anchor.regionCode !== params.regionCode) || !hasCoords(anchor)) {
-    return { status: "NOT_READY", groups, total: 0, message: "Anchor의 지역 또는 좌표 정보가 없어 연계 후보를 계산할 수 없습니다." };
+    return { status: "NOT_READY", groups, total: 0, message: "Anchor의 지역 또는 국내 좌표 정보가 없어 연계 후보를 계산할 수 없습니다." };
   }
 
   const courseAnchors = findFestivalAnchorItems(params.days);

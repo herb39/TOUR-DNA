@@ -31,13 +31,11 @@ test.describe("축제 Anchor 전후 후보 연결(P1-2c) 실제 Chromium QA", ()
     await expect(panel.getByRole("button", { name: addLabel })).toHaveCount(0);
   });
 
-  test("세종: 행사 전·식사·행사 후·숙박 역할 후보와 거리 근거가 표시된다", async ({ page }) => {
+  test("세종: 국내 범위를 벗어난 Anchor는 후보 거리 계산 없이 안전한 안내를 표시한다", async ({ page }) => {
     const panel = await expectAnchorPanel(page, SEJONG_ID!);
-    for (const heading of ["행사 전 연결", "식사 연결", "행사 후 연결", "숙박 연결"]) {
-      await expect(panel.getByText(heading, { exact: true })).toBeVisible();
-    }
-    await expect(panel.getByText(/직선거리/).first()).toBeVisible();
-    await expect(panel.getByText(/운영시간 확인 필요|운영시간:/).first()).toBeVisible();
+    await expect(panel.getByText(/Anchor의 지역 또는 국내 좌표 정보가 없어/)).toBeVisible();
+    await expect(panel.getByText(/Anchor까지 직선거리/)).toHaveCount(0);
+    await expect(panel.getByText(/행사 전 연결|식사 연결|행사 후 연결|숙박 연결/, { exact: true })).toHaveCount(0);
   });
 
   test("제천 no-candidate fixture는 빈 상태만 보여주고 페이지를 막지 않는다", async ({ page }) => {

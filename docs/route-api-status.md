@@ -21,6 +21,22 @@
 > `result_code=0`, 실제 도로 vertex를 반환했고, 수정 후 세종 E2E에서는 HTTP 400 없이
 > `INVALID_COORDINATE` fallback만 발생했다.
 
+> **2026-08-25 좌표 provenance·전수 감사 후속**
+>
+> `contentId=3529946`을 한국관광공사 공식 `KorService2/detailCommon2`로 기존 로컬 키를 사용해 1회
+> 재확인했다. 공식 응답은 제목 `2025 세종미술주간 갤러리 가는 날`, 주소 `세종특별자치시 조치원읍
+> 수원지길 75-21`, `mapx=117.9925662504`, `mapy=19.6944274800`, `modifiedtime=20250901163233`을
+> 반환했다. 따라서 이 sourceId의 좌표 provenance는 **`LIVE_SOURCE_BAD`**다. 다만 local
+> `ProjectAnchor`에는 `sourceSnapshot.qa=true`, `provenance.provider=LOCAL_QA`가 있으므로 QA fixture가
+> 이 공식 원천 값을 로컬 Anchor로 재현·저장한 경로라는 사실도 함께 기록한다. 이를 근거로 QA 데이터만의
+> 오류라고 단정하지 않는다.
+>
+> local `tour_dna_local` POI 전수 감사 결과는 48,291건 중 `VALID=48,251`, `OUT_OF_KOREA_RANGE=39`,
+> `SUSPICIOUS_ZERO=1`, `MISSING=0`, `NON_FINITE=0`이었다. 동일한 비정상 좌표가 여러 지역·카테고리에
+> 반복되어 특정 지역을 삭제하는 방식은 채택하지 않았다. 원본 `Poi.rawPayload`와 구조화 좌표는 그대로
+> 보존하고, 국내 sanity 범위 밖 좌표만 Haversine·최근접 이웃·후보 공간 계산·Anchor 거리·route·지도
+> marker 계산 직전에 제외한다. 반복 가능한 읽기 전용 감사 명령은 `npm run audit:poi-coordinates`다.
+
 > **2026-08-06(5차) 갱신 — 이 절이 최신 상태다.**
 >
 > ## -2. 모든 이동수단에 이동 경로 표시(2026-08-06 5차 — PRIVATE_VEHICLE 전용 조건 제거)

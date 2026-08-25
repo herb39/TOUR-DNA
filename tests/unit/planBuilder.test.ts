@@ -19,13 +19,20 @@ import {
 } from "@/lib/domain/planBuilder";
 
 function poi(id: string, lat: number, lng: number, category = "ATTRACTION"): PoiDetail {
+  // 기존 단위 테스트의 0/10/20 같은 좌표는 실제 국내 좌표가 아니라 거리·군집을 표현한 상대값이었다.
+  // 제품 공통 sanity 방어가 적용된 뒤에도 테스트 의도를 유지하도록 여기서만 국내 기준점으로 옮긴다.
+  const normalizedLat =
+    lat >= 32 && lat <= 39.5 ? lat : 36.35 + (Math.abs(lat) <= 3 ? lat : lat / 100);
+  // 위도 36도 부근 경도 1도는 적도 기준 상대값보다 약 0.8배이므로, 예전 테스트의 상대 거리
+  // 의도를 유지하기 위해 경도 차이를 1.25배만 보정한다.
+  const normalizedLng = lng >= 124 && lng <= 132.5 ? lng : 127.38 + (Math.abs(lng) > 2 ? lng / 100 : lng * 1.25);
   return {
     id,
     name: `POI-${id}`,
     category,
     address: "",
-    lat,
-    lng,
+    lat: normalizedLat,
+    lng: normalizedLng,
     operatingHours: null,
     closedDays: null,
   };
@@ -39,13 +46,25 @@ function foodPoi(id: string, lat: number, lng: number, mealEligible: boolean): P
 
 describe("buildDraftCourse", () => {
   it("입력이 지그재그 순서여도 하루 안에서는 거리 순서로 재배열한다", () => {
-    // 경도 0, 0.01, 0.02, 0.03(각 약 1.1km, 정상 이동 범위)에 일직선 배치, 입력은 0, 0.02, 0.01,
+    // 경도 127.38, 127.39, 127.40, 127.41(각 약 1.1km, 정상 이동 범위)에 일직선 배치, 입력은 0, 0.02, 0.01,
     // 0.03(지그재그) — 장거리 구간 제외 정책(2단계)과 섞이지 않도록 전 구간을 정상 이동 범위로 둔다.
-    const pois = [poi("0", 0, 0), poi("2", 0, 0.02), poi("1", 0, 0.01), poi("3", 0, 0.03)];
+    const pois = [poi("0", 36.35, 127.38), poi("2", 36.35, 127.4), poi("1", 36.35, 127.39), poi("3", 36.35, 127.41)];
     const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
 
     expect(days).toHaveLength(1);
     expect(days[0].items.map((i) => i.poiId)).toEqual(["0", "1", "2", "3"]);
+  });
+
+  it("국내 범위 밖 좌표 POI는 삭제하지 않지만 최근접 이웃 계산에서는 제외한다", () => {
+    const pois = [
+      { ...poi("bad", 36.35, 127.4), lat: 19.69442748, lng: 117.9925662504 },
+      poi("start", 36.35, 127.38),
+      poi("next", 36.35, 127.39),
+    ];
+    const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
+
+    expect(days[0].items.map((i) => i.poiId)).toEqual(["start", "next", "bad"]);
+    expect(days[0].items[2].travel).toContain("좌표 정보 없음");
   });
 
   it("첫 항목은 '숙소/집결지에서 이동', 이후는 거리 기반 이동 텍스트를 쓴다", () => {
@@ -69,14 +88,14 @@ describe("buildDraftCourse", () => {
   });
 
   it("여러 날짜에 걸쳐서도 poi 개수만큼만 배치하고 초과 슬롯을 만들지 않는다", () => {
-    const pois = [poi("1", 0, 0), poi("2", 0, 0.01), poi("3", 0, 0.02)];
+    const pois = [poi("1", 36.35, 127.38), poi("2", 36.35, 127.39), poi("3", 36.35, 127.4)];
     const days = buildDraftCourse(pois, "ONE_NIGHT_TWO_DAYS", "PUBLIC_TRANSPORT");
     const totalItems = days.reduce((sum, d) => sum + d.items.length, 0);
     expect(totalItems).toBe(3);
   });
 
   it("하루에 4곳을 넘겨도(최대치 제한 없음) 전부 배치한다", () => {
-    const pois = Array.from({ length: 6 }, (_, i) => poi(String(i), 0, i * 0.01));
+    const pois = Array.from({ length: 6 }, (_, i) => poi(String(i), 36.35, 127.38 + i * 0.01));
     const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");
 
     expect(days).toHaveLength(1);
@@ -157,8 +176,8 @@ describe("recomputeDayItems", () => {
   it("P0-3: 이동시간이 길어 기본 슬롯보다 늦게 도착하면, 자동 배정 항목의 시각이 실제 도착 시각(30분 올림)으로 밀린다", () => {
     // 도보로 약 96분 걸리는 거리(약 6.4km)를 만든다 — 운영에서 관찰된 "이동 약 96분" 사례를 재현.
     const items = [
-      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 0, lng: 0 }),
-      input({ poiId: "b", poiName: "B", lat: 0, lng: 0.064 }),
+      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 36.35, lng: 127.38 }),
+      input({ poiId: "b", poiName: "B", lat: 36.35, lng: 127.46 }),
     ];
     const result = recomputeDayItems(items, "WALK", ["10:00", "11:00"]);
     // a: 10:00 시작 + 60분 체류 = 11:00 종료. 이동 약 96분 → 실제 도착 12:36 → 30분 올림 13:00.
@@ -169,8 +188,8 @@ describe("recomputeDayItems", () => {
 
   it("P0-3: 이동시간이 짧으면(기본 슬롯보다 일찍 도착) 기존처럼 자리 기준 기본 슬롯을 그대로 쓴다(회귀 없음)", () => {
     const items = [
-      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 0, lng: 0 }),
-      input({ poiId: "b", poiName: "B", lat: 0, lng: 0.001 }),
+      input({ poiId: "a", poiName: "A", timeSlot: "10:00", lat: 36.35, lng: 127.38 }),
+      input({ poiId: "b", poiName: "B", lat: 36.35, lng: 127.381 }),
     ];
     const result = recomputeDayItems(items, "WALK", ["10:00", "13:00"]);
     expect(result[1].timeSlot).toBe("13:00");
@@ -183,6 +202,12 @@ describe("recomputeDayItems", () => {
     ];
     const result = recomputeDayItems(items, "WALK", ["10:00", "11:00"]);
     expect(result[1].timeSlot).toBe("11:00");
+  });
+
+  it("국내 범위 밖 좌표도 좌표 정보 없음으로 처리해 이동시간을 만들지 않는다", () => {
+    const result = estimateTravel({ lat: 19.69442748, lng: 117.9925662504 }, { lat: 36.35, lng: 127.38 }, "WALK");
+    expect(result.minutes).toBeNull();
+    expect(result.label).toContain("좌표 정보 없음");
   });
 });
 
@@ -705,7 +730,7 @@ describe("buildDraftCourse — FOOD 점심·저녁 시간대 우선 배치(3단�
     const lastGeneralItem = day1.items[day1.items.length - 1];
     const expectedTravel = estimateTravel(
       { lat: lastGeneralItem.lat, lng: lastGeneralItem.lng },
-      { lat: 0, lng: 0.03 },
+      { lat: 36.35, lng: 127.4175 },
       "WALK",
     );
     expect(day1.lodging?.travel).toBe(expectedTravel.label);
@@ -1001,7 +1026,7 @@ describe("buildDraftCourse — 자정 wrap 방어(3단계 보완)", () => {
     const lastItem = day1.items[day1.items.length - 1];
     const travelToLodging = estimateTravel(
       { lat: lastItem.lat, lng: lastItem.lng },
-      { lat: 0, lng: 0.03 },
+      { lat: 36.35, lng: 127.41 },
       "WALK",
     );
 

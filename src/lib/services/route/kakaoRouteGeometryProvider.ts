@@ -59,7 +59,7 @@ function extractPath(response: KakaoDirectionsGeometryResponse): LatLng[] {
       for (let i = 0; i + 1 < vertexes.length; i += 2) {
         const lng = vertexes[i];
         const lat = vertexes[i + 1];
-        if (Number.isFinite(lat) && Number.isFinite(lng)) path.push({ lat, lng });
+        if (isReasonableKoreanCoordinate({ lat, lng })) path.push({ lat, lng });
       }
     }
   }

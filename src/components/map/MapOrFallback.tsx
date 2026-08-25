@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { loadKakaoMapsSdk } from "./kakaoLoader";
+import { hasReasonableKoreanCoordinate } from "@/lib/domain/geo";
 
 export interface MapPoi {
   id: string;
@@ -11,13 +12,15 @@ export interface MapPoi {
   lng: number;
 }
 
-function FallbackList({ pois, reason }: { pois: MapPoi[]; reason: "NO_KEY" | "LOAD_FAILED" }) {
+function FallbackList({ pois, reason }: { pois: MapPoi[]; reason: "NO_KEY" | "LOAD_FAILED" | "NO_VALID_COORDS" }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <p className="mb-3 text-xs text-slate-500">
         {reason === "NO_KEY"
           ? "지도 API 키가 설정되지 않아 좌표·주소 목록으로 대체 표시합니다."
-          : "지도를 불러오지 못해(카카오 JavaScript SDK 도메인 등록 여부 확인 필요) 좌표·주소 목록으로 대체 표시합니다."}
+          : reason === "NO_VALID_COORDS"
+            ? "좌표를 확인할 수 있는 장소가 없어 좌표·주소 목록으로 표시합니다."
+            : "지도를 불러오지 못해(카카오 JavaScript SDK 도메인 등록 여부 확인 필요) 좌표·주소 목록으로 대체 표시합니다."}
       </p>
       <ol className="space-y-2 text-sm">
         {pois.map((p, i) => (
@@ -41,9 +44,10 @@ function FallbackList({ pois, reason }: { pois: MapPoi[]; reason: "NO_KEY" | "LO
 export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapFailed, setMapFailed] = useState(false);
+  const mappablePois = pois.filter(hasReasonableKoreanCoordinate);
 
   useEffect(() => {
-    if (!kakaoKey || pois.length === 0) return;
+    if (!kakaoKey || mappablePois.length === 0) return;
 
     loadKakaoMapsSdk(
       kakaoKey,
@@ -53,9 +57,9 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
           setMapFailed(true);
           return;
         }
-        const center = new kakao.maps.LatLng(pois[0].lat, pois[0].lng);
+        const center = new kakao.maps.LatLng(mappablePois[0].lat, mappablePois[0].lng);
         const map = new kakao.maps.Map(containerRef.current, { center, level: 6 });
-        pois.forEach((p, i) => {
+        mappablePois.forEach((p, i) => {
           const marker = new kakao.maps.Marker({ position: new kakao.maps.LatLng(p.lat, p.lng), map });
           const info = new kakao.maps.InfoWindow({
             content: `<div style="padding:4px;font-size:12px;">${i + 1}. ${p.name}</div>`,
@@ -65,10 +69,13 @@ export function MapOrFallback({ pois, kakaoKey }: { pois: MapPoi[]; kakaoKey?: s
       },
       () => setMapFailed(true),
     );
-  }, [kakaoKey, pois]);
+  }, [kakaoKey, mappablePois]);
 
   if (!kakaoKey) {
     return <FallbackList pois={pois} reason="NO_KEY" />;
+  }
+  if (mappablePois.length === 0) {
+    return <FallbackList pois={pois} reason="NO_VALID_COORDS" />;
   }
   if (mapFailed) {
     return <FallbackList pois={pois} reason="LOAD_FAILED" />;

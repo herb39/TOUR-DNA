@@ -1,5 +1,12 @@
 # 구현 상태 (2026-08-25 갱신 — PET 유지보수 전환·무장애 조사 완료 반영)
 
+## 2026-08-25 갱신 — POI·Anchor 좌표 품질 감사 및 공통 방어
+
+- 세종 Anchor `sourceId=3529946`을 한국관광공사 공식 `KorService2/detailCommon2`로 1회 재확인한 결과, 공식 응답도 `mapx=117.9925662504`, `mapy=19.6944274800`을 반환했다. 이 sourceId는 `LIVE_SOURCE_BAD`로 판정하되, local `ProjectAnchor.sourceSnapshot.qa=true`·`provenance.provider=LOCAL_QA`인 QA fixture 저장 경로도 함께 보존한다.
+- local `tour_dna_local` POI 48,291건을 읽기 전용 감사해 `VALID=48,251`, `OUT_OF_KOREA_RANGE=39`, `SUSPICIOUS_ZERO=1`, `MISSING=0`, `NON_FINITE=0`을 확인했다. 동일한 비정상 좌표가 여러 지역·카테고리에 반복되어 POI 삭제·주소 기반 임의 보정은 하지 않는다.
+- 기존 `isReasonableKoreanCoordinate`를 재사용하는 `hasReasonableKoreanCoordinate` 공통 guard를 추가해 Haversine·최근접 이웃·전략/추천 후보 공간 계산·Anchor 거리·route fallback/geometry·지도 marker·쇼핑 중복 좌표 계산에서 국내 범위 밖 좌표를 계산에 넣지 않는다. invalid POI·Anchor의 제목·주소·원본 payload는 보존한다.
+- `npm run audit:poi-coordinates`는 localhost의 `tour_dna_local`만 허용하는 읽기 전용 감사 스크립트다. 이번 작업에서는 공식 API 1건 외 전국 재수집·상세 대량 호출·Production Neon 접근을 하지 않았다.
+
 > **2026-08-13 최신 요약**: Network DNA 산식을 attraction+PoiRelation(연관관광지)+coverage(50/20/30)에서
 > attraction+음식/숙박/체험 조합 가능성(B/H1, 50/50)으로 재설계했다(Phase 3) — PoiRelation이 대전/
 > 제천/양양 3곳에만 존재하는 seed 잔재라 그 3곳만 부당하게 최상위권을 점유하던 문제를 해소했다.

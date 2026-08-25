@@ -206,6 +206,37 @@ describe("computeCourseQuality", () => {
     expect(warningIds).toContain("schedule-feasibility");
   });
 
+  it("국내 범위 밖 좌표는 동일시설 중복의 공간 근거로 사용하지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({ poiId: "bad-1", category: "SHOPPING", lat: 19.69442748, lng: 117.9925662504 }),
+          item({ poiId: "bad-2", category: "SHOPPING", lat: 19.69442748, lng: 117.9925662504 }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    expect(report.warnings.some((warning) => warning.id === "shopping-duplicate")).toBe(false);
+  });
+
+  it("국내 범위 밖 좌표가 있어도 저장된 이동시간을 품질 경고에 재사용하지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({ poiId: "bad-1", lat: 19.69442748, lng: 117.9925662504 }),
+          item({ poiId: "bad-2", lat: 19.69442748, lng: 117.9925662504, travelMinutes: 240, travelSource: "LIVE_API" }),
+        ]),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+    });
+
+    expect(report.warnings.some((warning) => warning.id === "travel-burden")).toBe(false);
+    expect(report.warnings.some((warning) => warning.id === "schedule-feasibility")).toBe(false);
+  });
+
   it("단순 운영시간 범위를 벗어난 일정은 확인 필요 advisory로 안내한다", () => {
     const report = computeCourseQuality({
       days: [

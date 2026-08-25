@@ -1,4 +1,5 @@
 import type { CourseDay } from "@/lib/domain/planBuilder";
+import { hasReasonableKoreanCoordinate } from "@/lib/domain/geo";
 import { fetchKakaoRouteGeometry, KakaoGeometryError, type LatLng } from "./kakaoRouteGeometryProvider";
 
 export interface RouteGeometrySegment {
@@ -37,7 +38,7 @@ function collectEdges(days: CourseDay[]): PendingEdge[] {
     for (let i = 1; i < day.items.length; i++) {
       const prev = day.items[i - 1];
       const cur = day.items[i];
-      if (prev.lat == null || prev.lng == null || cur.lat == null || cur.lng == null) continue;
+      if (!hasReasonableKoreanCoordinate(prev) || !hasReasonableKoreanCoordinate(cur)) continue;
       edges.push({
         dayIndex: day.dayIndex,
         fromPoiId: prev.poiId,
@@ -49,7 +50,7 @@ function collectEdges(days: CourseDay[]): PendingEdge[] {
     if (day.lodging && day.items.length > 0) {
       const last = day.items[day.items.length - 1];
       const lodging = day.lodging;
-      if (last.lat != null && last.lng != null && lodging.lat != null && lodging.lng != null) {
+      if (hasReasonableKoreanCoordinate(last) && hasReasonableKoreanCoordinate(lodging)) {
         edges.push({
           dayIndex: day.dayIndex,
           fromPoiId: last.poiId,

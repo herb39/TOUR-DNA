@@ -143,6 +143,20 @@ describe("buildRecommendedPoiCandidates", () => {
     expect(result.map((c) => c.id)).not.toContain("no-coords");
   });
 
+  it("국내 범위 밖 좌표 POI는 후보 풀의 공간 계산에 들어가지 않는다", async () => {
+    setPool({
+      ATTRACTION: [poi("invalid-coordinate", "좌표범위 밖", "ATTRACTION", { lat: 19.69442748, lng: 117.9925662504 })],
+    });
+    const result = await buildRecommendedPoiCandidates({
+      templateId: "CULTURE_HISTORY",
+      regionCode: "region-1",
+      travelMonth: 10,
+      preferredThemes: ["문화", "역사"],
+      existingPoiIds: [],
+    });
+    expect(result.map((c) => c.id)).not.toContain("invalid-coordinate");
+  });
+
   it("추천 가능한 후보가 없으면 빈 배열을 반환한다(오류가 아니라 정상적인 빈 결과)", async () => {
     setPool({});
     const result = await buildRecommendedPoiCandidates({

@@ -117,6 +117,7 @@ npm run dev
 | `npm run verify:visitor-api` | 방문자 API 검증 |
 | `npm run audit:region-codes` | 지역 코드 감사 |
 | `npm run audit:tourism-data` | 관광 데이터 품질 감사 |
+| `npm run audit:poi-coordinates` | localhost/tour_dna_local POI 좌표 품질 읽기 전용 감사 |
 | `npm run enrich:tour-info-detail` | TOUR_INFO 상세 운영정보 보강 |
 
 ### Dataset 관리

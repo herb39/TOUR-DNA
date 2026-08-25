@@ -8,6 +8,7 @@ import {
 import { getTemplateById, type PoiCategoryCode } from "@/lib/domain/strategyTemplates";
 import { activeThemeCategories } from "@/lib/domain/audienceContext";
 import { themeRelevanceTier, type PoiLike } from "@/lib/domain/strategy";
+import { hasReasonableKoreanCoordinate } from "@/lib/domain/geo";
 import { dedupeBySameCoordinates } from "@/lib/domain/poiDedup";
 import { dedupeBySameSite } from "@/lib/domain/poiDedup";
 import {
@@ -106,7 +107,7 @@ export async function buildRecommendedPoiCandidates(params: CandidatePoolParams)
     );
     for (const poi of deduped) {
       if (existingIds.has(poi.id)) continue;
-      if (!Number.isFinite(poi.lat) || !Number.isFinite(poi.lng)) continue;
+      if (!hasReasonableKoreanCoordinate(poi)) continue;
       const fit = computePoiFit(
         {
           id: poi.id,

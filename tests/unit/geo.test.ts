@@ -4,6 +4,7 @@ import {
   orderByNearestNeighbor,
   classifyTravelMinutes,
   estimateTravelMinutes,
+  hasReasonableKoreanCoordinate,
   isReasonableKoreanCoordinate,
   CAUTION_TRAVEL_MINUTES,
   EXCESSIVE_TRAVEL_MINUTES,
@@ -94,5 +95,13 @@ describe("isReasonableKoreanCoordinate", () => {
     expect(isReasonableKoreanCoordinate({ lat: 19.69442748, lng: 117.9925662504 })).toBe(false);
     expect(isReasonableKoreanCoordinate({ lat: 127.2, lng: 36.5 })).toBe(false);
     expect(isReasonableKoreanCoordinate({ lat: Number.NaN, lng: 127.2 })).toBe(false);
+  });
+});
+
+describe("hasReasonableKoreanCoordinate", () => {
+  it("좌표가 없거나 국내 범위 밖이면 false를 반환한다", () => {
+    expect(hasReasonableKoreanCoordinate({})).toBe(false);
+    expect(hasReasonableKoreanCoordinate({ lat: 19.69442748, lng: 117.9925662504 })).toBe(false);
+    expect(hasReasonableKoreanCoordinate({ lat: 36.5, lng: 127.2 })).toBe(true);
   });
 });

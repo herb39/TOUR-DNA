@@ -22,6 +22,19 @@ export function isReasonableKoreanCoordinate(point: GeoPoint): boolean {
   );
 }
 
+/** 선택적 좌표 입력을 제품 공통 국내 sanity 기준으로 검증한다. 원본 데이터는 유지하고, 이 helper를
+ * 거리·동선·공간 후보 계산 직전에 사용해 좌표가 없거나 국내 범위를 벗어난 POI가 숫자 계산에 들어가지
+ * 않도록 한다. 판정 규칙은 isReasonableKoreanCoordinate 하나만 재사용한다. */
+export function hasReasonableKoreanCoordinate<T extends { lat?: number | null; lng?: number | null }>(
+  point: T,
+): point is T & GeoPoint {
+  return (
+    typeof point.lat === "number" &&
+    typeof point.lng === "number" &&
+    isReasonableKoreanCoordinate({ lat: point.lat, lng: point.lng })
+  );
+}
+
 export function haversineDistanceKm(a: GeoPoint, b: GeoPoint): number {
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);

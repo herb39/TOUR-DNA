@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadKakaoMapsSdk } from "./kakaoLoader";
 import { fetchPlanRouteGeometryAction } from "@/app/projects/[id]/plan/actions";
+import { hasReasonableKoreanCoordinate } from "@/lib/domain/geo";
 
 export interface CourseMapItem {
   poiId: string;
@@ -30,7 +31,7 @@ const ROUTE_COLOR = "#0d9488"; // teal-600
 const ROUTE_HALO_COLOR = "#ffffff";
 
 function hasCoords(item: CourseMapItem): item is CourseMapItem & { lat: number; lng: number } {
-  return Number.isFinite(item.lat) && Number.isFinite(item.lng);
+  return hasReasonableKoreanCoordinate(item);
 }
 
 function edgeKey(fromPoiId: string, toPoiId: string): string {

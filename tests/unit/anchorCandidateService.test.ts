@@ -148,4 +148,21 @@ describe("anchorCandidateService", () => {
     expect(result.status).toBe("NOT_READY");
     expect(fetchPoisByCategoryMock).not.toHaveBeenCalled();
   });
+
+  it("국내 범위 밖 Anchor는 제목·확정 정보는 보존하되 거리 후보 계산을 시작하지 않는다", async () => {
+    fetchPoisByCategoryMock.mockReset();
+    const invalid = anchor({ lat: 19.69442748, lng: 117.9925662504 });
+    const result = await buildAnchorCandidateSuggestions({
+      anchor: invalid,
+      days: courseWithAnchor(invalid),
+      templateId: "CULTURE_HISTORY",
+      regionCode: "REGION_1",
+      travelMonth: 10,
+      preferredThemes: ["문화", "역사"],
+      duration: "DAY_TRIP",
+      existingPoiIds: [],
+    });
+    expect(result.status).toBe("NOT_READY");
+    expect(fetchPoisByCategoryMock).not.toHaveBeenCalled();
+  });
 });

@@ -1,3 +1,5 @@
+import { hasReasonableKoreanCoordinate } from "./geo";
+
 /**
  * 동일 시설(같은 좌표) 내 여러 입점매장이 자동 추천에서 별도 관광지처럼 반복되는 문제를 완화하는
  * 순수 domain helper(2026-08-16). 전국 POI 좌표 분포 조사 결과, SHOPPING 카테고리만 동일 좌표 그룹의
@@ -19,7 +21,7 @@ export function dedupeBySameCoordinates<T extends { lat?: number; lng?: number }
   const withoutCoords: T[] = [];
 
   for (const candidate of candidates) {
-    if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) {
+    if (!hasReasonableKoreanCoordinate(candidate)) {
       withoutCoords.push(candidate);
       continue;
     }
@@ -59,7 +61,7 @@ export function dedupeBySameSite<T extends { name: string; lat?: number; lng?: n
   const withoutCoords: T[] = [];
 
   for (const candidate of candidates) {
-    if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) {
+    if (!hasReasonableKoreanCoordinate(candidate)) {
       withoutCoords.push(candidate);
       continue;
     }

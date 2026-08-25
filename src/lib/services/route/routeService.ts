@@ -1,4 +1,4 @@
-import type { TransportModeCode } from "@/lib/domain/geo";
+import { hasReasonableKoreanCoordinate, type TransportModeCode } from "@/lib/domain/geo";
 import { haversineRouteProvider } from "./haversineRouteProvider";
 import { kakaoRouteProvider, KakaoRouteError } from "./kakaoRouteProvider";
 import { getCachedRoute, saveCachedRoute } from "./routeCache";
@@ -18,7 +18,7 @@ export async function getRoute(from: RoutePoint, to: RoutePoint, transport: Tran
   if (transport !== "PRIVATE_VEHICLE") {
     return haversineRouteProvider.getRoute(from, to, transport);
   }
-  if (from.lat == null || from.lng == null || to.lat == null || to.lng == null) {
+  if (!hasReasonableKoreanCoordinate(from) || !hasReasonableKoreanCoordinate(to)) {
     return haversineRouteProvider.getRoute(from, to, transport);
   }
 
