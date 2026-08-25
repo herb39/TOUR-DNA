@@ -604,7 +604,7 @@ POI는 `NOT_IN_OFFICIAL_LIST`로 사용자에게 미확인으로 남기며, 불�
 PET 상세 수집은 앞으로도 현재 후보·코스에 `LISTED_NOT_ENRICHED`가 실제로 생길 때만 실행한다.
 그 외에는 상세 API 0회가 정상 결과이며, 이 기준을 벗어난 전국 전수 수집·Neon 데이터 작업은
 로드맵에 포함하지 않는다.
-## 2026-08-25 로드맵 갱신 — PET 유지보수 전환과 무장애 승인 반영 대기
+## 2026-08-25 로드맵 갱신 — PET 유지보수 전환과 무장애 API 실호출 검증 반영
 
 ### PET 상태
 
@@ -640,18 +640,46 @@ PET 목록 대상이 실제 등장할 때만 targeted enrichment를 수행하며
 `/detailWithTour2`, `/areaBasedSyncList2`, `/ldongCode2`, `/lclsSystmCode2`가 포함되어 있으며,
 각 상세기능의 현재 표시 일일 트래픽은 1,000건이다.
 
-이는 활용신청 승인 확인이지 기존 HTTP 403 해결 확인이 아니다. `/detailWithTour2`와
-`/areaBasedSyncList2`가 승인 목록에 표시되는 사실은 확인했지만, 승인 반영 후 실제 HTTP 200과
-응답 필드 정상성은 아직 확인하지 않았다. 이번 문서 작업에서는 무장애 API를 호출하지 않는다.
+이는 활용신청 승인 확인을 넘어 실제 승인 반영도 부분 검증한 상태다. Region master에서 읽은
+경주·강릉·대전 유성구 코드로 `/areaBasedSyncList2`를 호출한 결과 세 지역 모두 HTTP 200,
+`0000/OK`였고, 경주 교집합 8건의 `/detailWithTour2`도 모두 HTTP 200, `0000/OK`였다.
+경주 목록 전체는 140건이지만 첫 100건만 조회했고, 강릉도 803건 중 첫 100건만 조회했으므로
+두 지역 overlap은 부분 측정값이다. 접근성 상세 필드는 빈 문자열이 많은 차원형 응답이므로
+빈 값은 불가가 아니라 `UNKNOWN`으로 보존해야 한다.
 
 ### 다음 P1 우선순위
 
-**무장애 API 승인 반영 확인 → ACCESSIBILITY evidence pipeline 검증**을 다음 P1로 확정한다.
+**무장애 대표 지역 추가 표본 → ACCESSIBILITY evidence pipeline 판단**을 다음 P1로 확정한다.
 
-1. 승인된 목록 endpoint 중 필요한 최소 호출로 HTTP 200과 지역 목록 응답을 확인한다.
+1. 강릉·대전 유성구 등 2~3개 대표 지역에서 상세를 무작정 확대하지 않고 최소 표본만 확인한다.
 2. local POI와 공식 목록의 교집합만 만든다.
-3. 승인된 `detailWithTour2`를 소량 호출해 접근성 필드와 빈 값 구조를 확인한다.
-4. 최신성 cache·`AVAILABLE`·`UNKNOWN`을 분리한 `ACCESSIBILITY` evidence 계약을 검증한다.
+3. `detailWithTour2` 차원별 필드와 빈 값 구조를 지역별로 비교한다.
+4. 최신성 cache·차원별 `AVAILABLE`·`CONDITIONAL`·`UNKNOWN`을 분리한 `ACCESSIBILITY` evidence 계약을 확정한다.
 5. 검증 전에는 접근성 ranking·hard filter·자동 코스 변경을 구현하지 않는다.
 
 이후에는 편집 후 후보 재정렬, 이동 현실성, POI별 체류시간, 관광 가치 검토를 진행한다.
+
+## 2026-08-25 추가 검증 기록 — 무장애 API 최소 실호출
+
+제품 코드는 변경하지 않고 `scripts/verify-accessibility-api.mts`를 이용해 총 11회(목록 3회,
+상세 8회) 호출했다. 경주 `47/130`은 공식 목록 140건 중 첫 100건과 local API POI 620건의
+교집합이 88건(14.2%)이었고, 강릉 `51/150`은 803건 중 첫 100건과 1,001건의 교집합이
+91건(9.1%), 대전 유성구 `30/200`은 79건 전체와 388건의 교집합이 69건(17.8%)이었다.
+category 분포는 각각 경주 `ATTRACTION 58 / FOOD 9 / LODGING 15 / EXPERIENCE 2 / SHOPPING 4`,
+강릉 `37 / 32 / 5 / 7 / 10`, 대전 유성구 `32 / 25 / 7 / 3 / 2`다.
+
+경주 추천 후보 10건 중 이번 첫 페이지 기준 공식 목록 교집합은 2건(20%)이었다. 후보·코스·전략
+계산은 읽기만 했으며 변경하지 않았다. Anchor 후보는 해당 검증 프로젝트에서 측정 가능한 대상이
+없었다.
+
+상세 8건은 `ATTRACTION 5`, `FOOD 1`, `LODGING 1`, `EXPERIENCE 1`로 균형 선정했다. 실제
+응답 필드는 29개였고, `parking`, `restroom`, `route`, `exit`, `wheelchair`, `elevator` 등은
+일부 명시적 값이 있었지만 시청각·점자·안내 필드는 대부분 빈 문자열이었다. 표본에서는
+명시적 가능·명시적 불가·자유 서술을 관찰했고 조건부 문구는 없었다. 빈 문자열을 불가로 해석하지
+않는 차원별 JSON 근거 모델이 필요하다.
+
+기존 `PoiConditionEvidence`의 근거 envelope는 재사용 가능하나, PET처럼 단일 overall 상태로
+축약하지 않고 접근성 차원별 detail을 JSON으로 보존해야 한다. 아직 `ACCESSIBILITY` adapter·저장
+pipeline은 구현하지 않았고 evidence cache hit는 0건이다. 따라서 준비도는 **PARTIAL**로 두며,
+다음 단계는 2~3개 지역의 최소 상세 표본 비교 후 계약을 확정하는 것이다. Production Neon에는
+접근하거나 쓰지 않았다.
