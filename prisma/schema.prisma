@@ -332,6 +332,8 @@ model PoiConditionEvidence {
   sourceModifiedTime  String?
   sourceShowFlag      String?
   rawPayload          Json?
+  /// ACCESSIBILITY 차원별 정규화 결과. rawPayload는 API 원문 전용으로 유지한다.
+  dimensionDetails    Json?
   fetchedAt           DateTime                     @default(now())
   lastErrorCode       String?
   lastErrorMessage    String?

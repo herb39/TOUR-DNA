@@ -37,6 +37,64 @@
 > 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
+## 2026-08-25 갱신 — ACCESSIBILITY evidence 증분 수집 구현 완료
+
+이번 단계에서 한국관광공사 `KorWithService2`의 무장애 공식 목록과 local `Poi.externalId`의
+정확한 교집합만 대상으로 하는 `ACCESSIBILITY` evidence 증분 수집 기반을 구현했다. 대상은
+경주에서 먼저 검증하고 대전 유성구에서 소량 재검증했으며, Production Neon·사용자 화면·추천
+ranking·hard filter·자동 코스·전략 점수·DNA·PET 로직은 변경하지 않았다. 별도 운영자 화면도
+추가하지 않았다.
+
+### 구현 상태
+
+- `dimensionDetails Json?`를 `PoiConditionEvidence`에 추가했다. `rawPayload`에는 API 원문만
+  저장하고 정규화된 차원 결과는 별도 JSON에 보존한다. migration은
+  `20260825000000_add_accessibility_dimension_details`이며 로컬 PostgreSQL에만 적용했다.
+- `areaBasedSyncList2` 목록 adapter, `detailWithTour2` 상세 adapter, singleton·array·empty·오류·
+  malformed 응답 처리를 추가했다. 목록은 `totalCount`·페이지·고유 `contentid`를 검증하고, 목록
+  전체를 받지 못하면 상세 호출을 중단한다.
+- 차원은 `wheelchair`, `entranceExit`, `elevator`, `restroom`, `parking`, `route`,
+  `visualGuide`, `strollerFamily`, `otherSupport`로 나누며, 빈 값·누락·판정하기 어려운 자유
+  서술은 모두 `UNKNOWN`으로 남긴다. 전체 무장애 가능/불가 상태는 만들지 않고 DB
+  `availability=UNKNOWN`을 유지한다.
+- `contentid + modifiedtime + showflag`가 같은 `SUCCESS/EMPTY` evidence는 상세 API를 건너뛴다.
+  `ERROR`, 수정시각 변경, 표시상태 변경은 재수집 대상이다. 실행마다 상세 최대 20건·목록 최대
+  20페이지 상한과 `--dry-run`을 제공한다.
+- 실행 명령은 `npm run enrich:accessibility -- --region-code=SGG_GYEONGJU --max-items=8`이며,
+  `checkDataSyncTarget`로 localhost 대상만 허용되는지 먼저 확인한다.
+
+### 실제 로컬 검증
+
+| 지역 | 공식 목록 | 표시 대상 | local API POI | 정확 교집합 | 불일치 | 목록 호출 |
+|---|---:|---:|---:|---:|---:|---:|
+| 경주시 | 140 | 126 | 620 | 125 | 1 | 3 |
+| 대전 유성구 | 79 | 70 | 388 | 69 | 1 | 1 |
+
+경주에서 첫 실행 8건과 같은 조건의 재실행에서 다음 변경 대상 8건을 저장했고, 재실행 시
+기존 8건은 `cache hit`으로 확인됐다. 대전 유성구에서는 4건을 추가 저장했다. 현재 local DB의
+`ACCESSIBILITY` evidence는 총 20건이며 `SUCCESS 20 / EMPTY 0 / ERROR 0`, 모든 행에
+`rawPayload`와 `dimensionDetails`가 함께 저장됐다. 이번 파이프라인 실행의 API 호출은 목록
+4회·상세 20회, 합계 24회다. dry-run과 cache 확인용 재실행을 포함한 수치이며, 이전 조사에서
+실행한 30회와는 별도 집계한다.
+
+저장된 20건의 차원별 상태는 다음과 같다. 표본 저장 결과이지 전국 분포나 추천 점수가 아니다.
+
+| 차원 | AVAILABLE | UNAVAILABLE | CONDITIONAL | UNKNOWN |
+|---|---:|---:|---:|---:|
+| `wheelchair` | 7 | 0 | 1 | 12 |
+| `entranceExit` | 11 | 0 | 0 | 9 |
+| `elevator` | 4 | 0 | 0 | 16 |
+| `restroom` | 16 | 1 | 0 | 3 |
+| `parking` | 16 | 1 | 0 | 3 |
+| `route` | 13 | 0 | 1 | 6 |
+| `visualGuide` | 5 | 0 | 0 | 15 |
+| `strollerFamily` | 9 | 0 | 1 | 10 |
+| `otherSupport` | 4 | 2 | 0 | 14 |
+
+현재 구현 판정은 **백엔드 evidence 저장 기반 READY, 제품 조건 화면 연결은 미완료**다. 공식 목록에
+없는 POI는 불가로 해석하지 않으며 계속 `UNKNOWN`으로 취급한다. 전체 공식 목록 전수 상세 조회나
+추천 대상이 아닌 POI의 무장애 상세 수집은 하지 않았다.
+
 ## 2026-08-18 현재 제품 구조 기준 갱신
 
 > 이 절을 현재 제품 상태와 다음 작업의 기준으로 본다. 아래에 이어지는 기존 Phase 상세는 당시의 구현·검증 기록을 보존한 역사 문서다. 운영자 화면은 현재 제품 범위에서 제외했으며, 별도 관리자 UI를 다음 작업으로 제안하지 않는다.
@@ -48,11 +106,11 @@
 | 1. 지역과 기획 조건 | 완료 | 지역·여행월·역할·기간을 포함해 목표, 이동수단, 동행 유형, 예산 등을 입력 | 입력 항목 간 의미와 저장 모델을 계속 정리 |
 | 2. 해결하고 싶은 관광 문제 | 완료 | 체류 확대·지역 소비 확대·비수기 활성화·관광객 분산을 분리한 목표 선택과 DNA 연결. 기존 통합 목표 코드는 하위 호환 | 목표별 전략 문구·KPI를 더 세밀하게 차등화 |
 | 3. 콘텐츠 테마 | 완료(핵심 테마 연결) | 8개 고정 선택·기존 자유 입력 자동 변환. 자동 초안·추천 후보·실시간 검증이 사용자 테마와 전략 핵심 테마의 공통 활성 집합을 사용 | K-콘텐츠·야간관광의 공식 구조 신호 확보와 운영정보 확장 |
-| 4. 여행 조건 | PET 완료·무장애 조사 완료 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 3개 지역 전체 목록·local POI overlap·지역별 상세 8건을 검증 | 차원별 `ACCESSIBILITY` evidence pipeline 구현 및 최소 migration |
+| 4. 여행 조건 | PET 완료·ACCESSIBILITY evidence 저장 기반 완료 | 반려동물은 공식 목록 교집합·증분 evidence·사용자 근거 표시·INFO advisory까지 연결. 무장애는 공식 목록 교집합·차원 정규화·local 증분 저장까지 경주·대전 유성구에서 검증 | 제품 조건 화면의 무장애 근거 표시와 사용자 advisory 연결 |
 | 5. 특별한 기획 계기 | 부분 완료(P1-2c, 로컬 구현) | 공식 후보 조회 → 프로젝트 Anchor 확정 저장·변경·삭제 → 실행안 고정 → 행사 전·식사·행사 후·숙박 후보를 역할별로 제안·추가. 기존 POI 보존·Anchor snapshot 저장·stale 저장 거부까지 연결 | Production migration 적용, 후보의 핵심 테마 슬롯·접근성 근거 고도화 |
 | 6. TOUR-DNA 분석 | 완료 | 지역 진단 → 기회 3개 → 전략 3안, 근거·비교·역할 요약 제공 | 텍스트 우선순위와 설명량은 계속 다듬되 핵심 흐름은 구현됨 |
 | 7. 코스 스튜디오 | 완료(핵심 테마 연결) | 자동 초안과 추천 후보가 같은 활성 테마·공식 분류·기존 대표성 정책으로 정렬 | 수동 추가 직후 남은 후보를 거리·동선 기준으로 재정렬 |
-| 8. 실시간 검증 | 부분 완료(PET advisory 완료·무장애 계약 확정) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애는 차원별 상태 계약과 cache 전략까지 검증 | 무장애 evidence 저장·읽기 연결 |
+| 8. 실시간 검증 | 부분 완료(PET advisory·ACCESSIBILITY 저장 기반) | 자동 초안·후보 풀과 같은 활성 테마 집합으로 테마 충족률을 재계산하고 PET 확인·조건부·미확인 INFO advisory를 유지. 무장애는 차원별 evidence를 저장하지만 아직 검증 패널에 연결하지 않는다 | 무장애 차원 evidence 읽기·표시 연결 여부를 제품 요구사항으로 확정 |
 | 9. 실행안 확정 | 완료 | 확정안 저장, KPI·위험, 홍보자료 생성·편집, 인쇄 화면 제공 | 자가용 외 이동수단의 실제 경로 연동과 최종 품질 리포트 고도화 |
 
 ### 현재 판단
