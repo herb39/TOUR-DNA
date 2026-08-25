@@ -7,6 +7,31 @@
 
 ---
 
+## 현재 로드맵 갱신 — 2026-08-25 ACCESSIBILITY 사용자 advisory 연결 완료
+
+대표 프로젝트 targeted enrichment로 저장한 `dimensionDetails`를 실제 사용자 화면에 읽기 전용으로
+연결했다. `CONDITION_ACCESSIBLE`이 선택된 경우에만 후보·코스·숙박·Anchor 연계 후보에 advisory를
+표시하며, 공식 evidence가 없으면 `공식 접근성 정보 미확인`으로 남긴다.
+
+1. **완료 — batch 조회**: 화면에 필요한 POI ID를 모아 `ACCESSIBILITY` evidence를 한 번의 `IN`
+   조회로 읽는다. 화면별 N+1 조회는 만들지 않았다.
+2. **완료 — 차원별 표시**: `dimensionDetails`를 authoritative evidence로 사용하고, 주차·화장실·
+   이동 경로·출입구·휠체어·엘리베이터를 우선 표시한다. 의미 있는 `rawText`는 태그를 제거한
+   안전한 보조 문구로 상세 영역에서만 보여준다.
+3. **완료 — 화면 연결**: 추천 후보, 코스 항목, 숙박, Anchor 연계 후보, 실시간 품질 패널, 인쇄
+   화면에 최소 범위로 연결했다. Festival Anchor 자체는 억지로 연결하지 않았다.
+4. **완료 — 안전 규칙**: overall 무장애 가능/불가를 만들지 않고, 공식 목록 외·누락·`EMPTY/ERROR`
+   를 모두 `UNKNOWN`으로 처리한다. 접근성 advisory는 `INFO`이며 저장을 막지 않는다.
+5. **다음 — 브라우저 검증**: 무장애 조건 선택·미선택, evidence 있음·없음, 코스·Anchor 후보,
+   모바일 화면을 실제 브라우저에서 확인한다.
+6. **그 다음 — 코스 편집 품질**: 후보 추가 직후 거리·동선·테마 기준 재정렬과 POI 유형별 체류시간을
+   검토한다.
+
+추천·필터·자동 코스·DNA·전략 점수·PET 수집·Festival Anchor·Prisma schema/migration·Production
+Neon은 이번 단계에서 변경하지 않는다.
+
+---
+
 ## 현재 로드맵 갱신 — 2026-08-25 대표 프로젝트 targeted enrichment 완료
 
 ### 이번 단계

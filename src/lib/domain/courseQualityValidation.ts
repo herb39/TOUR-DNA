@@ -25,6 +25,7 @@ import {
 import { classifyLeisureActivity } from "./leisureClassification";
 import { CORE_THEME_FLOOR_SHARE, type DurationCode } from "./strategy";
 import { summarizePetEvidence, type PetEvidenceDisplay } from "./petTourEvidenceDisplay";
+import { summarizeAccessibilityEvidence, type AccessibilityEvidenceDisplay } from "./accessibilityEvidenceDisplay";
 
 export interface CourseQualityWarning {
   id: string;
@@ -46,6 +47,8 @@ export interface CourseQualityInput {
   preferredThemes?: string[];
   petConditionActive?: boolean;
   petEvidenceByPoiId?: Readonly<Record<string, PetEvidenceDisplay>>;
+  accessibilityConditionActive?: boolean;
+  accessibilityEvidenceByPoiId?: Readonly<Record<string, AccessibilityEvidenceDisplay>>;
 }
 
 const THEME_LABEL_KO: Record<ThemeCategory, string> = {
@@ -529,9 +532,32 @@ function evaluatePetEvidenceWarnings(input: CourseQualityInput): CourseQualityWa
   ];
 }
 
+function evaluateAccessibilityEvidenceWarnings(input: CourseQualityInput): CourseQualityWarning[] {
+  if (!input.accessibilityConditionActive) return [];
+  const poiIds = input.days.flatMap((day) => [
+    ...day.items.filter((item) => !isFestivalAnchorItem(item)).map((item) => item.poiId),
+    ...(day.lodging ? [day.lodging.poiId] : []),
+  ]);
+  const summary = summarizeAccessibilityEvidence(poiIds, input.accessibilityEvidenceByPoiId ?? {});
+  if (summary.total === 0) return [];
+  const details = summary.unknown > 0
+    ? ["공식 정보 미확인은 접근 불가를 뜻하지 않습니다. 필요한 경우 방문 전 시설에 확인해주세요."]
+    : [];
+  return [
+    {
+      id: "accessibility-evidence-summary",
+      title: "무장애 공식 정보",
+      message: `코스 ${summary.total}곳 중 ${summary.available}곳에서 한국관광공사 공식 접근성 정보를 확인할 수 있습니다.`,
+      severity: "INFO",
+      details,
+    },
+  ];
+}
+
 export function computeCourseQuality(input: CourseQualityInput): CourseQualityReport {
   const warnings = [
     ...evaluatePetEvidenceWarnings(input),
+    ...evaluateAccessibilityEvidenceWarnings(input),
     ...evaluateThemeWarnings(input),
     ...evaluateShoppingWarnings(input),
     ...evaluateDailyDensityWarnings(input),

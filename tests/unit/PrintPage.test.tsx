@@ -22,6 +22,10 @@ vi.mock("@/lib/services/petTourEvidenceRead", () => ({
   getPetEvidenceForPoiIds: vi.fn().mockResolvedValue({ repository: "AVAILABLE", byPoiId: {} }),
 }));
 
+vi.mock("@/lib/services/accessibilityEvidenceRead", () => ({
+  getAccessibilityEvidenceForPoiIds: vi.fn().mockResolvedValue({ repository: "AVAILABLE", byPoiId: {} }),
+}));
+
 // 관광사업 기회 3안(2026-08-02)도 같은 이유로 모킹한다 — print/page.tsx가 지역 POI 카테고리별 개수를
 // 조회할 때 @/lib/db(Prisma)까지 로드되는 실제 서비스 체인을 타지 않도록 한다. 이 테스트는 홍보자료
 // 출력 로직만 검증하므로 빈 결과(POI 없음)로 충분하다.
@@ -44,6 +48,7 @@ vi.mock("@/lib/services/activeDataset", () => ({
 import PrintPage from "@/app/projects/[id]/print/page";
 import { buildPromoContent } from "@/lib/domain/promoContent";
 import type { PromoContent } from "@/lib/domain/promoContent";
+import { getAccessibilityEvidenceForPoiIds } from "@/lib/services/accessibilityEvidenceRead";
 
 function samplePromoContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY"): PromoContent {
   return buildPromoContent({
@@ -72,7 +77,7 @@ function samplePromoContent(role: "TRAVEL_AGENCY" | "LOCAL_GOV" = "TRAVEL_AGENCY
 
 // promoContent만 다르게 채우는 SelectedPlan/Project/AnalysisResult 고정 fixture — 실제 getProjectDetail
 // 조회 결과 구조(select 아닌 전체 include)와 print/page.tsx가 실제로 읽는 필드만 갖췄다.
-function baseProject(promoContent: unknown) {
+function baseProject(promoContent: unknown, accessibilityCondition = false) {
   return {
     id: "project-1",
     name: "테스트 프로젝트",
@@ -80,7 +85,15 @@ function baseProject(promoContent: unknown) {
     travelMonth: 9,
     role: "TRAVEL_AGENCY",
     region: { name: "강릉시" },
-    input: { duration: "DAY_TRIP", budgetLevel: "MID", transport: "PUBLIC_TRANSPORT", groupType: "FIT" },
+    input: {
+      duration: "DAY_TRIP",
+      budgetLevel: "MID",
+      transport: "PUBLIC_TRANSPORT",
+      groupType: "FIT",
+      ...(accessibilityCondition
+        ? { preferredThemes: { version: 1, themes: [], travelConditions: ["CONDITION_ACCESSIBLE"] } }
+        : {}),
+    },
     selectedPlan: {
       strategyResultId: "strategy-1",
       productName: "강릉 미식 코스",
@@ -123,8 +136,9 @@ function baseProject(promoContent: unknown) {
   };
 }
 
-async function renderPrintPage(promoContent: unknown) {
-  getProjectDetail.mockResolvedValue(baseProject(promoContent));
+async function renderPrintPage(promoContent: unknown, accessibilityCondition = false) {
+  vi.mocked(getAccessibilityEvidenceForPoiIds).mockResolvedValue({ repository: "AVAILABLE", byPoiId: {} });
+  getProjectDetail.mockResolvedValue(baseProject(promoContent, accessibilityCondition));
   const ui = await PrintPage({ params: Promise.resolve({ id: "project-1" }) });
   render(ui);
 }
@@ -147,6 +161,14 @@ describe("PrintPage — 홍보자료 출력", () => {
   it("잘못된 JSON이면 홍보자료 섹션을 출력하지 않는다(조용히 잘못된 데이터를 출력하지 않음)", async () => {
     await renderPrintPage({ garbage: true });
     expect(screen.queryByText("홍보자료")).not.toBeInTheDocument();
+  });
+
+  it("무장애 조건이 선택되면 코스에 공식 접근성 정보 미확인 상태를 읽기 전용으로 표시한다", async () => {
+    await renderPrintPage(null, true);
+
+    expect(screen.getByText(/무장애·이동약자 조건 — 코스 1곳 중 0곳/)).toBeInTheDocument();
+    expect(screen.getByText("공식 접근성 정보 미확인")).toBeInTheDocument();
+    expect(screen.getAllByText(/정보 미확인은 접근 불가를 뜻하지 않습니다/).length).toBeGreaterThan(0);
   });
 
   it("TRAVEL_AGENCY 역할이면 여행상품 홍보자료 구조로 출력된다", async () => {

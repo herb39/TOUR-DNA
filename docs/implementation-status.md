@@ -37,6 +37,28 @@
 > 각 항목은 실제 코드/스키마/커밋 이력을 읽고 확인한 결과이며, 마스터 프롬프트(`TOUR-DNA-Claude-Code-Implementation-Prompt.md`)가
 > "확인된 핵심 문제"로 지목한 항목이 지금도 재현되는지 파일·라인 단위로 표시한다.
 
+## 2026-08-25 갱신 — ACCESSIBILITY 읽기 전용 사용자 advisory 연결 완료
+
+여행 조건에서 `CONDITION_ACCESSIBLE`이 선택된 경우에만 실행안의 후보·코스·숙박·Anchor 연계
+후보를 대상으로 `PoiConditionEvidence.conditionType=ACCESSIBILITY`를 한 번에 조회한다.
+후보 순서나 코스 계산에는 관여하지 않으며, 공식 evidence가 없는 POI는 `공식 접근성 정보
+미확인`으로 표시한다.
+
+- `OFFICIAL_INFO_AVAILABLE`: `SUCCESS`이고 `dimensionDetails`가 있는 경우만 사용한다.
+- `OFFICIAL_INFO_UNKNOWN`: 공식 목록 외, evidence 누락, `EMPTY/ERROR`, 저장소 오류를 모두 포함한다.
+- 전체 `무장애 가능/불가` 상태는 만들지 않고, `parking`, `restroom`, `route`, `entranceExit`,
+  `wheelchair`, `elevator`를 우선으로 차원별 상태와 안전한 `rawText`를 상세 영역에서 보여준다.
+- `UNAVAILABLE` 차원은 원문이 불가·없음으로 안내한 경우에만 표시하며, evidence 누락은 불가로
+  해석하지 않는다.
+- 실시간 코스 품질 패널에는 코스 장소 중 공식 정보 확인 수를 `INFO` advisory로만 표시하고,
+  저장을 막지 않는다.
+- 인쇄 화면에는 기존 PET 표시와 같은 수준으로 코스·숙박의 접근성 요약을 최소 연결했다.
+
+후보·코스·숙박·Anchor 후보 POI ID를 합쳐 서버에서 `IN` 한 번으로 읽으므로 화면별 N+1 조회가
+없다. Festival Anchor 자체는 이번 접근성 advisory 대상에서 제외했다. `dimensionDetails`를
+읽기 전용으로만 사용하며 ranking, hard filter, 자동 코스, DNA, 전략 점수, PET 수집은 변경하지
+않았다.
+
 ## 2026-08-25 갱신 — 대표 프로젝트 사용자 노출 대상 targeted enrichment 완료
 
 기존 generic 지역 수집기의 기본 동작은 유지하고, 프로젝트 ID를 코드에 고정하지 않는 targeted

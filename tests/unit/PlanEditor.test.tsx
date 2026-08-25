@@ -182,6 +182,75 @@ describe("PlanEditor 실시간 코스 품질검증", () => {
     expect(screen.queryByTestId("pet-evidence")).not.toBeInTheDocument();
     expect(screen.queryByText("반려동물 동반 정보")).not.toBeInTheDocument();
   });
+
+  it("무장애 조건이 선택되면 코스·추천 후보에 차원 근거와 미확인 advisory를 표시한다", () => {
+    const accessibilityPlan = makePlan();
+    accessibilityPlan.accessibilityConditionActive = true;
+    accessibilityPlan.accessibilityEvidenceByPoiId = {
+      "poi-a": {
+        status: "OFFICIAL_INFO_AVAILABLE",
+        label: "공식 접근성 정보",
+        dimensions: [
+          {
+            key: "parking",
+            label: "주차",
+            status: "AVAILABLE",
+            statusLabel: "이용 가능/설치 정보 있음",
+            rawText: "주차 가능",
+          },
+        ],
+        sourceLabel: "한국관광공사 공식 무장애 여행정보",
+        fetchedAtLabel: "2026.08.25",
+        hasMeaningfulDimensions: true,
+      },
+    };
+    render(
+      <PlanEditor
+        plan={accessibilityPlan}
+        candidatePois={[
+          {
+            id: "accessibility-candidate",
+            name: "접근성 후보",
+            category: "ATTRACTION",
+            lat: 36.3,
+            lng: 127.3,
+            fit: {
+              totalScore: 90,
+              grade: "HIGH",
+              recommendationStatus: "RECOMMENDED",
+              breakdown: {
+                categoryFit: { score: 30, tier: "CORE" },
+                themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+                seasonFit: { score: 20, isIdealMonth: true },
+              },
+              positiveReasons: [],
+              cautions: [],
+              dataSource: {
+                provenance: "LIVE_API",
+                sourceLabel: "공식",
+                operatingHoursConfirmed: false,
+                operatingHoursText: null,
+                closedDaysText: null,
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByTestId("accessibility-evidence").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText(/공식 접근성 정보/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("공식 접근성 정보 미확인").length).toBeGreaterThan(0);
+    expect(screen.getByText(/코스 2곳 중 1곳/)).toBeInTheDocument();
+    expect(screen.getAllByText(/정보 미확인은 접근 불가를 뜻하지 않습니다/).length).toBeGreaterThan(0);
+  });
+
+  it("무장애 조건이 없으면 ACCESSIBILITY 배지를 표시하지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    expect(screen.queryByTestId("accessibility-evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("무장애 공식 정보")).not.toBeInTheDocument();
+  });
 });
 
 describe("PlanEditor — 확정 축제 Anchor 코스 연결(P1-2b)", () => {

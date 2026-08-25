@@ -37,10 +37,17 @@ import {
   EXECUTION_DIFFICULTY_LABEL_KO,
   formatRoleFitRanking,
 } from "@/lib/domain/strategyResourcePlan";
-import { hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { hasAccessibleTravelCondition, hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { getPetEvidenceForPoiIds } from "@/lib/services/petTourEvidenceRead";
 import { summarizePetEvidence, unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
 import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
+import { getAccessibilityEvidenceForPoiIds } from "@/lib/services/accessibilityEvidenceRead";
+import {
+  summarizeAccessibilityEvidence,
+  unknownAccessibilityEvidence,
+  type AccessibilityEvidenceDisplay,
+} from "@/lib/domain/accessibilityEvidenceDisplay";
+import { AccessibilityEvidenceBadge } from "@/components/plan/AccessibilityEvidenceBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +70,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   }
   const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
   const petConditionActive = hasPetFriendlyTravelCondition(project.input?.preferredThemes);
+  const accessibilityConditionActive = hasAccessibleTravelCondition(project.input?.preferredThemes);
 
   const plan = project.selectedPlan;
   const analysisResult = project.analysisResult;
@@ -108,6 +116,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         ...(d.lodging ? [d.lodging.poiId] : []),
       ])
     : [];
+  const accessibilityPoiIds = accessibilityConditionActive
+    ? course.days.flatMap((d) => [
+        ...d.items.filter((item) => !isFestivalAnchorItem(item)).map((item) => item.poiId),
+        ...(d.lodging ? [d.lodging.poiId] : []),
+      ])
+    : [];
 
   // 2026-08-13(로딩 성능 개선): 유사지역 비교 재계산, (레거시 분석만 발생하는) 카테고리별 POI
   // 재조회, 실행안과 동일한 POI 적합도 계산은 서로 완전히 독립적인데 이전에는 순차 await로 걸려
@@ -117,6 +131,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     poiCategoryFallback,
     poiFitSummaryResult,
     petEvidenceResult,
+    accessibilityEvidenceResult,
   ] = await Promise.all([
     resolveRegionComparisonAnalysis({
       regionCode: project.region.code,
@@ -140,9 +155,15 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
     petConditionActive
       ? getPetEvidenceForPoiIds(petPoiIds)
       : Promise.resolve({ repository: "AVAILABLE" as const, byPoiId: {} as Record<string, PetEvidenceDisplay> }),
+    accessibilityConditionActive
+      ? getAccessibilityEvidenceForPoiIds(accessibilityPoiIds)
+      : Promise.resolve({ repository: "AVAILABLE" as const, byPoiId: {} as Record<string, AccessibilityEvidenceDisplay> }),
   ]);
   const petEvidenceSummary = petConditionActive
     ? summarizePetEvidence(petPoiIds, petEvidenceResult.byPoiId)
+    : null;
+  const accessibilityEvidenceSummary = accessibilityConditionActive
+    ? summarizeAccessibilityEvidence(accessibilityPoiIds, accessibilityEvidenceResult.byPoiId)
     : null;
 
   // 분석 화면과 동일한 함수로 기준월 불일치 안내를 만든다(분석·인쇄 화면 안내 일치, 2026-08-02).
@@ -542,6 +563,19 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
             ) : null}
           </div>
         ) : null}
+        {accessibilityEvidenceSummary ? (
+          <div className="mt-1 rounded border border-sky-200 bg-sky-50 px-2 py-1.5 text-[11px] text-slate-600">
+            <p>
+              무장애·이동약자 조건 — 코스 {accessibilityEvidenceSummary.total}곳 중 {accessibilityEvidenceSummary.available}곳에서 한국관광공사 공식 접근성 정보를 확인할 수 있습니다.
+            </p>
+            {accessibilityEvidenceSummary.unknown > 0 ? (
+              <p className="mt-0.5 text-slate-500">정보 미확인은 접근 불가를 뜻하지 않습니다.</p>
+            ) : null}
+            {accessibilityEvidenceResult.repository === "UNAVAILABLE" ? (
+              <p className="mt-0.5 text-slate-500">현재 환경에서는 공식 접근성 정보 확인 기능을 사용할 수 없습니다.</p>
+            ) : null}
+          </div>
+        ) : null}
         {poiShortageMessage ? (
           <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">⚠ {poiShortageMessage}</p>
         ) : null}
@@ -578,6 +612,15 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                           compact
                         />
                       ) : null}
+                      {accessibilityConditionActive && !isAnchor ? (
+                        <AccessibilityEvidenceBadge
+                          evidence={
+                            accessibilityEvidenceResult.byPoiId[item.poiId] ??
+                            unknownAccessibilityEvidence({ repositoryUnavailable: accessibilityEvidenceResult.repository === "UNAVAILABLE" })
+                          }
+                          compact
+                        />
+                      ) : null}
                     </li>
                   );
                 })}
@@ -592,6 +635,15 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
                   {petConditionActive ? (
                     <PetEvidenceBadge
                       evidence={petEvidenceResult.byPoiId[day.lodging.poiId] ?? unknownPetEvidence({ repositoryUnavailable: petEvidenceResult.repository === "UNAVAILABLE" })}
+                      compact
+                    />
+                  ) : null}
+                  {accessibilityConditionActive ? (
+                    <AccessibilityEvidenceBadge
+                      evidence={
+                        accessibilityEvidenceResult.byPoiId[day.lodging.poiId] ??
+                        unknownAccessibilityEvidence({ repositoryUnavailable: accessibilityEvidenceResult.repository === "UNAVAILABLE" })
+                      }
                       compact
                     />
                   ) : null}

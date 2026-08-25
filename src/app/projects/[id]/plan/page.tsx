@@ -17,11 +17,12 @@ import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
-import { hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
+import { hasAccessibleTravelCondition, hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
 import { buildAnchorCandidateSuggestions, type AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
 import { getPetEvidenceForPoiIds } from "@/lib/services/petTourEvidenceRead";
+import { getAccessibilityEvidenceForPoiIds } from "@/lib/services/accessibilityEvidenceRead";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const duration = project.input?.duration as DurationCode;
   const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
   const petConditionActive = hasPetFriendlyTravelCondition(project.input?.preferredThemes);
+  const accessibilityConditionActive = hasAccessibleTravelCondition(project.input?.preferredThemes);
 
   const planData: PlanEditorData = {
     id: planRow.id,
@@ -184,14 +186,35 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         ]),
       ]
     : [];
-  const petEvidenceResult = petConditionActive
-    ? await getPetEvidenceForPoiIds(petEvidencePoiIds)
-    : { repository: "AVAILABLE" as const, byPoiId: {} };
+  const accessibilityEvidencePoiIds = accessibilityConditionActive
+    ? [
+        ...new Set([
+          ...regularCoursePoiIds,
+          ...(candidatePois ?? []).map((candidate) => candidate.id),
+          ...(anchorCandidateResult?.status === "AVAILABLE"
+            ? Object.values(anchorCandidateResult.groups)
+                .flat()
+                .map((candidate) => candidate.id)
+            : []),
+        ]),
+      ]
+    : [];
+  const [petEvidenceResult, accessibilityEvidenceResult] = await Promise.all([
+    petConditionActive
+      ? getPetEvidenceForPoiIds(petEvidencePoiIds)
+      : Promise.resolve({ repository: "AVAILABLE" as const, byPoiId: {} }),
+    accessibilityConditionActive
+      ? getAccessibilityEvidenceForPoiIds(accessibilityEvidencePoiIds)
+      : Promise.resolve({ repository: "AVAILABLE" as const, byPoiId: {} }),
+  ]);
   const planDataWithPetEvidence: PlanEditorData = {
     ...planData,
     petConditionActive,
     petEvidenceByPoiId: petEvidenceResult.byPoiId,
     petEvidenceRepositoryUnavailable: petEvidenceResult.repository === "UNAVAILABLE",
+    accessibilityConditionActive,
+    accessibilityEvidenceByPoiId: accessibilityEvidenceResult.byPoiId,
+    accessibilityEvidenceRepositoryUnavailable: accessibilityEvidenceResult.repository === "UNAVAILABLE",
   };
 
   // 사업 사전검증 리포트(2026-08-03) — DNA 5축·POI 공급·이동 경고·유사지역 비교·위험 요인 등 이미

@@ -77,6 +77,47 @@ describe("computeCourseQuality", () => {
     expect(report.warnings.some((warning) => warning.id === "pet-evidence-summary")).toBe(false);
   });
 
+  it("무장애 조건은 코스 장소의 공식 정보 coverage만 INFO advisory로 안내하고 Anchor는 제외한다", () => {
+    const report = computeCourseQuality({
+      days: [
+        day(1, [
+          item({ poiId: "available" }),
+          item({ poiId: "unknown", lat: 36.36, lng: 127.39 }),
+          item({ poiId: "anchor", kind: "FESTIVAL_ANCHOR", lat: 36.37, lng: 127.4 }),
+        ], item({ poiId: "lodging", category: "LODGING", lat: 36.38, lng: 127.41 })),
+      ],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+      accessibilityConditionActive: true,
+      accessibilityEvidenceByPoiId: {
+        available: {
+          status: "OFFICIAL_INFO_AVAILABLE",
+          label: "공식 접근성 정보",
+          dimensions: [],
+          sourceLabel: "공식",
+          fetchedAtLabel: "2026.08.25",
+          hasMeaningfulDimensions: true,
+        },
+      },
+    });
+
+    const advisory = report.warnings.find((warning) => warning.id === "accessibility-evidence-summary");
+    expect(advisory?.severity).toBe("INFO");
+    expect(advisory?.message).toContain("코스 3곳 중 1곳");
+    expect(advisory?.message).not.toContain("불가");
+  });
+
+  it("무장애 조건이 없으면 ACCESSIBILITY advisory를 만들지 않는다", () => {
+    const report = computeCourseQuality({
+      days: [day(1, [item()])],
+      duration: "DAY_TRIP",
+      transport: "WALK",
+      accessibilityConditionActive: false,
+    });
+
+    expect(report.warnings.some((warning) => warning.id === "accessibility-evidence-summary")).toBe(false);
+  });
+
   it("기존 30% 기준과 TourAPI 구조 분류로 핵심 테마 구성을 advisory 검사한다", () => {
     const report = computeCourseQuality({
       days: [

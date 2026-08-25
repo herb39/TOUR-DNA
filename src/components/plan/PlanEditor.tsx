@@ -41,8 +41,10 @@ import { CSS } from "@dnd-kit/utilities";
 import { CourseMap } from "@/components/map/CourseMap";
 import { CourseQualityPanel } from "@/components/plan/CourseQualityPanel";
 import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
+import { AccessibilityEvidenceBadge } from "@/components/plan/AccessibilityEvidenceBadge";
 import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
 import { unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
+import { unknownAccessibilityEvidence, type AccessibilityEvidenceDisplay } from "@/lib/domain/accessibilityEvidenceDisplay";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { PoiShortageNotice } from "@/lib/services/poiFitService";
 import type { CandidatePoi } from "@/lib/services/candidatePoolService";
@@ -98,6 +100,9 @@ export interface PlanEditorData {
   petConditionActive?: boolean;
   petEvidenceByPoiId?: Record<string, PetEvidenceDisplay>;
   petEvidenceRepositoryUnavailable?: boolean;
+  accessibilityConditionActive?: boolean;
+  accessibilityEvidenceByPoiId?: Record<string, AccessibilityEvidenceDisplay>;
+  accessibilityEvidenceRepositoryUnavailable?: boolean;
 }
 
 const initialActionState: SavePlanFormState = { success: false };
@@ -384,8 +389,20 @@ export function PlanEditor({
         preferredThemes: plan.preferredThemes ?? [],
         petConditionActive: plan.petConditionActive,
         petEvidenceByPoiId: plan.petEvidenceByPoiId,
+        accessibilityConditionActive: plan.accessibilityConditionActive,
+        accessibilityEvidenceByPoiId: plan.accessibilityEvidenceByPoiId,
       }),
-    [days, plan.petConditionActive, plan.petEvidenceByPoiId, plan.preferredThemes, plan.templateId, plan.transport, qualityDuration],
+    [
+      days,
+      plan.accessibilityConditionActive,
+      plan.accessibilityEvidenceByPoiId,
+      plan.petConditionActive,
+      plan.petEvidenceByPoiId,
+      plan.preferredThemes,
+      plan.templateId,
+      plan.transport,
+      qualityDuration,
+    ],
   );
 
   // 편집 상태를 다루는 순수 함수(재정렬/날짜 이동/POI 삽입)는 planBuilder.ts로 옮겨졌다(Phase B
@@ -868,6 +885,11 @@ export function PlanEditor({
                                 ? plan.petEvidenceByPoiId?.[item.poiId] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
                                 : undefined
                             }
+                            accessibilityEvidence={
+                              plan.accessibilityConditionActive
+                                ? plan.accessibilityEvidenceByPoiId?.[item.poiId] ?? unknownAccessibilityEvidence({ repositoryUnavailable: plan.accessibilityEvidenceRepositoryUnavailable })
+                                : undefined
+                            }
                           />
                         );
                       })}
@@ -895,6 +917,15 @@ export function PlanEditor({
                         evidence={
                           plan.petEvidenceByPoiId?.[day.lodging.poiId] ??
                           unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                        }
+                        compact
+                      />
+                    ) : null}
+                    {plan.accessibilityConditionActive ? (
+                      <AccessibilityEvidenceBadge
+                        evidence={
+                          plan.accessibilityEvidenceByPoiId?.[day.lodging.poiId] ??
+                          unknownAccessibilityEvidence({ repositoryUnavailable: plan.accessibilityEvidenceRepositoryUnavailable })
                         }
                         compact
                       />
@@ -1222,6 +1253,11 @@ export function PlanEditor({
                                 ? plan.petEvidenceByPoiId?.[candidate.id] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
                                 : undefined
                             }
+                            accessibilityEvidence={
+                              plan.accessibilityConditionActive
+                                ? plan.accessibilityEvidenceByPoiId?.[candidate.id] ?? unknownAccessibilityEvidence({ repositoryUnavailable: plan.accessibilityEvidenceRepositoryUnavailable })
+                                : undefined
+                            }
                             onAdd={() => addAnchorCandidate(candidate)}
                           />
                         ))}
@@ -1279,6 +1315,11 @@ export function PlanEditor({
                         petEvidence={
                           plan.petConditionActive
                             ? plan.petEvidenceByPoiId?.[candidate.id] ?? unknownPetEvidence({ repositoryUnavailable: plan.petEvidenceRepositoryUnavailable })
+                            : undefined
+                        }
+                        accessibilityEvidence={
+                          plan.accessibilityConditionActive
+                            ? plan.accessibilityEvidenceByPoiId?.[candidate.id] ?? unknownAccessibilityEvidence({ repositoryUnavailable: plan.accessibilityEvidenceRepositoryUnavailable })
                             : undefined
                         }
                         days={days}
@@ -1361,6 +1402,7 @@ function ScheduleItemRow({
   onMoveItemToDay,
   onRemoveItem,
   petEvidence,
+  accessibilityEvidence,
 }: {
   item: CourseItem;
   idx: number;
@@ -1376,6 +1418,7 @@ function ScheduleItemRow({
   onMoveItemToDay: (fromDayIndex: number, itemIndex: number, toDayIndex: number) => void;
   onRemoveItem: (dayIndex: number, itemIndex: number) => void;
   petEvidence?: PetEvidenceDisplay;
+  accessibilityEvidence?: AccessibilityEvidenceDisplay;
 }) {
   const isAnchor = isFestivalAnchorItem(item);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -1485,6 +1528,7 @@ function ScheduleItemRow({
             </details>
           ) : null}
           {petEvidence && !isAnchor ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
+          {accessibilityEvidence && !isAnchor ? <AccessibilityEvidenceBadge evidence={accessibilityEvidence} compact /> : null}
         </div>
       </div>
       <div className="no-print flex items-center gap-1">
@@ -1555,6 +1599,7 @@ function CandidateCard({
   onSelectDay,
   onAdd,
   petEvidence,
+  accessibilityEvidence,
 }: {
   candidate: CandidatePoi;
   days: CourseDay[];
@@ -1562,6 +1607,7 @@ function CandidateCard({
   onSelectDay: (dayIndex: number) => void;
   onAdd: () => void;
   petEvidence?: PetEvidenceDisplay;
+  accessibilityEvidence?: AccessibilityEvidenceDisplay;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: CANDIDATE_DND_PREFIX + candidate.id,
@@ -1609,6 +1655,7 @@ function CandidateCard({
         <p className="mt-2 text-slate-500">{reason}</p>
       ) : null}
       {petEvidence ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
+      {accessibilityEvidence ? <AccessibilityEvidenceBadge evidence={accessibilityEvidence} compact /> : null}
       <div className="mt-2 flex items-center gap-2">
         <label className="sr-only" htmlFor={`candidate-day-${candidate.id}`}>
           {candidate.name} 추가할 날짜
@@ -1641,10 +1688,12 @@ function CandidateCard({
 function AnchorCandidateCard({
   candidate,
   petEvidence,
+  accessibilityEvidence,
   onAdd,
 }: {
   candidate: AnchorCandidate;
   petEvidence?: PetEvidenceDisplay;
+  accessibilityEvidence?: AccessibilityEvidenceDisplay;
   onAdd: () => void;
 }) {
   const badge = resolveFitBadge(candidate.fit);
@@ -1667,6 +1716,7 @@ function AnchorCandidateCard({
         <p className="mt-1 text-[11px] text-amber-700">운영시간 확인 필요</p>
       )}
       {petEvidence ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
+      {accessibilityEvidence ? <AccessibilityEvidenceBadge evidence={accessibilityEvidence} compact /> : null}
       <button
         type="button"
         onClick={onAdd}

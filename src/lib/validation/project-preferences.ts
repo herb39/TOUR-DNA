@@ -115,3 +115,8 @@ export function travelConditionCodes(value: unknown): TravelConditionCode[] {
 export function hasPetFriendlyTravelCondition(value: unknown): boolean {
   return travelConditionCodes(value).includes("CONDITION_PET_FRIENDLY");
 }
+
+/** 무장애 근거 표시·advisory를 켜는 공용 조건 판정. 추천·필터·코스 계산에는 사용하지 않는다. */
+export function hasAccessibleTravelCondition(value: unknown): boolean {
+  return travelConditionCodes(value).includes("CONDITION_ACCESSIBLE");
+}

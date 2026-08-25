@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStructuredProjectPreferences,
+  hasAccessibleTravelCondition,
   hasPetFriendlyTravelCondition,
   preferredThemeLabels,
   readProjectPreferences,
@@ -37,5 +38,11 @@ describe("project preferences", () => {
     ).toBe(true);
     expect(hasPetFriendlyTravelCondition(buildStructuredProjectPreferences(["THEME_NATURE"], []))).toBe(false);
     expect(hasPetFriendlyTravelCondition(["반려동물 동반"])).toBe(false);
+  });
+
+  it("무장애 조건은 구조화된 travelConditions에서만 활성화한다", () => {
+    expect(hasAccessibleTravelCondition(buildStructuredProjectPreferences([], ["CONDITION_ACCESSIBLE"]))).toBe(true);
+    expect(hasAccessibleTravelCondition(buildStructuredProjectPreferences([], []))).toBe(false);
+    expect(hasAccessibleTravelCondition(["무장애·이동약자"])).toBe(false);
   });
 });
