@@ -7,6 +7,28 @@
 
 ---
 
+## 현재 로드맵 갱신 — 2026-08-25 Course Studio 후보 동적 재정렬 완료
+
+일반 추천 후보가 저장 시점의 고정 순서에 머물지 않고, 사용자가 편집 중인 코스 상태를 반영하도록
+client 순수 계산을 추가했다. 서버 후보 풀의 자격·상한·기존 relevance·dedup은 유지하며, 현재 코스와의
+최소 Haversine 직선거리만 같은 relevance 묶음 안에서 보조 신호로 사용한다.
+
+1. **완료 — 후보 ranking 계약 확인**: `ALLOW/DEMOTE`, 구조·키워드 테마 관련성,
+   `CORE/SUPPLEMENT/FALLBACK`, 이름 기반 결정론 순서를 확인하고 기존 품질 신호를 보존했다.
+2. **완료 — 코스 상태 기반 재정렬**: 후보 추가·삭제·날짜 이동 후 `days` 변경 시 client에서 재계산한다.
+   Drag 중 매 프레임 재정렬하지 않으며 server roundtrip·외부 API를 추가하지 않는다.
+3. **완료 — 좌표·거리 근거**: `hasReasonableKoreanCoordinate`와 Haversine을 재사용하고,
+   `2km/5km/10km` 구간을 같은 relevance 후보의 보조 순서로만 사용한다. invalid 좌표는 neutral 처리한다.
+4. **완료 — 사용자 표시**: 계산 가능한 일반 후보 카드에 `현재 코스 기준 직선거리 약 N.km`를 표시한다.
+   Anchor 후보 카드와 Anchor ranking은 별도 계약을 유지한다.
+5. **다음 — 관찰 후 보정**: 실제 사용자 편집 로그 없이 threshold·상한·새 점수식을 확대하지 않는다.
+   대표 프로젝트에서 후보 변화와 category 다양성을 계속 확인한 뒤 필요할 때만 조정한다.
+
+이번 단계에서 DNA·전략 점수·PET·ACCESSIBILITY·route architecture·Prisma schema/migration·Production
+Neon은 변경하지 않는다.
+
+---
+
 ## 현재 로드맵 갱신 — 2026-08-25 ACCESSIBILITY 사용자 advisory 연결 완료
 
 대표 프로젝트 targeted enrichment로 저장한 `dimensionDetails`를 실제 사용자 화면에 읽기 전용으로

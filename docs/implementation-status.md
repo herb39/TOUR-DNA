@@ -1,5 +1,12 @@
 # 구현 상태 (2026-08-25 갱신 — PET 유지보수 전환·무장애 조사 완료 반영)
 
+## 2026-08-25 갱신 — Course Studio 코스 상태 기반 일반 후보 동적 재정렬
+
+- 서버가 계산한 일반 추천 후보의 자격·전체 12개 상한·카테고리별 4개 상한·기존 dedup과 relevance 순서는 유지하고, `PlanEditor` client에서 현재 편집 중인 코스 상태만 반영해 후보를 다시 정렬한다. 후보 추가·삭제·날짜 이동이 끝나 `days`가 바뀐 뒤에만 재계산하며 Drag 중 매 프레임 재정렬하지 않는다.
+- 기존 후보 계약인 `ALLOW/DEMOTE → 구조·키워드 테마 관련성 → CORE/SUPPLEMENT/FALLBACK`을 우선 유지한다. 같은 relevance 묶음 안에서만 현재 코스의 유효 좌표와 후보 사이 최소 Haversine 직선거리의 `2km/5km/10km` 구간을 보조 신호로 사용한다. 같은 구간의 작은 거리 차이와 좌표 미확인은 기존 순서를 보존한다.
+- `hasReasonableKoreanCoordinate`를 재사용해 invalid 후보·현재 코스 좌표를 거리 계산에서 제외하고, 후보를 삭제하거나 최하위로 강제하지 않는다. 후보 카드에는 계산 가능한 경우에만 `현재 코스 기준 직선거리 약 N.km`를 표시한다.
+- 순수 domain 함수 `rerankCandidatesForCurrentCourse()`와 단위 테스트를 추가했다. 일반 후보만 대상으로 하며 Festival Anchor 후보 ranking, PET/ACCESSIBILITY advisory·evidence, Kakao route, DNA·전략 점수, Prisma schema는 변경하지 않는다. ranking 결과를 DB에 저장하지 않는다.
+
 ## 2026-08-25 갱신 — POI·Anchor 좌표 품질 감사 및 공통 방어
 
 - 세종 Anchor `sourceId=3529946`을 한국관광공사 공식 `KorService2/detailCommon2`로 1회 재확인한 결과, 공식 응답도 `mapx=117.9925662504`, `mapy=19.6944274800`을 반환했다. 이 sourceId는 `LIVE_SOURCE_BAD`로 판정하되, local `ProjectAnchor.sourceSnapshot.qa=true`·`provenance.provider=LOCAL_QA`인 QA fixture 저장 경로도 함께 보존한다.

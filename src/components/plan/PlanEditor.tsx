@@ -44,6 +44,7 @@ import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
 import { AccessibilityEvidenceBadge } from "@/components/plan/AccessibilityEvidenceBadge";
 import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
+import { rerankCandidatesForCurrentCourse } from "@/lib/domain/candidateRerank";
 import { unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
 import { unknownAccessibilityEvidence, type AccessibilityEvidenceDisplay } from "@/lib/domain/accessibilityEvidenceDisplay";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
@@ -334,12 +335,24 @@ export function PlanEditor({
     courseAnchor && plan.festivalAnchor && courseAnchor.item.anchorId === plan.festivalAnchor.id,
   );
 
-  // 추천 후보 풀(Phase B 첫 단계, 2026-08-16): 서버가 이미 계산해 둔 후보 목록에서 현재 course에 있는
-  // POI만 클라이언트에서 걸러낸다 — 후보를 추가하면 existingPoiIds에 즉시 반영되어 후보 풀에서
-  // 사라지고, 삭제하면 즉시 다시 나타난다(별도 재조회·캐시 없이 리렌더링만으로 동작).
+  // 추천 후보 풀(Phase B 3단계): 서버가 계산한 후보의 자격·상한·dedup은 그대로 두고, 현재 편집 중인
+  // 코스와의 관계만 client에서 다시 계산한다. 후보 추가·삭제·날짜 이동으로 days가 바뀌는 순간
+  // useMemo가 재실행되며, Drag 중에는 days를 바꾸지 않으므로 매 프레임 재정렬하지 않는다.
+  const rerankedCandidateItems = useMemo(
+    () =>
+      rerankCandidatesForCurrentCourse(
+        candidatePois ?? [],
+        days.flatMap((day) => [...day.items, ...(day.lodging ? [day.lodging] : [])]),
+      ),
+    [candidatePois, days],
+  );
+  const visibleCandidateItems = useMemo(
+    () => rerankedCandidateItems.filter(({ candidate }) => !existingPoiIds.has(candidate.id)),
+    [existingPoiIds, rerankedCandidateItems],
+  );
   const visibleCandidates = useMemo(
-    () => (candidatePois ?? []).filter((c) => !existingPoiIds.has(c.id)),
-    [candidatePois, existingPoiIds],
+    () => visibleCandidateItems.map(({ candidate }) => candidate),
+    [visibleCandidateItems],
   );
   const visibleAnchorGroups = useMemo(() => {
     const empty: Record<"PRE_EVENT" | "MEAL" | "POST_EVENT" | "STAY", AnchorCandidate[]> = {
@@ -1317,7 +1330,7 @@ export function PlanEditor({
                 </p>
               ) : (
                 <ul className="grid grid-cols-1 gap-2">
-                  {visibleCandidates.map((candidate) => {
+                  {visibleCandidateItems.map(({ candidate, proximityKm }) => {
                     const selectedDay = candidateAddDay[candidate.id] ?? days[0]?.dayIndex ?? 1;
                     return (
                       <CandidateCard
@@ -1334,6 +1347,7 @@ export function PlanEditor({
                             : undefined
                         }
                         days={days}
+                        proximityKm={proximityKm}
                         selectedDay={selectedDay}
                         onSelectDay={(dayIndex) =>
                           setCandidateAddDay((prev) => ({ ...prev, [candidate.id]: dayIndex }))
@@ -1611,6 +1625,7 @@ function ScheduleItemRow({
 function CandidateCard({
   candidate,
   days,
+  proximityKm,
   selectedDay,
   onSelectDay,
   onAdd,
@@ -1619,6 +1634,7 @@ function CandidateCard({
 }: {
   candidate: CandidatePoi;
   days: CourseDay[];
+  proximityKm: number | null;
   selectedDay: number;
   onSelectDay: (dayIndex: number) => void;
   onAdd: () => void;
@@ -1634,6 +1650,12 @@ function CandidateCard({
   const leisureType = classifyLeisureActivity(candidate.lclsSystm1, candidate.lclsSystm2);
   const representation = candidate.representation ?? "UNKNOWN";
   const isSupportCandidate = candidate.recommendationStatus === "DEMOTE";
+  const proximityLabel =
+    proximityKm === null
+      ? null
+      : proximityKm < 1
+        ? `${Math.max(0.1, proximityKm).toFixed(1)}km`
+        : `${proximityKm.toFixed(1)}km`;
 
   return (
     <li ref={setNodeRef} style={style} className="rounded-md border border-slate-200 p-3 text-xs">
@@ -1670,6 +1692,7 @@ function CandidateCard({
       ) : reason ? (
         <p className="mt-2 text-slate-500">{reason}</p>
       ) : null}
+      {proximityLabel ? <p className="mt-1 text-slate-500">현재 코스 기준 직선거리 약 {proximityLabel}</p> : null}
       {petEvidence ? <PetEvidenceBadge evidence={petEvidence} compact /> : null}
       {accessibilityEvidence ? <AccessibilityEvidenceBadge evidence={accessibilityEvidence} compact /> : null}
       <div className="mt-2 flex items-center gap-2">

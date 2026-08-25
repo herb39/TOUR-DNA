@@ -998,6 +998,12 @@ describe("PlanEditor — 추천 후보 풀(Phase B 첫 단계, 2026-08-16)", () 
     expect(screen.getByText("한국관광공사 공식 분류상 문화·역사 테마와 일치합니다.")).toBeInTheDocument();
   });
 
+  it("현재 코스와의 최소 직선거리를 추천 후보에 보조 근거로 표시한다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[makeCandidate("cand-1", "첨성대")]} />);
+
+    expect(screen.getByText(/현재 코스 기준 직선거리 약/)).toBeInTheDocument();
+  });
+
   it("LS 중분류 후보는 공식 레저 분류를 함께 보여준다", () => {
     const candidate = {
       ...makeCandidate("cand-leisure", "선재낚시공원"),

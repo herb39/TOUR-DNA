@@ -6,8 +6,9 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 // 미리 만들어 환경변수로 받는다(Production Neon 무관).
 const GYEONGJU_ID = process.env.QA_GYEONGJU_ID;
 const CHEONGJU_ID = process.env.QA_CHEONGJU_ID;
+const DAEJEON_ANCHOR_ID = process.env.QA_ANCHOR_PROJECT_ID;
 
-test.skip(!GYEONGJU_ID || !CHEONGJU_ID, "QA_GYEONGJU_ID/QA_CHEONGJU_ID 환경변수가 없어 건너뜀");
+test.skip(!GYEONGJU_ID || !CHEONGJU_ID || !DAEJEON_ANCHOR_ID, "대표 QA 프로젝트 환경변수가 없어 건너뜀");
 
 test.use({ viewport: { width: 1280, height: 2600 } });
 
@@ -74,19 +75,23 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 경주(로컬 QA �
 
     // 추천 후보 → 일정 drag 추가
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    const candidateNamesBefore = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());
     const firstCandidateCard = candidateSection.locator("ul > li").first();
     const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
     if (candidateName) {
+      await expect(firstCandidateCard.getByText(/현재 코스 기준 직선거리 약/)).toBeVisible();
       await dragHandle(page, candidateHandle(page, candidateName), scheduleHandle(page, beforeNames[0]));
       await page.waitForTimeout(300);
     }
 
     // 일정에서 삭제
-    const anyItemName = (await day1.locator("ul > li span.font-medium.text-slate-800").first().textContent())?.trim();
-    if (anyItemName) {
-      await page.getByRole("button", { name: `${anyItemName} 삭제` }).click();
+    if (candidateName) {
+      await page.getByRole("button", { name: `${candidateName} 삭제` }).click();
       await page.waitForTimeout(300);
     }
+
+    const candidateNamesAfter = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());
+    expect(candidateNamesAfter).toEqual(candidateNamesBefore);
 
     // 지도는 여전히 정상 렌더링돼 있고(오류로 사라지지 않음), 이 시점까지 추가 서버 요청은 없어야 한다.
     await expect(page.getByTestId("course-map-container")).toBeVisible();
@@ -201,5 +206,29 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
       clientWidth: document.documentElement.clientWidth,
     }));
     expect(overflow.scrollWidth).toBe(overflow.clientWidth);
+  });
+});
+
+test.describe("코스 편집 중 일반 후보 재정렬 — 대전 Anchor(로컬 QA 프로젝트)", () => {
+  test("일반 후보는 현재 코스 변경에 반응하고 Anchor 연계 후보와 독립적으로 유지된다", async ({ page }) => {
+    await page.goto(`/projects/${DAEJEON_ANCHOR_ID}/plan`);
+    await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
+
+    const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    const anchorSection = page.getByRole("region", { name: "축제 Anchor 연계 후보" });
+    await expect(anchorSection).toBeVisible();
+    const beforeNames = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());
+    expect(beforeNames.length).toBeGreaterThan(0);
+
+    const candidateName = beforeNames[0];
+    await expect(candidateSection.locator("ul > li").first().getByText(/현재 코스 기준 직선거리 약/)).toBeVisible();
+    await candidateSection.getByRole("button", { name: new RegExp(`${candidateName}.*1일차에 추가`) }).click();
+    await expect(page.getByLabel(`${candidateName} 시간`)).toBeVisible();
+    await expect(anchorSection).toBeVisible();
+
+    await page.getByRole("button", { name: `${candidateName} 삭제` }).click();
+    await expect(candidateSection.getByRole("button", { name: new RegExp(`${candidateName}.*1일차에 추가`) })).toBeVisible();
+    const afterNames = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());
+    expect(afterNames).toEqual(beforeNames);
   });
 });
