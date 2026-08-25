@@ -204,6 +204,42 @@ npm run dev
 - `npm run lint`: Next.js·TypeScript 코드 규칙 확인
 - `npm run build`: production build와 Next.js export 규칙 확인
 
+### 로컬 QA fixture 실행
+
+핵심 Playwright E2E는 로컬 PostgreSQL의 이름 있는 QA 프로젝트를 재사용한다. 수동으로 프로젝트 ID를
+복사해 환경변수를 지정할 필요 없이 아래 setup이 정확한 프로젝트 이름을 찾아 안전한 `QA_*` ID를
+출력하고, PET/ACCESSIBILITY 화면 검증에 필요한 기존 공식 evidence를 확인한다.
+
+```bash
+npm run test:e2e:setup
+npm run test:e2e:local
+```
+
+특정 suite만 실행하려면 다음처럼 인자를 넘긴다.
+
+```bash
+npm run test:e2e:local -- e2e/plan-drag-drop.spec.ts e2e/plan-map-live-update.spec.ts
+```
+
+setup은 `DATABASE_URL`이 `localhost`의 `tour_dna_local`일 때만 실행하며 `.env.local`을 덮어쓰지 않는다.
+`[QA PET 사용자] 경주`에는 PET·ACCESSIBILITY 조건이 없을 때만 필요한 조건을 보강하고, 기존 공식
+evidence가 없으면 중단한다. `ProjectAnchor` 변경·삭제 상태는 일반 흐름을 오염시키지 않도록 별도
+fixture가 준비된 경우에만 실행하며, 없으면 해당 예외 테스트를 선택적으로 건너뛴다.
+
+현재 E2E 환경변수 계약은 다음과 같다. 모든 ID는 setup이 로컬 DB에서 이름으로 찾아 출력한다.
+
+| 변수 | 사용 suite | 필요한 상태 |
+|---|---|---|
+| `QA_GYEONGJU_ID` | Drag & Drop, 지도 | 여러 일정·좌표가 있는 저장 코스 |
+| `QA_CHEONGJU_ID` | Drag & Drop, 지도 | 추천 후보·중복 검증 대상이 있는 저장 코스 |
+| `QA_ANCHOR_PROJECT_ID` | Anchor 후보·고정 | 확정 시각이 있고 코스에 반영 가능한 ProjectAnchor |
+| `QA_SEJONG_ANCHOR_PROJECT_ID` | Anchor 후보 | 행사 전·식사·행사 후·숙박 후보가 있는 Anchor |
+| `QA_JECHEON_EMPTY_ANCHOR_PROJECT_ID` | Anchor 빈 상태 | 확정 Anchor지만 새 연계 후보가 없는 코스 |
+| `QA_PET_PROJECT_ID` | PET advisory | PET 공식 evidence와 evidence 미확인 POI가 함께 있는 코스 |
+| `QA_ACCESSIBILITY_PROJECT_ID` | 모바일 advisory | `CONDITION_ACCESSIBLE`, 무장애 공식 evidence와 미수집 POI가 함께 있는 코스 |
+| `QA_ANCHOR_STALE` | 선택적 stale 예외 | ProjectAnchor 변경으로 저장 코스 snapshot이 stale인 별도 fixture |
+| `QA_ANCHOR_ORPHAN` | 선택적 orphan 예외 | ProjectAnchor 삭제 후 코스 snapshot만 남은 별도 fixture |
+
 ### 대표 사용자 시나리오
 
 1. 홈에서 새 프로젝트를 만들고 지역·여행월·역할·목표·테마·여행 조건을 입력합니다.

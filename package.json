@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:setup": "tsx --env-file=.env.local scripts/setup-e2e-local.mts",
+    "test:e2e:local": "tsx --env-file=.env.local scripts/setup-e2e-local.mts --run",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
