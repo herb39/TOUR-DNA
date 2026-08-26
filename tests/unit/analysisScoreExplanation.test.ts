@@ -47,6 +47,14 @@ describe("DNA 분석 화면 — 내부 분석점수와 사용자 표시지수 �
     const source = readSource(ANALYSIS_PAGE);
     expect(source).toContain("DNA 상대지수");
   });
+
+  it("DNA 표시값과 개별 근거 정규화값을 서로 다른 label로 구분한다", () => {
+    const analysis = readSource(ANALYSIS_PAGE);
+    const evidence = readSource("src/components/evidence/EvidenceTable.tsx");
+    expect(analysis).toContain("DNA 상대지수");
+    expect(evidence).toContain("원천 지표 정규화값");
+    expect(analysis).toContain("원천 지표 정규화값은 개별 지표 값입니다");
+  });
 });
 
 describe("DNA 분석 화면 — 내부 개발용 규칙 버전 문자열 미노출", () => {
@@ -76,6 +84,25 @@ describe("전략 비교 화면 — 반복 면책 문구 통합", () => {
   it("'데이터 기준 및 확인사항'이라는 통합 섹션이 존재한다", () => {
     const source = readSource(ANALYSIS_PAGE);
     expect(source).toContain("데이터 기준 및 확인사항");
+  });
+});
+
+describe("전략 비교 화면 — 전략 점수 의미 label", () => {
+  it("전략 카드와 비교표가 총점을 '전략 적합도'로 표시한다", () => {
+    expect(readSource("src/components/strategy/StrategyCard.tsx")).toContain("전략 적합도");
+    expect(readSource("src/components/strategy/StrategyComparisonTable.tsx")).toContain("전략 적합도 {row.totalScore}점");
+  });
+});
+
+describe("분석·전략 화면 — PRIMARY 순서", () => {
+  it("분석 page에서 DNA가 strategy보다 앞서고 strategy가 Anchor·사전검증보다 앞선다", () => {
+    const source = readSource(ANALYSIS_PAGE);
+    expect(source.indexOf('>관광 DNA 5축<')).toBeGreaterThan(-1);
+    expect(source.indexOf('id="strategies"')).toBeGreaterThan(-1);
+    expect(source.indexOf("<FestivalAnchorPanel")).toBeGreaterThan(-1);
+    expect(source.indexOf('>관광 DNA 5축<')).toBeLessThan(source.indexOf('id="strategies"'));
+    expect(source.indexOf('id="strategies"')).toBeLessThan(source.indexOf("<FestivalAnchorPanel"));
+    expect(source.indexOf("<PreLaunchValidationSection")).toBeGreaterThan(source.indexOf('id="strategies"'));
   });
 });
 

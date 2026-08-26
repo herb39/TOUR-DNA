@@ -30,14 +30,14 @@ export function EvidenceTable({ items, note }: { items: EvidenceRow[]; note?: st
   }
   const showProvenance = items.some((e) => e.provenance !== undefined);
   return (
-    <div className="overflow-x-auto">
+    <div className="max-w-full overflow-x-auto">
       {note ? <p className="mb-2 text-[11px] text-slate-500">{note}</p> : null}
       <table className="w-full min-w-[720px] text-left text-xs">
         <thead className="text-slate-500">
           <tr>
             <th scope="col" className="py-1 pr-3 font-medium">지표</th>
             <th scope="col" className="py-1 pr-3 font-medium">원값</th>
-            <th scope="col" className="py-1 pr-3 font-medium">정규화값</th>
+            <th scope="col" className="py-1 pr-3 font-medium">원천 지표 정규화값</th>
             <th scope="col" className="py-1 pr-3 font-medium">단위</th>
             <th scope="col" className="py-1 pr-3 font-medium">행정단위</th>
             <th scope="col" className="py-1 pr-3 font-medium">기준월</th>

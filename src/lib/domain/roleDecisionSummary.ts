@@ -62,5 +62,5 @@ export function buildRoleDecisionSummary(input: RoleDecisionSummaryInput): strin
   const displayScore = input.displayScores?.[weakest.axis];
   const scoreText = displayScore !== null && displayScore !== undefined ? displayScore : weakest.score;
 
-  return `${roleLabel(role)} 관점: ${AXIS_LABEL_KO[weakest.axis]} 축이 상대적 약점(${scoreText}점)으로 나타나 ${strategyClause}${direction}.`;
+  return `${roleLabel(role)} 관점: ${AXIS_LABEL_KO[weakest.axis]} 축이 상대적 약점(DNA 상대지수 ${scoreText})으로 나타나 ${strategyClause}${direction}.`;
 }

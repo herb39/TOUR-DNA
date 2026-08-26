@@ -366,7 +366,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-[1440px] flex-1 px-6 py-10">
+      <main className="mx-auto w-full max-w-[1440px] flex-1 overflow-x-hidden px-6 py-10">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-medium text-slate-500">{project.name}</p>
@@ -383,13 +383,14 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             </Link>
           </div>
           <div className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
-            <p>
-              분석 기준월{" "}
-              <strong>{baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}</strong>
-              {" · "}
+            <p className="font-medium text-slate-700">데이터 최신성</p>
+            <p className="mt-1">
               <span className="font-semibold text-slate-700">
                 {describeOverallDataMode(analysisResult.overallDataMode, analysisResult.liveAxisCount)}
               </span>
+              {" · "}
+              분석 기준월{" "}
+              <strong>{baseYmSummary.primary ? formatBaseYm(baseYmSummary.primary) : "확인 불가"}</strong>
             </p>
             {baseYmSummary.mixed ? (
               <p className="mt-1 text-[11px] text-amber-700">
@@ -400,6 +401,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </div>
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">핵심 진단</p>
           <p className="text-sm font-semibold text-slate-900">
             {project.region.name}의 강점은{" "}
             {topAxes[0] ? (
@@ -421,7 +423,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 key={a.axisKey}
                 className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
               >
-                강점 · {a.label} {axisDisplayScoreByAxis.get(a.axisKey)}
+                강점 · {a.label} DNA 상대지수 {axisDisplayScoreByAxis.get(a.axisKey)}
               </span>
             ))}
             {bottomAxes.map((a) => (
@@ -429,7 +431,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
                 key={a.axisKey}
                 className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
               >
-                개선 · {a.label} {axisDisplayScoreByAxis.get(a.axisKey)}
+                개선 · {a.label} DNA 상대지수 {axisDisplayScoreByAxis.get(a.axisKey)}
               </span>
             ))}
           </div>
@@ -437,11 +439,18 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
             ※ 위 지수는 절대평가가 아니라, 현재 비교지역 안에서 극단적인 차이를 완화해 보여주는 상대
             수준입니다.
           </p>
-          {roleDecisionSummary ? (
-            <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
-              {roleDecisionSummary}
-            </p>
-          ) : null}
+          <p className="mt-3 text-xs font-medium text-slate-600">
+            진단 다음 단계: <span className="text-slate-900">추천 1순위 {topStrategyName ?? "전략"}을 포함한 3안을 비교하고 선택하세요.</span>
+          </p>
+          <p className="mt-2 text-xs text-slate-600">
+            <span className="font-medium text-slate-900">추천 전략 3안:</span>{" "}
+            {strategyCardsData.map((strategy, index) => (
+              <span key={strategy.id}>
+                {index > 0 ? " · " : ""}
+                {strategy.name}
+              </span>
+            ))}
+          </p>
           <a
             href="#strategies"
             className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
@@ -450,7 +459,121 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </a>
         </section>
 
-        <div className="mt-6">
+        <section className="mt-6 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5">
+            <h2 className="text-sm font-semibold text-slate-900">관광 DNA 5축</h2>
+            <p className="mt-1 text-xs text-slate-500">축별 DNA 상대지수와 강점·개선 필요 축을 먼저 확인하세요.</p>
+            <DnaRadarChart
+              data={axisData.map((a) => ({
+                ...a,
+                score: axisDisplayScoreByAxis.get(a.axisKey) ?? null,
+                sourceLabel: axisSourceSummaries.get(a.axisKey)?.label,
+              }))}
+            />
+            <p className="mt-3 text-xs text-slate-500">
+              ※ DNA 상대지수는 실제 관광량이나 절대평가 점수가 아니라, 같은 행정단위(시군구)
+              비교지역 데이터를 기준으로 극단적인 차이를 완화해 보여주는 표시값입니다. 원값·원천
+              지표 정규화값·비교 행정단위·기준월은 각 축의 &quot;근거 보기&quot;에서 확인할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+            {axisData.map((a) => {
+              const source = axisSourceSummaries.get(a.axisKey);
+              const displayScore = axisDisplayScoreByAxis.get(a.axisKey) ?? null;
+              return (
+                <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-800">{a.label}</span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                        source?.tier === "ALL_LIVE"
+                          ? "border-emerald-300 text-emerald-700"
+                          : source?.tier === "MIXED"
+                            ? "border-amber-300 text-amber-700"
+                            : "border-slate-300 text-slate-500"
+                      }`}
+                      title="이 축의 점수 계산에 실제로 쓰인 근거들의 출처 구성입니다. 개별 근거의 정확한 값·기준월은 아래 근거 보기에서 확인할 수 있습니다."
+                    >
+                      {source?.label ?? "데이터 부족"}
+                    </span>
+                  </div>
+                  <p className="mt-2 flex flex-wrap items-center gap-2 text-2xl font-bold text-slate-900">
+                    {displayScore === null ? "데이터 부족" : `DNA 상대지수 ${displayScore}`}
+                    {topAxisKeys.has(a.axisKey) ? (
+                      <span className="text-xs font-medium text-emerald-700">강점</span>
+                    ) : bottomAxisKeys.has(a.axisKey) ? (
+                      <span className="text-xs font-medium text-amber-700">개선 필요</span>
+                    ) : null}
+                  </p>
+                  <AnimatedDetails
+                    className="mt-2"
+                    summary="근거 보기"
+                    summaryClassName="cursor-pointer text-xs text-slate-500"
+                  >
+                    <div className="mt-2">
+                     <EvidenceTable
+                       items={axisEvidenceByAxis.get(a.axisKey) ?? []}
+                       note="원천 지표 정규화값은 개별 지표 값입니다. 위 카드의 DNA 상대지수는 이 축에 포함된 지표들을 종합한 표시값입니다."
+                     />
+                    </div>
+                  </AnimatedDetails>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section id="strategies" className="mt-8 scroll-mt-6">
+          <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            핵심 방향·기대 효과·난이도·위험을 비교해 1순위 전략을 확인하세요.
+          </p>
+          <div className="mt-3">
+            <StrategyComparisonTable rows={strategyComparisonRows} currentRole={project.role} />
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {strategyCardsData.map((s) => (
+              <div key={s.id}>
+                <StrategyCard
+                  strategy={s}
+                  isSelected={project.selectedStrategyResultId === s.id}
+                  onSelect={selectStrategyAction.bind(null, project.id, s.id)}
+                />
+                {strategyResourcePlans.has(s.id) ? (
+                  <StrategyResourcePlanPanel
+                    budgetItems={strategyResourcePlans.get(s.id)!.budgetItems}
+                    partners={strategyResourcePlans.get(s.id)!.partners}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-base font-semibold text-slate-900">전략 관련 지도</h2>
+          <div className="mt-3">
+            <MapOrFallback pois={mapPois} kakaoKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} />
+          </div>
+        </section>
+
+        {roleDecisionSummary ? (
+          <AnimatedDetails
+            className="mt-6 rounded-lg border border-slate-200 bg-white p-4"
+            summary="역할별 진단 해석 보기"
+            summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+          >
+            <p className="mt-3 text-sm text-slate-700">{roleDecisionSummary}</p>
+            <p className="mt-2 text-[11px] text-slate-400">
+              이 문장은 선택한 역할에서 먼저 검토할 방향을 설명하며, DNA 상대지수와 전략 적합도를 새로
+              계산하지 않습니다.
+            </p>
+          </AnimatedDetails>
+        ) : null}
+
+        <div className="mt-8">
           <FestivalAnchorPanel
             projectId={project.id}
             regionName={project.region.name}
@@ -548,154 +671,87 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </p>
         </AnimatedDetails>
 
-        <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="text-sm font-semibold text-slate-900">관광 DNA 5축</h2>
-            <DnaRadarChart
-              data={axisData.map((a) => ({
-                ...a,
-                score: axisDisplayScoreByAxis.get(a.axisKey) ?? null,
-                sourceLabel: axisSourceSummaries.get(a.axisKey)?.label,
-              }))}
-            />
-            <p className="mt-3 text-xs text-slate-500">
-              ※ 이 지수는 실제 관광량이나 절대평가 점수가 아니라, 같은 행정단위(시군구) 비교지역
-              데이터를 기준으로 극단적인 차이를 완화해 보여주는 상대지수입니다. 원값·비교 행정단위·
-              기준월은 각 축의 &quot;근거 보기&quot;에서 확인할 수 있습니다.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {axisData.map((a) => {
-              const source = axisSourceSummaries.get(a.axisKey);
-              const displayScore = axisDisplayScoreByAxis.get(a.axisKey) ?? null;
-              return (
-                <div key={a.axisKey} className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-slate-800">{a.label}</span>
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                        source?.tier === "ALL_LIVE"
-                          ? "border-emerald-300 text-emerald-700"
-                          : source?.tier === "MIXED"
-                            ? "border-amber-300 text-amber-700"
-                            : "border-slate-300 text-slate-500"
-                      }`}
-                      title="이 축의 점수 계산에 실제로 쓰인 근거들의 출처 구성입니다. 개별 근거의 정확한 값·기준월은 아래 근거 보기에서 확인할 수 있습니다."
-                    >
-                      {source?.label ?? "데이터 부족"}
-                    </span>
-                  </div>
-                  <p className="mt-2 flex flex-wrap items-center gap-2 text-2xl font-bold text-slate-900">
-                    {displayScore === null ? "데이터 부족" : displayScore}
-                    {displayScore !== null ? (
-                      <span className="text-[11px] font-medium text-slate-400">DNA 상대지수</span>
-                    ) : null}
-                    {topAxisKeys.has(a.axisKey) ? (
-                      <span className="text-xs font-medium text-emerald-700">강점</span>
-                    ) : bottomAxisKeys.has(a.axisKey) ? (
-                      <span className="text-xs font-medium text-amber-700">개선 필요</span>
-                    ) : null}
-                  </p>
-                  <AnimatedDetails
-                    className="mt-2"
-                    summary="근거 보기"
-                    summaryClassName="cursor-pointer text-xs text-slate-500"
-                  >
-                    <div className="mt-2">
-                     <EvidenceTable
-                       items={axisEvidenceByAxis.get(a.axisKey) ?? []}
-                       note="정규화값은 개별 지표 값입니다. 위 카드의 DNA 상대지수는 이 축에 포함된 지표들을 종합한 표시값입니다."
-                     />
-                    </div>
-                  </AnimatedDetails>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
         <AnimatedDetails
           className="mt-8 rounded-lg border border-slate-200 bg-white p-5"
           summary="유사지역 비교 보기"
           summaryClassName="cursor-pointer text-base font-semibold text-slate-900"
         >
           <div className="mt-2">
-          <p
-            className="mt-1 text-xs text-slate-500"
-            title="DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교합니다. 전국 전체가 아니라 현재 데이터가 준비된 지원지역 내 비교입니다."
-          >
-            비교 후보 {regionComparisonAnalysis.candidatePoolSize}곳 중 상위 3곳(기준월{" "}
-            {regionComparisonAnalysis.comparisonBaseYm})
-          </p>
-          {usingLiveRegionComparisonFallback ? (
-            <p className="mt-1 text-xs text-slate-400">
-              ※ 이 분석은 유사지역 비교 스냅샷 도입 이전에 생성돼 현재 시점의 데이터로 다시 계산한
-              결과를 대신 보여줍니다 — 이후 데이터가 갱신되면 이 비교 결과도 함께 바뀔 수 있습니다.
+            <p
+              className="mt-1 text-xs text-slate-500"
+              title="DNA 5축·관광 자원 구성이 가장 비슷한 지역과 비교합니다. 전국 전체가 아니라 현재 데이터가 준비된 지원지역 내 비교입니다."
+            >
+              비교 후보 {regionComparisonAnalysis.candidatePoolSize}곳 중 상위 3곳(기준월{" "}
+              {regionComparisonAnalysis.comparisonBaseYm})
             </p>
-          ) : null}
-          {regionComparisonAnalysis.isSmallCandidatePool && regionComparisonAnalysis.candidatePoolSize > 0 ? (
-            <p className="mt-1 text-[11px] text-amber-700">
-              ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 참고용으로만
-              활용해주세요.
-            </p>
-          ) : null}
-          {analysisBaseYmMismatchNote ? (
-            <p className="mt-1 text-xs text-amber-700">{analysisBaseYmMismatchNote}</p>
-          ) : null}
-          {regionComparisonAnalysis.baseYmNote ? (
-            <p className="mt-1 text-xs text-amber-700">{regionComparisonAnalysis.baseYmNote}</p>
-          ) : null}
-          {regionComparisonAnalysis.comparisons.length > 0 ? (
-            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {regionComparisonAnalysis.comparisons.map((c, i) => (
-                <RegionComparisonCard
-                  key={c.regionCode}
-                  comparison={c}
-                  rank={i + 1}
-                  comparisonBaseYm={regionComparisonAnalysis.comparisonBaseYm}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
-              현재 확보된 데이터로는 근거 있는 유사지역 비교를 만들지 못했습니다.
-            </div>
-          )}
-          {regionComparisonAnalysis.uniqueStrengthNote ? (
-            <p className="mt-2 text-xs text-slate-600">{regionComparisonAnalysis.uniqueStrengthNote}</p>
-          ) : null}
-          {regionComparisonAnalysis.note ? (
-            <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
-          ) : null}
-          {regionComparisonAnalysis.comparisons.length > 0 ? (
-            <div className="mt-4 border-t border-slate-100 pt-4">
-              <h3 className="text-sm font-semibold text-slate-900">벤치마킹 포인트</h3>
-              {regionBenchmarkAnalysis.insights.length > 0 ? (
-                <div className="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {regionBenchmarkAnalysis.insights.map((insight) => (
-                    <div
-                      key={`${insight.benchmarkRegionName}-${insight.targetAxis}`}
-                      className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 text-xs text-slate-700"
-                    >
-                      <p className="text-sm font-semibold text-slate-900">
-                        {insight.benchmarkRegionName} — {insight.targetAxisLabel} 구조 참고
-                      </p>
-                      <p className="mt-1 text-slate-500">{insight.whyCompared}</p>
-                      <p className="mt-1">{insight.whatIsBetter}</p>
-                      <p className="mt-1">{insight.whatToReference}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-slate-500">{regionBenchmarkAnalysis.emptyStateNote}</p>
-              )}
-              <p className="mt-2 text-[11px] text-slate-400">
-                ※ 벤치마킹 포인트는 인과관계를 증명하는 것이 아니라, 이미 계산된 DNA 축 차이·관광지 구성
-                차이를 근거로 참고 가치를 제시하는 상대 비교입니다.
+            {usingLiveRegionComparisonFallback ? (
+              <p className="mt-1 text-xs text-slate-400">
+                ※ 이 분석은 유사지역 비교 스냅샷 도입 이전에 생성돼 현재 시점의 데이터로 다시 계산한
+                결과를 대신 보여줍니다 — 이후 데이터가 갱신되면 이 비교 결과도 함께 바뀔 수 있습니다.
               </p>
-            </div>
-          ) : null}
+            ) : null}
+            {regionComparisonAnalysis.isSmallCandidatePool && regionComparisonAnalysis.candidatePoolSize > 0 ? (
+              <p className="mt-1 text-[11px] text-amber-700">
+                ※ 비교 가능한 지역이 아직 적어({regionComparisonAnalysis.candidatePoolSize}곳) 참고용으로만
+                활용해주세요.
+              </p>
+            ) : null}
+            {analysisBaseYmMismatchNote ? (
+              <p className="mt-1 text-xs text-amber-700">{analysisBaseYmMismatchNote}</p>
+            ) : null}
+            {regionComparisonAnalysis.baseYmNote ? (
+              <p className="mt-1 text-xs text-amber-700">{regionComparisonAnalysis.baseYmNote}</p>
+            ) : null}
+            {regionComparisonAnalysis.comparisons.length > 0 ? (
+              <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {regionComparisonAnalysis.comparisons.map((c, i) => (
+                  <RegionComparisonCard
+                    key={c.regionCode}
+                    comparison={c}
+                    rank={i + 1}
+                    comparisonBaseYm={regionComparisonAnalysis.comparisonBaseYm}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                현재 확보된 데이터로는 근거 있는 유사지역 비교를 만들지 못했습니다.
+              </div>
+            )}
+            {regionComparisonAnalysis.uniqueStrengthNote ? (
+              <p className="mt-2 text-xs text-slate-600">{regionComparisonAnalysis.uniqueStrengthNote}</p>
+            ) : null}
+            {regionComparisonAnalysis.note ? (
+              <p className="mt-2 text-xs text-slate-500">{regionComparisonAnalysis.note}</p>
+            ) : null}
+            {regionComparisonAnalysis.comparisons.length > 0 ? (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <h3 className="text-sm font-semibold text-slate-900">벤치마킹 포인트</h3>
+                {regionBenchmarkAnalysis.insights.length > 0 ? (
+                  <div className="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {regionBenchmarkAnalysis.insights.map((insight) => (
+                      <div
+                        key={`${insight.benchmarkRegionName}-${insight.targetAxis}`}
+                        className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 text-xs text-slate-700"
+                      >
+                        <p className="text-sm font-semibold text-slate-900">
+                          {insight.benchmarkRegionName} — {insight.targetAxisLabel} 구조 참고
+                        </p>
+                        <p className="mt-1 text-slate-500">{insight.whyCompared}</p>
+                        <p className="mt-1">{insight.whatIsBetter}</p>
+                        <p className="mt-1">{insight.whatToReference}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">{regionBenchmarkAnalysis.emptyStateNote}</p>
+                )}
+                <p className="mt-2 text-[11px] text-slate-400">
+                  ※ 벤치마킹 포인트는 인과관계를 증명하는 것이 아니라, 이미 계산된 DNA 축 차이·관광지 구성
+                  차이를 근거로 참고 가치를 제시하는 상대 비교입니다.
+                </p>
+              </div>
+            ) : null}
           </div>
         </AnimatedDetails>
 
@@ -738,64 +794,29 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           summaryClassName="cursor-pointer text-base font-semibold text-slate-900"
         >
           <div className="mt-2">
-          <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
-          {usingLivePoiFallback ? (
-            <p className="mt-1 text-xs text-slate-400">
-              ※ 이 분석은 공급 격차 스냅샷 도입 이전에 생성돼 현재 시점의 지역 POI 공급량을 대신
-              사용합니다 — 이후 POI 자료가 갱신되면 이 기회 결과도 함께 바뀔 수 있습니다.
-            </p>
-          ) : null}
-          {opportunityAnalysis.items.length > 0 ? (
-            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {opportunityAnalysis.items.map((o, i) => (
-                <OpportunityCard key={o.category} opportunity={o} rank={i + 1} />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
-              현재 확보된 데이터(여행월·선호 테마·지역 POI)로는 근거 있는 사업 기회를 도출하지 못했습니다.
-            </div>
-          )}
-          {opportunityAnalysis.note ? (
-            <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
-          ) : null}
+            <p className="mt-1 text-xs text-slate-500">이 지역에서 지금 검토할 만한 사업 기회입니다.</p>
+            {usingLivePoiFallback ? (
+              <p className="mt-1 text-xs text-slate-400">
+                ※ 이 분석은 공급 격차 스냅샷 도입 이전에 생성돼 현재 시점의 지역 POI 공급량을 대신
+                사용합니다 — 이후 POI 자료가 갱신되면 이 기회 결과도 함께 바뀔 수 있습니다.
+              </p>
+            ) : null}
+            {opportunityAnalysis.items.length > 0 ? (
+              <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {opportunityAnalysis.items.map((o, i) => (
+                  <OpportunityCard key={o.category} opportunity={o} rank={i + 1} />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                현재 확보된 데이터(여행월·선호 테마·지역 POI)로는 근거 있는 사업 기회를 도출하지 못했습니다.
+              </div>
+            )}
+            {opportunityAnalysis.note ? (
+              <p className="mt-2 text-xs text-slate-500">{opportunityAnalysis.note}</p>
+            ) : null}
           </div>
         </AnimatedDetails>
-
-        <section id="strategies" className="mt-8 scroll-mt-6">
-          <h2 className="text-base font-semibold text-slate-900">전략 3안 비교</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            핵심 방향·기대 효과·난이도·위험을 비교해 1순위 전략을 확인하세요.
-          </p>
-          <div className="mt-3">
-            <StrategyComparisonTable rows={strategyComparisonRows} currentRole={project.role} />
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {strategyCardsData.map((s) => (
-              <div key={s.id}>
-                <StrategyCard
-                  strategy={s}
-                  isSelected={project.selectedStrategyResultId === s.id}
-                  onSelect={selectStrategyAction.bind(null, project.id, s.id)}
-                />
-                {strategyResourcePlans.has(s.id) ? (
-                  <StrategyResourcePlanPanel
-                    budgetItems={strategyResourcePlans.get(s.id)!.budgetItems}
-                    partners={strategyResourcePlans.get(s.id)!.partners}
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-base font-semibold text-slate-900">전략 관련 지도</h2>
-          <div className="mt-3">
-            <MapOrFallback pois={mapPois} kakaoKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} />
-          </div>
-        </section>
 
         {/* 유사지역 비교·관광사업 기회 각 섹션에 반복되던 "한계 및 추가 확인사항"을 여기 한 곳으로
          * 통합한다(2026-08-07) — 삭제가 아니라 위치 이동이며, 문구 자체도 유지한다. 화면이 계속

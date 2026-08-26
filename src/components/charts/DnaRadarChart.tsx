@@ -24,9 +24,9 @@ export function DnaRadarChart({ data }: { data: DnaAxisChartDatum[] }) {
   const chartData = data.map((d) => ({ axis: d.label, score: d.score ?? 0 }));
 
   return (
-    <div>
-      <div aria-hidden="true" style={{ width: "100%", height: 300 }}>
-        <ResponsiveContainer width="100%" height="100%">
+    <div className="min-w-0">
+      <div aria-hidden="true" className="min-w-0 max-w-full" style={{ width: "100%", height: 300 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <RadarChart data={chartData} outerRadius="75%">
             <PolarGrid />
             <PolarAngleAxis dataKey="axis" tick={{ fontSize: 12, fill: "#334155" }} />
@@ -35,25 +35,27 @@ export function DnaRadarChart({ data }: { data: DnaAxisChartDatum[] }) {
           </RadarChart>
         </ResponsiveContainer>
       </div>
-      <table className="sr-only">
-        <caption>관광 DNA 5축 점수 (차트의 텍스트 대체 정보)</caption>
-        <thead>
-          <tr>
-            <th scope="col">축</th>
-            <th scope="col">점수</th>
-            <th scope="col">상태</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((d) => (
-            <tr key={d.axisKey}>
-              <th scope="row">{d.label}</th>
-              <td>{d.score === null ? "데이터 부족" : d.score}</td>
-              <td>{d.sourceLabel ?? d.status}</td>
+      <div className="sr-only">
+        <table>
+          <caption>관광 DNA 5축 표시지수 (차트의 텍스트 대체 정보)</caption>
+          <thead>
+            <tr>
+              <th scope="col">축</th>
+              <th scope="col">DNA 상대지수</th>
+              <th scope="col">상태</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((d) => (
+              <tr key={d.axisKey}>
+                <th scope="row">{d.label}</th>
+                <td>{d.score === null ? "데이터 부족" : d.score}</td>
+                <td>{d.sourceLabel ?? d.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

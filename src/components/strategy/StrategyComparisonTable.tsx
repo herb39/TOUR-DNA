@@ -45,7 +45,7 @@ export function StrategyComparisonTable({
                       <span className="mb-0.5 block text-[10px] font-medium text-slate-400">대안 {row.rank}</span>
                     )}
                     {row.name}
-                    <span className="block font-normal text-slate-500">{row.totalScore}점</span>
+                    <span className="block font-normal text-slate-500">전략 적합도 {row.totalScore}점</span>
                     {currentRole ? (
                       <span className="mt-1 block rounded-full bg-indigo-50 px-2 py-0.5 text-center text-[10px] font-medium text-indigo-700">
                         내 역할 적합도{" "}
@@ -101,8 +101,9 @@ export function StrategyComparisonTable({
         summary="활용 자원·체류 방식·적합 역할 더보기"
         summaryClassName="cursor-pointer px-3 py-2 text-[11px] font-medium text-slate-500"
       >
-        <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-xs">
-          <tbody className="align-top">
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-xs">
+            <tbody className="align-top">
             <tr className="border-t border-slate-100">
               <th className="w-28 px-3 py-2 font-medium text-slate-500">활용 자원</th>
               {rows.map((row) => (
@@ -139,8 +140,9 @@ export function StrategyComparisonTable({
                 </td>
               ))}
             </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
         <p className="px-3 py-2 text-[11px] text-slate-400">
           ※ 적합 역할은 실제 역할별 성과 데이터가 아니라, 업무 목적과의 적합성을 기준으로 세 역할을
           비교한 참고 정보입니다.

@@ -115,7 +115,10 @@ export function StrategyCard({
             대안 {strategy.rank}
           </span>
         )}
-        <span className="text-lg font-bold text-slate-900">{strategy.totalScore}점</span>
+        <span className="text-right text-slate-900">
+          <span className="block text-[10px] font-medium text-slate-500">전략 적합도</span>
+          <span className="text-lg font-bold">{strategy.totalScore}점</span>
+        </span>
       </div>
       <h3 className="mt-2 text-base font-semibold text-slate-900">{strategy.name}</h3>
       <p className="mt-1 text-sm text-slate-600">{strategy.concept}</p>
@@ -236,7 +239,10 @@ export function StrategyCard({
         summaryClassName="cursor-pointer text-xs font-medium text-slate-700"
       >
         <div className="mt-2">
-          <EvidenceTable items={strategy.evidences} />
+          <EvidenceTable
+            items={strategy.evidences}
+            note="전략 적합도는 입력 조건과 전략의 궁합입니다. 아래 원천 지표 정규화값은 전략 점수와 다른 개별 근거 값입니다."
+          />
         </div>
       </AnimatedDetails>
 
