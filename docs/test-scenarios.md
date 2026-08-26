@@ -38,7 +38,8 @@ e2e/analysis-information-hierarchy.spec.ts`, 마지막으로 전체 `npm run tes
 `34 passed / 4 failed / 2 skipped`가 되었고, 동일 `core-flow.spec.ts`를 `--timeout=120000`으로
 재실행해 `8 passed`를 확인했다. 따라서 기능 기준 결과는 `38 passed / 2 skipped`이며, skip은
 기존 Anchor 예외 fixture 부재에 따른 선택적 skip이다. 실제 결과와 원인은
-`docs/implementation-status.md`의 같은 날짜 갱신 내용 및 완료 보고를 함께 확인한다.
+최종 커밋 상태에서 전체 `npm run test:e2e:local -- --timeout=120000`도 `38 passed / 2 skipped`로
+완료됐고, `docs/implementation-status.md`의 같은 날짜 갱신 내용 및 완료 보고를 함께 확인한다.
 
 ## 2026-08-26 Course Studio 첫 진입 정보 계층 QA
 

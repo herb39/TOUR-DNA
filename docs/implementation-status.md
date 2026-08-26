@@ -57,7 +57,8 @@
   2 skipped`였고, 실패 4건은 기존 `core-flow.spec.ts`의 로컬 분석 초기 응답이 30초 제한을 넘은
   동일 원인이었다. 해당 파일을 `--timeout=120000`으로 재실행해 `8 passed`를 확인했으므로 기능
   기준으로는 `38 passed / 2 skipped`이며, skip은 기존 Anchor 예외 fixture 부재에 따른 선택적
-  skip이다.
+  skip이다. 최종 커밋 상태에서 전체 `npm run test:e2e:local -- --timeout=120000`도
+  `38 passed / 2 skipped`로 완료됐다.
 
 ## 2026-08-26 갱신 — Course Studio 첫 진입 정보 계층 정리
 
