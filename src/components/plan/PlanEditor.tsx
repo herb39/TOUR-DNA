@@ -43,7 +43,7 @@ import { CourseQualityPanel } from "@/components/plan/CourseQualityPanel";
 import { PetEvidenceBadge } from "@/components/plan/PetEvidenceBadge";
 import { AccessibilityEvidenceBadge } from "@/components/plan/AccessibilityEvidenceBadge";
 import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
-import { computeCourseQuality } from "@/lib/domain/courseQualityValidation";
+import { computeCourseQuality, type CourseQualityReport } from "@/lib/domain/courseQualityValidation";
 import { rerankCandidatesForCurrentCourse } from "@/lib/domain/candidateRerank";
 import { unknownPetEvidence, type PetEvidenceDisplay } from "@/lib/domain/petTourEvidenceDisplay";
 import { unknownAccessibilityEvidence, type AccessibilityEvidenceDisplay } from "@/lib/domain/accessibilityEvidenceDisplay";
@@ -280,6 +280,7 @@ export function PlanEditor({
   poiShortage,
   candidatePois,
   anchorCandidates,
+  strategyName,
 }: {
   plan: PlanEditorData;
   poiFits?: Record<string, PoiFitResult>;
@@ -291,6 +292,8 @@ export function PlanEditor({
   candidatePois?: CandidatePoi[] | null;
   /** 확정·반영된 Anchor 주변 연계 후보. null은 조회 실패/구조 미적용으로, 결과 내부의 빈 상태와 구분한다. */
   anchorCandidates?: AnchorCandidateResult | null;
+  /** 실행안 첫 화면의 흐름 안내에 표시할 선택 전략명(표시 전용). */
+  strategyName?: string | null;
 }) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
   const [state, formAction, isPending] = useActionState(boundSave, initialActionState);
@@ -434,17 +437,6 @@ export function PlanEditor({
   const [poiQuery, setPoiQuery] = useState("");
   const [poiResults, setPoiResults] = useState<PoiDetail[]>([]);
   const [poiSearchPending, setPoiSearchPending] = useState(false);
-
-  // 추천 후보는 PC에서는 저장 패널 옆에서 바로 확인하고, 모바일에서는 접힌 상태로 두어 코스 편집을
-  // 방해하지 않는다. 초기값은 SSR과 일치시키고 mount 후 viewport에 맞춰 연다.
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setCandidatePanelOpen(media.matches);
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
 
   const qualityDuration: DurationCode =
     plan.duration ??
@@ -801,64 +793,21 @@ export function PlanEditor({
   const displaySaveStatus: DisplaySaveStatus = isPending ? "SAVING" : isDirty ? "DIRTY" : saveFeedback;
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <input type="hidden" name="courseJson" value={JSON.stringify({ days })} />
       <input type="hidden" name="operationChecklistJson" value={JSON.stringify(operationChecklist)} />
       <input type="hidden" name="risksJson" value={JSON.stringify(risks)} />
       <input type="hidden" name="kpisJson" value={JSON.stringify(kpis)} />
 
       <DndContext id="plan-editor-dnd" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="space-y-6">
-        <AnimatedDetails
-          className="rounded-lg border border-slate-200 bg-white p-5"
-          summary="상품 기획 요약"
-          summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
-        >
-          <label htmlFor="productName" className="block text-sm font-medium text-slate-700">
-            상품명
-          </label>
-          <input
-            id="productName"
-            name="productName"
-            value={productName}
-            onChange={(e) => {
-              markPlanEdited();
-              setProductName(e.target.value);
-            }}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-
-          <label htmlFor="conceptText" className="mt-4 block text-sm font-medium text-slate-700">
-            콘셉트 문구
-          </label>
-          <textarea
-            id="conceptText"
-            name="conceptText"
-            rows={2}
-            value={conceptText}
-            onChange={(e) => {
-              markPlanEdited();
-              setConceptText(e.target.value);
-            }}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-
-          <p className="mt-4 text-xs font-medium text-slate-500">기획 배경 (데이터 근거, 수정 불가)</p>
-          <p className="mt-1 text-sm text-slate-600">{plan.background}</p>
-
-          <p className="mt-4 text-xs font-medium text-slate-500">핵심 타깃</p>
-          <p className="mt-1 text-sm text-slate-600">{plan.targetSummary}</p>
-
-          <p className="mt-4 text-xs font-medium text-slate-500">판매 포인트</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-slate-600">
-            {plan.sellingPoints.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-        </AnimatedDetails>
-
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <CourseStudioFlow strategyName={strategyName} days={days} quality={courseQuality} />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="space-y-6">
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">일자·시간대별 코스</h2>
+          <div className="no-print mt-3">
+            <CourseMap days={days} kakaoKey={plan.kakaoKey} projectId={plan.projectId} />
+          </div>
           <section className="mt-3 rounded-md border border-violet-200 bg-violet-50 p-3" aria-label="축제 Anchor 연결">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -946,9 +895,6 @@ export function PlanEditor({
               <p className="mt-1 text-amber-700">{poiShortage.suggestion}</p>
             </div>
           ) : null}
-          <div className="no-print mt-3">
-            <CourseMap days={days} kakaoKey={plan.kakaoKey} projectId={plan.projectId} />
-          </div>
           <p className="mt-3 text-[11px] text-slate-400 xl:hidden">PC에서는 날짜별 열로 배치해 날짜 간 이동을 쉽게 확인할 수 있습니다.</p>
           <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
             {days.map((day) => (
@@ -1101,7 +1047,55 @@ export function PlanEditor({
               </div>
             ))}
           </div>
-        </section>
+          </section>
+
+          <AnimatedDetails
+            className="rounded-lg border border-slate-200 bg-white p-5"
+            summary="상품 기획 요약"
+            summaryClassName="cursor-pointer text-sm font-semibold text-slate-900"
+          >
+            <label htmlFor="productName" className="block text-sm font-medium text-slate-700">
+              상품명
+            </label>
+            <input
+              id="productName"
+              name="productName"
+              value={productName}
+              onChange={(e) => {
+                markPlanEdited();
+                setProductName(e.target.value);
+              }}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+
+            <label htmlFor="conceptText" className="mt-4 block text-sm font-medium text-slate-700">
+              콘셉트 문구
+            </label>
+            <textarea
+              id="conceptText"
+              name="conceptText"
+              rows={2}
+              value={conceptText}
+              onChange={(e) => {
+                markPlanEdited();
+                setConceptText(e.target.value);
+              }}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+
+            <p className="mt-4 text-xs font-medium text-slate-500">기획 배경 (데이터 근거, 수정 불가)</p>
+            <p className="mt-1 text-sm text-slate-600">{plan.background}</p>
+
+            <p className="mt-4 text-xs font-medium text-slate-500">핵심 타깃</p>
+            <p className="mt-1 text-sm text-slate-600">{plan.targetSummary}</p>
+
+            <p className="mt-4 text-xs font-medium text-slate-500">판매 포인트</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-slate-600">
+              {plan.sellingPoints.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </AnimatedDetails>
 
         <AnimatedDetails
           className="rounded-lg border border-slate-200 bg-white p-5"
@@ -1301,6 +1295,62 @@ export function PlanEditor({
         </AnimatedDetails>
       </div>
       <aside className="no-print h-fit space-y-3 lg:sticky lg:top-6">
+        {saveFeedback === "ERROR" ? (
+          <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {state.message ?? "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
+          </div>
+        ) : null}
+        <section aria-label="실행안 저장" className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">저장·확정</h2>
+            <p
+              className={
+                displaySaveStatus === "DIRTY"
+                  ? "text-xs text-amber-600"
+                  : displaySaveStatus === "SAVING"
+                    ? "text-xs text-sky-600"
+                    : displaySaveStatus === "SAVED"
+                      ? "text-xs text-emerald-600"
+                      : displaySaveStatus === "ERROR"
+                        ? "text-xs text-red-600"
+                        : "text-xs text-slate-500"
+              }
+              role="status"
+              aria-label="저장 상태"
+              aria-live="polite"
+            >
+              {displaySaveStatus === "CLEAN"
+                ? "현재 저장된 내용과 같습니다."
+                : displaySaveStatus === "DIRTY"
+                  ? "저장하지 않은 변경사항이 있습니다."
+                  : displaySaveStatus === "SAVING"
+                    ? "저장 중..."
+                    : displaySaveStatus === "SAVED"
+                      ? "모든 변경사항이 저장되었습니다."
+                      : "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
+            </p>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">코스 편집을 마치면 저장해 실행안을 확정하세요.</p>
+          <button
+            type="submit"
+            disabled={isPending}
+            className="mt-3 w-full cursor-pointer rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isPending ? "저장 중..." : "저장"}
+          </button>
+          <Link
+            href={`/projects/${plan.projectId}/analysis`}
+            className="mt-2 block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
+          >
+            전략 재선택
+          </Link>
+          <Link
+            href={`/projects/${plan.projectId}/print`}
+            className="mt-2 block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
+          >
+            인쇄/PDF 보기
+          </Link>
+        </section>
         {plan.festivalAnchor && anchorCandidates !== undefined ? (
           <section
             aria-label="축제 Anchor 연계 후보"
@@ -1314,11 +1364,16 @@ export function PlanEditor({
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-xs text-violet-900/70">
-              Anchor 시각은 고정합니다. 행사 전·후 연결을 제안할 뿐 자동으로 일정에 넣거나 재계획하지 않습니다.
-              거리는 직선거리 추정입니다.
-            </p>
-            {anchorCandidates === null ? (
+            <AnimatedDetails
+              className="mt-3"
+              summary="연계 후보 목록 보기"
+              summaryClassName="cursor-pointer rounded border border-violet-200 bg-white px-2.5 py-2 text-xs font-medium text-violet-900 hover:bg-violet-50"
+            >
+              <p className="mt-2 text-xs text-violet-900/70">
+                Anchor 시각은 고정합니다. 행사 전·후 연결을 제안할 뿐 자동으로 일정에 넣거나 재계획하지 않습니다.
+                거리는 직선거리 추정입니다.
+              </p>
+              {anchorCandidates === null ? (
               <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 Anchor 연계 후보를 불러오지 못했습니다. 기존 코스와 일반 추천 후보는 계속 사용할 수 있습니다.
               </p>
@@ -1388,11 +1443,12 @@ export function PlanEditor({
                 })}
               </div>
             )}
-            {anchorCandidateMessage ? (
-              <p className="mt-2 text-xs font-medium text-violet-800" role="status">
-                {anchorCandidateMessage}
-              </p>
-            ) : null}
+              {anchorCandidateMessage ? (
+                <p className="mt-2 text-xs font-medium text-violet-800" role="status">
+                  {anchorCandidateMessage}
+                </p>
+              ) : null}
+            </AnimatedDetails>
           </section>
         ) : null}
         <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -1457,59 +1513,60 @@ export function PlanEditor({
             </div>
           </AnimatedDetails>
         </section>
-        {saveFeedback === "ERROR" ? (
-          <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            {state.message ?? "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
-          </div>
-        ) : null}
-        <p
-          className={
-            displaySaveStatus === "DIRTY"
-              ? "text-xs text-amber-600"
-              : displaySaveStatus === "SAVING"
-                ? "text-xs text-sky-600"
-                : displaySaveStatus === "SAVED"
-                  ? "text-xs text-emerald-600"
-                  : displaySaveStatus === "ERROR"
-                    ? "text-xs text-red-600"
-                    : "text-xs text-slate-500"
-          }
-          role="status"
-          aria-label="저장 상태"
-          aria-live="polite"
-        >
-          {displaySaveStatus === "CLEAN"
-            ? "현재 저장된 내용과 같습니다."
-            : displaySaveStatus === "DIRTY"
-              ? "저장하지 않은 변경사항이 있습니다."
-              : displaySaveStatus === "SAVING"
-                ? "저장 중..."
-                : displaySaveStatus === "SAVED"
-                  ? "모든 변경사항이 저장되었습니다."
-                  : "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
-        </p>
-        <button
-          type="submit"
-          disabled={isPending}
-          className="w-full cursor-pointer rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isPending ? "저장 중..." : "저장"}
-        </button>
-        <Link
-          href={`/projects/${plan.projectId}/analysis`}
-          className="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
-        >
-          전략 재선택
-        </Link>
-        <Link
-          href={`/projects/${plan.projectId}/print`}
-          className="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
-        >
-          인쇄/PDF 보기
-        </Link>
       </aside>
+      </div>
       </DndContext>
     </form>
+  );
+}
+
+function CourseStudioFlow({
+  strategyName,
+  days,
+  quality,
+}: {
+  strategyName?: string | null;
+  days: CourseDay[];
+  quality: CourseQualityReport;
+}) {
+  const placeCount = days.reduce((sum, day) => sum + day.items.length + (day.lodging ? 1 : 0), 0);
+  const blockerCount = quality.warnings.filter((warning) => warning.severity === "BLOCKER").length;
+  const reviewCount = quality.warnings.filter((warning) => warning.severity === "REVIEW").length;
+  const qualitySummary = blockerCount > 0 ? `수정 권장 ${blockerCount}건` : reviewCount > 0 ? `확인 권장 ${reviewCount}건` : "추가 확인 없음";
+  const steps = ["선택 전략", "자동 생성 코스", "직접 편집", "실시간 검증", "저장·확정"];
+
+  return (
+    <section
+      aria-label="Course Studio 실행 흐름"
+      data-testid="course-studio-flow"
+      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">코스 스튜디오</p>
+          <h2 className="mt-1 text-base font-semibold text-slate-900">선택한 전략을 실행 가능한 코스로 완성하세요</h2>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5 text-[11px]">
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">{days.length}일 일정 · {placeCount}개 장소</span>
+          <span className={`rounded-full px-2 py-1 ${blockerCount > 0 ? "bg-red-50 text-red-700" : reviewCount > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {qualitySummary}
+          </span>
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{strategyName ? `선택 전략 · ${strategyName}` : "선택 전략이 자동 코스에 반영되었습니다."}</p>
+      <ol className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="실행안 작업 단계">
+        {steps.map((step, index) => (
+          <li
+            key={step}
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs ${index === 1 || index === 2 || index === 3 ? "border-slate-300 bg-slate-50 font-medium text-slate-800" : "border-slate-200 text-slate-500"}`}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600">{index + 1}</span>
+            {step}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-[11px] text-slate-500">현재 2~4단계입니다. 장소·시간을 조정하면 확인사항이 즉시 갱신되고, 편집을 마치면 저장하세요.</p>
+    </section>
   );
 }
 

@@ -46,6 +46,12 @@ function candidateHandle(page: Page, poiName: string): Locator {
   return page.getByRole("button", { name: `${poiName} 드래그로 일정에 놓기` });
 }
 
+async function openCandidatePanel(page: Page) {
+  const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+  const summary = candidateSection.getByRole("button", { name: "후보 목록 열기" });
+  if (await summary.count()) await summary.click();
+}
+
 test.describe("코스 편집 중 지도 실시간 갱신 — 경주(로컬 QA 프로젝트)", () => {
   test("Drag(재정렬/날짜 이동/후보 추가/삭제) 중에는 서버 요청이 추가로 발생하지 않고, 저장 시에만 1회 더 발생한다", async ({
     page,
@@ -75,6 +81,7 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 경주(로컬 QA �
 
     // 추천 후보 → 일정 drag 추가
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    await openCandidatePanel(page);
     const candidateNamesBefore = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());
     const firstCandidateCard = candidateSection.locator("ul > li").first();
     const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
@@ -172,6 +179,7 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     await expect(page.getByTestId("course-map-container")).toBeVisible();
 
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    await openCandidatePanel(page);
     const firstCandidateCard = candidateSection.locator("ul > li").first();
     const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
     expect(candidateName).toBeTruthy();
@@ -195,6 +203,7 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    await openCandidatePanel(page);
     const firstCandidateCard = candidateSection.locator("ul > li").first();
     const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
     expect(candidateName).toBeTruthy();
@@ -260,6 +269,7 @@ test.describe("코스 편집 중 일반 후보 재정렬 — 대전 Anchor(로�
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
 
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    await openCandidatePanel(page);
     const anchorSection = page.getByRole("region", { name: "축제 Anchor 연계 후보" });
     await expect(anchorSection).toBeVisible();
     const beforeNames = (await candidateSection.locator("ul > li p.font-medium").allTextContents()).map((t) => t.trim());

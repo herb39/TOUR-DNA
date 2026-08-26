@@ -54,10 +54,17 @@ function candidateHandle(page: Page, poiName: string): Locator {
   return page.getByRole("button", { name: `${poiName} 드래그로 일정에 놓기` });
 }
 
+async function openCandidatePanel(page: Page) {
+  const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+  const summary = candidateSection.getByRole("button", { name: "후보 목록 열기" });
+  if (await summary.count()) await summary.click();
+}
+
 test.describe("코스 Drag & Drop 실제 pointer 상호작용 검증(경주, 로컬 QA 프로젝트)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(`/projects/${GYEONGJU_ID}/plan`);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
+    await openCandidatePanel(page);
   });
 
   test("같은 날짜 안에서 pointer drag로 순서를 바꾸면 DOM 순서가 실제로 바뀐다", async ({ page }) => {
@@ -196,6 +203,7 @@ test.describe("코스 Drag & Drop 실제 pointer 상호작용 검증(청주, 로
   test.beforeEach(async ({ page }) => {
     await page.goto(`/projects/${CHEONGJU_ID}/plan`);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
+    await openCandidatePanel(page);
   });
 
   test("추천 후보를 drag로 추가 → 일정에서 삭제 → 후보 풀에 재등장 → 버튼으로 다시 추가", async ({ page }) => {

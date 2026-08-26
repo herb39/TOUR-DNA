@@ -13,11 +13,16 @@ import { resolveRegionComparisonAnalysis } from "@/lib/services/resolveRegionCom
 import { summarizeEvidenceBaseYms } from "@/lib/format";
 import { computePreLaunchValidation } from "@/lib/domain/preLaunchValidation";
 import { PreLaunchValidationSection } from "@/components/plan/PreLaunchValidationSection";
-import { labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
+import { labelForDuration, labelForPrimaryGoal, labelForRole } from "@/lib/validation/codes";
 import { buildRoleDecisionSummary } from "@/lib/domain/roleDecisionSummary";
 import { buildShortStrategyRationaleLine } from "@/lib/domain/strategyRationale";
 import { toDisplayDnaScore } from "@/lib/domain/dnaDisplayScore";
-import { hasAccessibleTravelCondition, hasPetFriendlyTravelCondition, preferredThemeLabels } from "@/lib/validation/project-preferences";
+import {
+  hasAccessibleTravelCondition,
+  hasPetFriendlyTravelCondition,
+  preferredThemeLabels,
+  readProjectPreferences,
+} from "@/lib/validation/project-preferences";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 import { isFestivalAnchorItem } from "@/lib/domain/planBuilder";
 import { buildAnchorCandidateSuggestions, type AnchorCandidateResult } from "@/lib/services/anchorCandidateService";
@@ -68,6 +73,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const templateId = selectedStrategy?.templateId;
   const duration = project.input?.duration as DurationCode;
   const preferredThemes = preferredThemeLabels(project.input?.preferredThemes);
+  const travelConditionLabels = readProjectPreferences(project.input?.preferredThemes).travelConditionLabels;
   const petConditionActive = hasPetFriendlyTravelCondition(project.input?.preferredThemes);
   const accessibilityConditionActive = hasAccessibleTravelCondition(project.input?.preferredThemes);
 
@@ -276,11 +282,19 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <p className="mt-1 text-sm text-slate-600">
           {project.region.name} · {project.travelYear}년 {project.travelMonth}월 · {labelForRole(project.role)}
         </p>
-        {roleDecisionSummary ? (
-          <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
-            {roleDecisionSummary}
-          </p>
-        ) : null}
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-600" aria-label="실행안 기획 조건">
+          <span className="rounded-full bg-slate-100 px-2 py-1">{labelForDuration(duration)}</span>
+          {preferredThemes.map((theme) => (
+            <span key={`theme-${theme}`} className="rounded-full bg-slate-100 px-2 py-1">
+              테마 · {theme}
+            </span>
+          ))}
+          {travelConditionLabels.map((condition) => (
+            <span key={`condition-${condition}`} className="rounded-full bg-slate-100 px-2 py-1">
+              조건 · {condition}
+            </span>
+          ))}
+        </div>
         {selectedStrategy ? (
           <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-700">
             <p className="text-sm font-semibold text-slate-900">
@@ -312,13 +326,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 <dd>{selectedStrategy.expectedEffect ?? "재분석 필요"}</dd>
               </div>
               </dl>
+              {roleDecisionSummary ? (
+                <p className="mt-3 border-t border-slate-200 pt-2 text-xs text-slate-500">{roleDecisionSummary}</p>
+              ) : null}
             </AnimatedDetails>
           </section>
-        ) : null}
-        {preLaunchValidation ? (
-          <div className="mt-4">
-            <PreLaunchValidationSection report={preLaunchValidation} kpis={planData.kpis} compact />
-          </div>
         ) : null}
         <div className="mt-6">
           <PlanEditor
@@ -327,8 +339,14 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             poiShortage={poiFitSummary?.shortage ?? null}
             candidatePois={candidatePois}
             anchorCandidates={anchorCandidateResult}
+            strategyName={selectedStrategy?.name ?? null}
           />
         </div>
+        {preLaunchValidation ? (
+          <div className="mt-6">
+            <PreLaunchValidationSection report={preLaunchValidation} kpis={planData.kpis} compact />
+          </div>
+        ) : null}
         <div className="mt-6">
           <PromoContentEditor
             projectId={id}

@@ -13,6 +13,7 @@ async function expectAnchorPanel(page: Page, projectId: string) {
   await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
   const panel = page.getByRole("region", { name: "축제 Anchor 연계 후보" });
   await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "연계 후보 목록 보기" }).click();
   await expect(panel.getByText("Anchor 시각은 고정합니다.")).toBeVisible();
   return panel;
 }

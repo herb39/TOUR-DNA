@@ -518,6 +518,23 @@ describe("PlanEditor — 정보 위계 개선(체크리스트·위험·KPI·메�
       expect(details).not.toHaveAttribute("open");
     }
   });
+
+  it("첫 화면에는 선택 전략부터 코스 편집·실시간 검증·저장까지의 흐름을 요약하고 보조 패널은 접어 둔다", () => {
+    render(<PlanEditor plan={makePlan()} strategyName="문화·역사 체험형" />);
+
+    const flow = screen.getByTestId("course-studio-flow");
+    expect(flow).toHaveTextContent("선택 전략 · 문화·역사 체험형");
+    expect(flow).toHaveTextContent("자동 생성 코스");
+    expect(flow).toHaveTextContent("직접 편집");
+    expect(flow).toHaveTextContent("실시간 검증");
+    expect(flow).toHaveTextContent("저장·확정");
+    expect(screen.getByRole("heading", { name: "일자·시간대별 코스" })).toBeInTheDocument();
+
+    const candidateDetails = screen.getByRole("button", { name: "후보 목록 열기" }).closest("details");
+    expect(candidateDetails).not.toHaveAttribute("open");
+    const qualityDetails = screen.getByRole("region", { name: "실시간 코스 품질검증" }).querySelectorAll("details[open]");
+    expect(qualityDetails).toHaveLength(0);
+  });
 });
 
 describe("PlanEditor 저장 상태 계약", () => {

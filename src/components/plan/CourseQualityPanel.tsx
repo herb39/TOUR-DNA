@@ -64,7 +64,7 @@ export function CourseQualityPanel({ report }: { report: CourseQualityReport }) 
           ) : null}
         </div>
       </div>
-      <p className="mt-1 text-[11px] opacity-80">경고가 있어도 저장은 계속할 수 있습니다. 현재 편집 상태에서 조정이 필요한 항목만 정리했습니다.</p>
+      <p className="mt-1 text-[11px] opacity-80">경고가 있어도 저장은 계속할 수 있습니다. 편집하면 다시 계산됩니다.</p>
 
       {grouped.length > 0 ? (
         <div className="mt-2 space-y-2">
@@ -72,7 +72,7 @@ export function CourseQualityPanel({ report }: { report: CourseQualityReport }) 
             <AnimatedDetails
               key={group.severity}
               className={`rounded border px-2 py-1.5 ${SEVERITY_STYLE[group.severity]}`}
-              defaultOpen={group.severity === "BLOCKER"}
+              defaultOpen={false}
               summaryClassName="cursor-pointer font-medium"
               summary={`${SEVERITY_LABEL[group.severity]} ${group.warnings.length}건`}
             >
