@@ -109,20 +109,22 @@ export async function savePlanAction(
   }
 
   try {
-    await prisma.selectedPlan.update({
-      where: { id: planId },
-      data: {
-        productName,
-        conceptText,
-        memo,
-        kpiMemo,
-        course: course as unknown as object,
-        operationChecklist: operationChecklist as object,
-        risks: risks as object,
-        kpis: kpis as object,
-      },
-    });
-    await prisma.project.update({ where: { id: projectId }, data: { status: "PLANNED" } });
+    await prisma.$transaction([
+      prisma.selectedPlan.update({
+        where: { id: planId },
+        data: {
+          productName,
+          conceptText,
+          memo,
+          kpiMemo,
+          course: course as unknown as object,
+          operationChecklist: operationChecklist as object,
+          risks: risks as object,
+          kpis: kpis as object,
+        },
+      }),
+      prisma.project.update({ where: { id: projectId }, data: { status: "PLANNED" } }),
+    ]);
   } catch (e) {
     console.error(
       JSON.stringify({
