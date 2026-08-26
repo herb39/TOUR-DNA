@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
 import {
@@ -108,6 +108,38 @@ export interface PlanEditorData {
 }
 
 const initialActionState: SavePlanFormState = { success: false };
+type SaveFeedback = "CLEAN" | "SAVED" | "ERROR";
+type DisplaySaveStatus = SaveFeedback | "DIRTY" | "SAVING";
+type PlanSaveSnapshot = Pick<PlanEditorData, "productName" | "conceptText" | "memo" | "kpiMemo" | "operationChecklist" | "risks" | "kpis"> & {
+  days: CourseDay[];
+};
+
+function createPlanSaveSnapshot(values: PlanSaveSnapshot): PlanSaveSnapshot {
+  return {
+    productName: values.productName,
+    conceptText: values.conceptText,
+    memo: values.memo,
+    kpiMemo: values.kpiMemo,
+    days: values.days,
+    operationChecklist: values.operationChecklist,
+    risks: values.risks,
+    kpis: values.kpis,
+  };
+}
+
+function serializePlanSaveSnapshot(values: PlanSaveSnapshot): string {
+  return JSON.stringify(createPlanSaveSnapshot(values));
+}
+
+function parsePlanSaveSnapshot(value: string): PlanSaveSnapshot | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as PlanSaveSnapshot;
+  } catch {
+    return null;
+  }
+}
 
 /** 적합도 등급별 배지 스타일(P0-1, 2026-07-30) — 점수 자체는 poiFit.ts가 결정하고, 여기서는 표시만
  * 담당한다. */
@@ -274,7 +306,7 @@ export function PlanEditor({
   const [kpis, setKpis] = useState<PlanEditorData["kpis"]>(plan.kpis);
 
   const [savedSnapshot, setSavedSnapshot] = useState(
-    JSON.stringify({
+    serializePlanSaveSnapshot({
       productName: plan.productName,
       conceptText: plan.conceptText,
       memo: plan.memo,
@@ -285,32 +317,56 @@ export function PlanEditor({
       kpis: plan.kpis,
     }),
   );
-  const [lastHandledSavedAt, setLastHandledSavedAt] = useState(state.savedAt);
+  const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>("CLEAN");
 
   const currentSnapshot = useMemo(
-    () => JSON.stringify({ productName, conceptText, memo, kpiMemo, days, operationChecklist, risks, kpis }),
+    () =>
+      serializePlanSaveSnapshot({
+        productName,
+        conceptText,
+        memo,
+        kpiMemo,
+        days,
+        operationChecklist,
+        risks,
+        kpis,
+      }),
     [productName, conceptText, memo, kpiMemo, days, operationChecklist, risks, kpis],
   );
 
-  // 저장이 성공하면(state.savedAt 변경) 저장 시점의 스냅샷을 기준선으로 갱신한다.
-  // (React 권장 패턴: effect 대신 렌더 중 상태를 조정 — https://react.dev/learn/you-might-not-need-an-effect)
-  //
-  // state.days도 함께 반영한다(2026-08-06, 실제 경로 결과 미표시 버그 수정) — savePlanAction은 클라이언트가
-  // 보낸 course를 그대로 저장하는 게 아니라 PRIVATE_VEHICLE 인접 구간을 카카오 실제 경로로 다시
-  // enrichment한 뒤 저장한다. 그 결과(travelSource/travelDistanceKm 등)는 서버에만 있고, days는 이미
-  // 마운트된 이 컴포넌트의 로컬 state라 부모(Server Component)가 revalidatePath로 새 props를 내려줘도
-  // useState가 자동으로 따라가지 않는다 — 저장 응답에 실려온 days로 명시적으로 덮어써야 화면에 실제
-  // 경로 결과가 보인다.
-  if (state.success && state.savedAt !== lastHandledSavedAt) {
-    setLastHandledSavedAt(state.savedAt);
-    const adoptedDays = state.days ?? days;
-    if (state.days) setDays(state.days);
-    setSavedSnapshot(
-      JSON.stringify({ productName, conceptText, memo, kpiMemo, days: adoptedDays, operationChecklist, risks, kpis }),
-    );
-  }
-
   const isDirty = currentSnapshot !== savedSnapshot;
+  const saveRequestSnapshotRef = useRef<string | null>(null);
+  const lastHandledActionStateRef = useRef(state);
+
+  // 성공 시에만 서버가 실제로 저장한 payload를 새 baseline으로 삼는다. 저장 중 화면이 다시
+  // 수정된 경우에는 서버 응답의 days로 현재 편집 상태를 덮어쓰지 않고, A 저장 성공 + B 편집
+  // 상태를 DIRTY로 남긴다.
+  useEffect(() => {
+    if (state === lastHandledActionStateRef.current) return;
+    lastHandledActionStateRef.current = state;
+
+    if (state.success && state.savedAt) {
+      const submittedSnapshot = saveRequestSnapshotRef.current ?? currentSnapshot;
+      const submittedPayload = parsePlanSaveSnapshot(submittedSnapshot);
+      const serverPayload = submittedPayload ?? parsePlanSaveSnapshot(currentSnapshot);
+      if (serverPayload && state.days) serverPayload.days = state.days;
+      const nextSavedSnapshot = serverPayload ? JSON.stringify(serverPayload) : submittedSnapshot;
+      const currentStillMatchesSubmitted = submittedSnapshot === currentSnapshot;
+
+      if (currentStillMatchesSubmitted && state.days) {
+        setDays(state.days);
+      }
+      setSavedSnapshot(nextSavedSnapshot);
+      setSaveFeedback(currentStillMatchesSubmitted ? "SAVED" : "CLEAN");
+      saveRequestSnapshotRef.current = null;
+      return;
+    }
+
+    if (!state.success) {
+      setSaveFeedback("ERROR");
+      saveRequestSnapshotRef.current = null;
+    }
+  }, [currentSnapshot, state]);
 
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
@@ -423,11 +479,19 @@ export function PlanEditor({
   // 2단계, 2026-08-16) — 버튼 조작과 Drag & Drop이 정확히 같은 재계산 경로를 타도록 하기 위함이다.
   const toInput = courseItemToInput;
 
+  // 저장 성공/실패 안내는 실제 저장 대상이 다시 편집된 순간에만 초기화한다. 상세 접기, 후보 날짜
+  // 임시 선택, 필터·포커스·후보 재정렬처럼 snapshot에 없는 UI-only state는 이 함수를 호출하지 않는다.
+  function markPlanEdited() {
+    setSaveFeedback("CLEAN");
+  }
+
   function moveItem(dayIndex: number, itemIndex: number, direction: -1 | 1) {
+    markPlanEdited();
     setDays((prev) => reorderCourseItemWithinDay(prev, dayIndex, itemIndex, itemIndex + direction, plan.transport));
   }
 
   function removeItem(dayIndex: number, itemIndex: number) {
+    markPlanEdited();
     setDays((prev) => {
       const targetDay = prev.find((d) => d.dayIndex === dayIndex);
       const targetItem = targetDay?.items[itemIndex];
@@ -444,6 +508,7 @@ export function PlanEditor({
 
   function moveItemToDay(fromDayIndex: number, itemIndex: number, toDayIndex: number) {
     if (fromDayIndex === toDayIndex) return;
+    markPlanEdited();
     setDays((prev) => {
       const toDay = prev.find((d) => d.dayIndex === toDayIndex);
       if (!toDay) return prev;
@@ -459,7 +524,10 @@ export function PlanEditor({
   function handleDragEnd(event: DragEndEvent) {
     const overId = event.over ? String(event.over.id) : null;
     const outcome = computeDragOutcome(days, visibleCandidates, plan.transport, String(event.active.id), overId);
-    if (outcome) setDays(outcome.days);
+    if (outcome) {
+      markPlanEdited();
+      setDays(outcome.days);
+    }
   }
 
   const sensors = useSensors(
@@ -479,6 +547,7 @@ export function PlanEditor({
   ) {
     // 버튼 기반 추가는 항상 끝자리에 삽입한다(기존 동작 유지) — Drag & Drop만 드롭 위치에 맞는
     // 자리를 computeDragOutcome을 통해 넘긴다.
+    markPlanEdited();
     setDays((prev) => {
       const day = prev.find((d) => d.dayIndex === dayIndex);
       if (!day) return prev;
@@ -490,6 +559,7 @@ export function PlanEditor({
   }
 
   function updateItemTime(dayIndex: number, itemIndex: number, timeSlot: string) {
+    markPlanEdited();
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
@@ -503,6 +573,7 @@ export function PlanEditor({
 
   function updateItemStayMinutes(dayIndex: number, itemIndex: number, stayMinutes: number) {
     if (!Number.isFinite(stayMinutes) || stayMinutes < 0) return;
+    markPlanEdited();
     setDays((prev) =>
       prev.map((d) => {
         if (d.dayIndex !== dayIndex) return d;
@@ -522,6 +593,7 @@ export function PlanEditor({
       return;
     }
     if (candidate.role === "STAY") {
+      markPlanEdited();
       setDays((prev) => {
         const result = insertLodgingIntoDay(
           prev,
@@ -551,6 +623,7 @@ export function PlanEditor({
       return;
     }
     const position: FestivalAnchorRelatedPosition = candidate.role === "PRE_EVENT" ? "BEFORE_ANCHOR" : candidate.role === "MEAL" ? anchorMealPosition : "AFTER_ANCHOR";
+    markPlanEdited();
     setDays((prev) => {
       const next = insertPoiAroundFestivalAnchor(
         prev,
@@ -591,12 +664,14 @@ export function PlanEditor({
       setAnchorActionMessage(result.message);
       return;
     }
+    markPlanEdited();
     setDays(result.days);
     setAnchorActionMessage("축제 Anchor를 코스에 반영했습니다. 기존 장소는 유지되며, 저장 버튼을 눌러 확정하세요.");
   }
 
   function removeCourseAnchor() {
     if (!courseAnchor) return;
+    markPlanEdited();
     setDays(removeFestivalAnchorFromCourse(days, courseAnchor.item.anchorId!, plan.transport));
     setAnchorActionMessage("Anchor를 코스에서만 제거했습니다. 프로젝트의 축제 확정은 유지됩니다.");
   }
@@ -636,23 +711,27 @@ export function PlanEditor({
   function addChecklistItem() {
     const text = newChecklistText.trim();
     if (!text) return;
+    markPlanEdited();
     setOperationChecklist((prev) => [...prev, text]);
     setNewChecklistText("");
   }
 
   function removeChecklistItem(index: number) {
+    markPlanEdited();
     setOperationChecklist((prev) => prev.filter((_, i) => i !== index));
   }
 
   function addRisk() {
     const risk = newRiskText.trim();
     if (!risk) return;
+    markPlanEdited();
     setRisks((prev) => [...prev, { risk, mitigation: newMitigationText.trim() }]);
     setNewRiskText("");
     setNewMitigationText("");
   }
 
   function removeRisk(index: number) {
+    markPlanEdited();
     setRisks((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -666,12 +745,14 @@ export function PlanEditor({
       primaryGoalCode: plan.primaryGoalCode,
       primaryGoalLabel: plan.primaryGoalLabel,
     });
+    markPlanEdited();
     setKpis((prev) => [...prev, enriched]);
     setNewKpiName("");
     setNewKpiMethod("");
   }
 
   function removeKpi(index: number) {
+    markPlanEdited();
     setKpis((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -711,10 +792,13 @@ export function PlanEditor({
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    saveRequestSnapshotRef.current = currentSnapshot;
     startTransition(() => {
       formAction(formData);
     });
   }
+
+  const displaySaveStatus: DisplaySaveStatus = isPending ? "SAVING" : isDirty ? "DIRTY" : saveFeedback;
 
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
@@ -737,7 +821,10 @@ export function PlanEditor({
             id="productName"
             name="productName"
             value={productName}
-            onChange={(e) => setProductName(e.target.value)}
+            onChange={(e) => {
+              markPlanEdited();
+              setProductName(e.target.value);
+            }}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
 
@@ -749,7 +836,10 @@ export function PlanEditor({
             name="conceptText"
             rows={2}
             value={conceptText}
-            onChange={(e) => setConceptText(e.target.value)}
+            onChange={(e) => {
+              markPlanEdited();
+              setConceptText(e.target.value);
+            }}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
 
@@ -1181,7 +1271,10 @@ export function PlanEditor({
             name="kpiMemo"
             rows={2}
             value={kpiMemo}
-            onChange={(e) => setKpiMemo(e.target.value)}
+            onChange={(e) => {
+              markPlanEdited();
+              setKpiMemo(e.target.value);
+            }}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </AnimatedDetails>
@@ -1199,7 +1292,10 @@ export function PlanEditor({
             name="memo"
             rows={3}
             value={memo}
-            onChange={(e) => setMemo(e.target.value)}
+            onChange={(e) => {
+              markPlanEdited();
+              setMemo(e.target.value);
+            }}
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </AnimatedDetails>
@@ -1361,20 +1457,37 @@ export function PlanEditor({
             </div>
           </AnimatedDetails>
         </section>
-        {state.message ? (
+        {saveFeedback === "ERROR" ? (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            {state.message}
+            {state.message ?? "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
           </div>
         ) : null}
-        {isDirty ? (
-          <p className="text-xs text-amber-600" role="status">
-            저장하지 않은 변경사항이 있습니다.
-          </p>
-        ) : (
-          <p className="text-xs text-emerald-600" role="status">
-            모든 변경사항이 저장되었습니다.
-          </p>
-        )}
+        <p
+          className={
+            displaySaveStatus === "DIRTY"
+              ? "text-xs text-amber-600"
+              : displaySaveStatus === "SAVING"
+                ? "text-xs text-sky-600"
+                : displaySaveStatus === "SAVED"
+                  ? "text-xs text-emerald-600"
+                  : displaySaveStatus === "ERROR"
+                    ? "text-xs text-red-600"
+                    : "text-xs text-slate-500"
+          }
+          role="status"
+          aria-label="저장 상태"
+          aria-live="polite"
+        >
+          {displaySaveStatus === "CLEAN"
+            ? "현재 저장된 내용과 같습니다."
+            : displaySaveStatus === "DIRTY"
+              ? "저장하지 않은 변경사항이 있습니다."
+              : displaySaveStatus === "SAVING"
+                ? "저장 중..."
+                : displaySaveStatus === "SAVED"
+                  ? "모든 변경사항이 저장되었습니다."
+                  : "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
+        </p>
         <button
           type="submit"
           disabled={isPending}

@@ -9,6 +9,8 @@ test.describe("AnimatedDetails 모바일 회귀 검증 — 로컬 무장애 활�
   test("390×844에서 무장애 advisory·접기·버튼·badge·overflow를 검증한다", async ({ page }) => {
     await page.goto(`/projects/${ACCESSIBILITY_PROJECT_ID}/plan`);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     const accessibilityEvidence = page.getByTestId("accessibility-evidence").first();
     await expect(accessibilityEvidence).toBeVisible();
@@ -20,6 +22,7 @@ test.describe("AnimatedDetails 모바일 회귀 검증 — 로컬 무장애 활�
     await expect(accessibilityDetails.locator("[data-open='true']")).toBeVisible();
     await accessibilitySummary.click();
     await expect(accessibilitySummary).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     const checklistSummary = page.getByRole("button", { name: /운영 체크리스트 보기/ });
     await expect(checklistSummary).toBeVisible();
@@ -28,6 +31,7 @@ test.describe("AnimatedDetails 모바일 회귀 검증 — 로컬 무장애 활�
     await expect(checklistSummary).toHaveAttribute("aria-expanded", "true");
     await checklistSummary.click();
     await expect(checklistSummary).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     await accessibilitySummary.evaluate((element) => {
       for (let index = 0; index < 3; index += 1) {
@@ -69,6 +73,8 @@ test.describe("AnimatedDetails 모바일 회귀 검증 — 로컬 무장애 활�
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.reload();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
     const reducedMotionSummary = page.getByTestId("accessibility-evidence").first().locator("summary");
     const reducedMotionContent = page.getByTestId("accessibility-evidence").first().locator(".tour-dna-expandable-content");
     await reducedMotionSummary.click();

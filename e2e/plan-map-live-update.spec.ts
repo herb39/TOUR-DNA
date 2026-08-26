@@ -191,6 +191,8 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
   test("추천 후보의 유형별 기본 체류시간과 사용자 수정값은 날짜 이동·저장·재로드 후에도 유지된다", async ({ page }) => {
     await page.goto(`/projects/${CHEONGJU_ID}/plan`);
     await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
     const firstCandidateCard = candidateSection.locator("ul > li").first();
@@ -198,6 +200,7 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     expect(candidateName).toBeTruthy();
 
     await candidateSection.getByRole("button", { name: new RegExp(`${candidateName}.*1일차에 추가`) }).click();
+    await expect(page.getByText("저장하지 않은 변경사항이 있습니다.", { exact: true })).toBeVisible();
     const stayInput = page.getByLabel(`${candidateName} 체류시간(분)`);
     await expect(stayInput).toHaveValue("120");
 
@@ -206,15 +209,20 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
     await page.reload();
     await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
 
     await page.getByLabel(`${candidateName} 다른 날짜로 이동`).selectOption("2");
+    await expect(page.getByText("저장하지 않은 변경사항이 있습니다.", { exact: true })).toBeVisible();
     await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
 
     await page.getByRole("button", { name: "저장" }).click();
     await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
     await page.reload();
     await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
 
     await page.getByRole("button", { name: `${candidateName} 삭제` }).click();
@@ -226,6 +234,8 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     await page.setViewportSize({ width: 375, height: 1200 });
     await page.goto(`/projects/${CHEONGJU_ID}/plan`);
     await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("현재 저장된 내용과 같습니다.", { exact: true })).toBeVisible();
 
     const day1 = dayContainer(page, 1);
     const beforeNames = (await day1.locator("ul > li span.font-medium.text-slate-800").allTextContents()).map((t) =>
@@ -233,6 +243,7 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     );
     if (beforeNames.length >= 2) {
       await page.getByRole("button", { name: `${beforeNames[0]} 아래로 이동` }).click();
+      await expect(page.getByText("저장하지 않은 변경사항이 있습니다.", { exact: true })).toBeVisible();
     }
 
     const overflow = await page.evaluate(() => ({

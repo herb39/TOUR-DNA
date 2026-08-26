@@ -10,7 +10,7 @@ vi.mock("@/app/projects/[id]/plan/actions", () => ({
 }));
 
 import { PlanEditor, computeDragOutcome, type PlanEditorData } from "@/components/plan/PlanEditor";
-import { savePlanAction, searchAvailablePoisAction } from "@/app/projects/[id]/plan/actions";
+import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
 import type { PoiFitResult } from "@/lib/domain/poiFit";
 import type { CourseDay } from "@/lib/domain/planBuilder";
 import type { CandidatePoi } from "@/lib/services/candidatePoolService";
@@ -520,6 +520,168 @@ describe("PlanEditor — 정보 위계 개선(체크리스트·위험·KPI·메�
   });
 });
 
+describe("PlanEditor 저장 상태 계약", () => {
+  it("최초 진입은 CLEAN이며 실제 저장 성공 문구를 미리 보여주지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} />);
+
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("현재 저장된 내용과 같습니다.");
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("UI-only 상태인 상세 접기와 후보 날짜 선택은 저장 상태를 바꾸지 않는다", () => {
+    render(<PlanEditor plan={makePlan()} candidatePois={[{
+      id: "candidate-ui-only",
+      name: "UI 상태 후보",
+      category: "ATTRACTION",
+      lat: 36.35,
+      lng: 127.38,
+      fit: {
+        totalScore: 90,
+        grade: "HIGH",
+        recommendationStatus: "RECOMMENDED",
+        breakdown: {
+          categoryFit: { score: 30, tier: "CORE" },
+          themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" },
+          seasonFit: { score: 20, isIdealMonth: true },
+        },
+        positiveReasons: [],
+        cautions: [],
+        dataSource: {
+          provenance: "LIVE_API",
+          sourceLabel: "공식",
+          operatingHoursConfirmed: false,
+          operatingHoursText: null,
+          closedDaysText: null,
+        },
+      },
+    }]} />);
+
+    fireEvent.click(screen.getByText(/운영 체크리스트 보기/));
+    fireEvent.change(screen.getByLabelText("UI 상태 후보 추가할 날짜"), { target: { value: "2" } });
+
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("현재 저장된 내용과 같습니다.");
+    expect(screen.queryByText("저장하지 않은 변경사항이 있습니다.")).not.toBeInTheDocument();
+  });
+
+  it("실제 저장 payload가 바뀌면 DIRTY가 되고, 다시 원래 값으로 되돌리면 CLEAN이 된다", async () => {
+    render(<PlanEditor plan={makePlan()} />);
+    const productName = screen.getByLabelText("상품명");
+
+    fireEvent.change(productName, { target: { value: "임시 변경" } });
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다.");
+
+    fireEvent.change(productName, { target: { value: "테스트 상품" } });
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("현재 저장된 내용과 같습니다."));
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+  });
+
+  it("저장 중에는 SAVING을 표시하고, 실제 성공 응답 이후에만 SAVED를 표시한다", async () => {
+    let resolveSave!: (state: SavePlanFormState) => void;
+    vi.mocked(savePlanAction).mockImplementationOnce(
+      () => new Promise<SavePlanFormState>((resolve) => { resolveSave = resolve; }),
+    );
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "저장할 상품" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장 중..."));
+    expect(screen.getByRole("button", { name: "저장 중..." })).toBeDisabled();
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+
+    resolveSave({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("모든 변경사항이 저장되었습니다."));
+  });
+
+  it("저장 성공 후 다시 편집하면 SAVED가 사라지고 DIRTY로 돌아간다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "첫 저장" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "두 번째 편집" } });
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다."));
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+  });
+
+  it("저장 실패는 ERROR 안내와 DIRTY를 유지하며, 재시도 성공 시 SAVED가 된다", async () => {
+    vi.mocked(savePlanAction)
+      .mockResolvedValueOnce({ success: false, message: "변경사항을 저장하지 못했습니다. 다시 시도해주세요." })
+      .mockResolvedValueOnce({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "저장 실패 대상" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByRole("alert");
+
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다.");
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("모든 변경사항이 저장되었습니다.");
+  });
+
+  it("후보 추가 후 삭제하면 저장 대상이 원복되어 CLEAN으로 돌아간다", async () => {
+    const candidatePlan = makePlan();
+    candidatePlan.course.days = [{ dayIndex: 1, items: [] }, { dayIndex: 2, items: [] }];
+    const candidate = {
+      id: "candidate-round-trip",
+      name: "원복 후보",
+      category: "ATTRACTION" as const,
+      lat: 36.35,
+      lng: 127.38,
+      fit: {
+        totalScore: 90,
+        grade: "HIGH" as const,
+        recommendationStatus: "RECOMMENDED" as const,
+        breakdown: {
+          categoryFit: { score: 30, tier: "CORE" as const },
+          themeFit: { score: 45, evaluated: true, matched: true, source: "STRUCTURAL" as const },
+          seasonFit: { score: 20, isIdealMonth: true },
+        },
+        positiveReasons: [],
+        cautions: [],
+        dataSource: {
+          provenance: "LIVE_API" as const,
+          sourceLabel: "공식",
+          operatingHoursConfirmed: false,
+          operatingHoursText: null,
+          closedDaysText: null,
+        },
+      },
+    };
+    render(<PlanEditor plan={candidatePlan} candidatePois={[candidate]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "원복 후보 1일차에 추가" }));
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "원복 후보 삭제" }));
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("현재 저장된 내용과 같습니다."));
+  });
+
+  it("저장 중 추가 수정은 서버 응답의 이전 payload로 현재 편집본을 덮어쓰지 않는다", async () => {
+    let resolveSave!: (state: SavePlanFormState) => void;
+    vi.mocked(savePlanAction).mockImplementationOnce(
+      () => new Promise<SavePlanFormState>((resolve) => { resolveSave = resolve; }),
+    );
+    render(<PlanEditor plan={makePlan()} />);
+
+    const productName = screen.getByLabelText("상품명") as HTMLInputElement;
+    fireEvent.change(productName, { target: { value: "서버에 저장될 A" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장 중..."));
+
+    fireEvent.change(productName, { target: { value: "응답 중 추가한 B" } });
+    resolveSave({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
+
+    await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다."));
+    expect(productName.value).toBe("응답 중 추가한 B");
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+  });
+});
+
 describe("PlanEditor FOOD 목적 라벨(5단계 — 식사와 일반 방문 구분)", () => {
   function makePlanWithPurposes(): PlanEditorData {
     const base = makePlan();
@@ -835,9 +997,9 @@ describe("PlanEditor — 저장 후 카카오 실제 경로 결과가 새로고�
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    // "모든 변경사항이 저장되었습니다." 문구는 dirty 여부(스냅샷 비교)만 보고 뜨므로 편집이 전혀 없던
-    // 이 케이스에서는 클릭 전부터도 참일 수 있다 — 저장 완료 자체의 신뢰할 수 있는 동기화 지점은 실제
-    // 로컬 course state(items[1].travel)가 서버 응답값으로 바뀌는 순간이다(핵심 회귀 검증).
+    // 최초 상태는 CLEAN 문구만 보여야 하며, SAVED 문구는 실제 성공 응답을 받은 뒤에만 표시된다.
+    // 저장 완료 자체의 신뢰할 수 있는 동기화 지점은 실제 로컬 course state(items[1].travel)가 서버
+    // 응답값으로 바뀌는 순간이다(핵심 회귀 검증).
     await waitFor(() => {
       const updated = currentDays()[0].items[1];
       expect(updated.travel).toBe("18.3km · 약 29분");

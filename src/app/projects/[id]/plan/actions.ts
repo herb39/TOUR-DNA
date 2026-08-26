@@ -108,20 +108,32 @@ export async function savePlanAction(
     );
   }
 
-  await prisma.selectedPlan.update({
-    where: { id: planId },
-    data: {
-      productName,
-      conceptText,
-      memo,
-      kpiMemo,
-      course: course as unknown as object,
-      operationChecklist: operationChecklist as object,
-      risks: risks as object,
-      kpis: kpis as object,
-    },
-  });
-  await prisma.project.update({ where: { id: projectId }, data: { status: "PLANNED" } });
+  try {
+    await prisma.selectedPlan.update({
+      where: { id: planId },
+      data: {
+        productName,
+        conceptText,
+        memo,
+        kpiMemo,
+        course: course as unknown as object,
+        operationChecklist: operationChecklist as object,
+        risks: risks as object,
+        kpis: kpis as object,
+      },
+    });
+    await prisma.project.update({ where: { id: projectId }, data: { status: "PLANNED" } });
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        source: "savePlanAction",
+        message: "plan save failed",
+        reason: e instanceof Error ? e.message : "unknown",
+      }),
+    );
+    return { success: false, message: "변경사항을 저장하지 못했습니다. 다시 시도해주세요." };
+  }
 
   revalidatePath(`/projects/${projectId}/plan`);
   return { success: true, savedAt: new Date().toISOString(), days: course.days };
