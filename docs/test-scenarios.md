@@ -24,15 +24,21 @@
 - [x] `CLEAN → DIRTY → SAVING → SAVED → CLEAN` 저장 상태와 저장 후 재로드 데이터 일치를 확인했다.
 - [x] 축제 후보 선택 → 연계 날짜·일차·기획 시간대 지정 → Anchor 확정, 대전 Anchor 코스 고정 →
       저장·재로드 → 행사 전/식사/행사 후/숙박 후보 재계산 흐름을 확인했다.
+- [x] 대전 Anchor QA fixture의 공식 `searchFestival2` 사실을 재확인해 `contentId=4098134`의
+      `유성온날`, `2026-08-14~2026-12-11`, 유성구 주소·국내 좌표·`sourceSnapshot`을 동일하게
+      맞췄고, local setup을 연속 두 번 실행해 중복 Anchor·반복 갱신이 없는지 확인했다.
+- [x] 후보 조사는 대전·세종·제천 대표 Anchor의 지역·여행월 조회 3회로 한정했고, 공식 상세 API나
+      전국 행사 목록을 무작정 조회하지 않았다.
 - [x] PET·ACCESSIBILITY의 공식 확인·조건부·미확인 상태와 상세 evidence를 확인했다. 미확인은
       이용 불가로 표시되지 않았고, 상세 영역을 접고 펼쳐도 저장 상태가 변하지 않았다.
 - [x] 인쇄 화면에 기획 배경·핵심 지표·DNA·전략·코스·체크리스트·위험·KPI·데이터 근거가 포함됐다.
 - [x] 자동 Playwright에서 390×844 overflow 없음, advisory 접기/펼치기, 버튼 fallback, reduced-motion을
       확인했다. 수동 인앱 브라우저는 고정 뷰포트라 390px 직접 설정은 자동 검증으로 대체했다.
 
-판정은 P0 없음, 제품 코드 기준 즉시 수정 P1 없음, 정보 밀도·demo fixture 정합성·Anchor 저장 전
-후보 즉시 갱신은 P2/POLISH 후속 과제다. 전체 회귀는 `31 passed / 2 skipped`이며 skip은 stale/orphan
-Anchor fixture 부재에 따른 기존 선택적 skip이다.
+판정은 P0 없음, 제품 코드 기준 즉시 수정 P1 없음, 정보 밀도·Anchor 저장 전 후보 즉시 갱신은
+P2/POLISH 후속 과제다. 기존 demo fixture의 행사명·행사일 불일치는 공식 후보 스냅샷으로 교정했다.
+전체 회귀는 `31 passed / 2 skipped`이며 skip은 stale/orphan Anchor fixture 부재에 따른 기존 선택적
+skip이다.
 
 > **0~6번은 현재 운영 배포에도 적용된 기능이다.** "7. 홍보자료(Phase 5)" 절은 2026-07-26 기준 로컬
 > 구현·자동 테스트만 끝났고, `SelectedPlan.promoContent` migration이 원격 DB에 적용되지 않아 **운영

@@ -1,16 +1,29 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // P1-2b 로컬 QA용 프로젝트 id. 환경변수가 없으면 저장·DB 변경 없이 건너뛴다.
 // Production Neon 프로젝트를 자동으로 생성하거나 migration하지 않는다.
 const ANCHOR_PROJECT_ID = process.env.QA_ANCHOR_PROJECT_ID;
+const ANCHOR_EVENT_NAME = process.env.QA_ANCHOR_EVENT_NAME;
+const ANCHOR_EVENT_START_DATE = process.env.QA_ANCHOR_EVENT_START_DATE;
+const ANCHOR_EVENT_END_DATE = process.env.QA_ANCHOR_EVENT_END_DATE;
 
 test.skip(!ANCHOR_PROJECT_ID, "QA_ANCHOR_PROJECT_ID 환경변수가 없어 건너뜀");
+
+async function expectAnchorFixtureFacts(page: Page) {
+  if (ANCHOR_EVENT_NAME) await expect(page.locator("body")).toContainText(ANCHOR_EVENT_NAME);
+  if (ANCHOR_EVENT_START_DATE && ANCHOR_EVENT_END_DATE) {
+    await expect(page.locator("body")).toContainText(
+      `행사일 ${ANCHOR_EVENT_START_DATE}~${ANCHOR_EVENT_END_DATE}`,
+    );
+  }
+}
 
 test.describe("확정 축제 Anchor 코스 고정 연결(로컬 QA 프로젝트)", () => {
   test("고정→저장/reload→다른 브라우저 확인→코스에서만 제거를 수행한다", async ({ page, browser }) => {
     await page.goto(`/projects/${ANCHOR_PROJECT_ID}/plan`);
     await expect(page.getByRole("heading", { name: "일자·시간대별 코스" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "확정된 축제 Anchor" })).toBeVisible();
+    await expectAnchorFixtureFacts(page);
 
     const regularDragHandles = page.getByRole("button", { name: /드래그로 순서·날짜 변경/ });
     const beforeCount = await regularDragHandles.count();

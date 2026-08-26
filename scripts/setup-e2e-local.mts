@@ -18,6 +18,55 @@ const QA_PROJECT_NAMES = {
   petAccessibility: "[QA PET 사용자] 경주",
 } as const;
 
+/**
+ * 2026-08-26 한국관광공사 행사정보 조회(searchFestival2)로 확인한 대전 유성구 2026년 9월
+ * Anchor 후보다. local QA fixture는 Production DB나 보호 dump를 수정하지 않고, 이 공식 최소
+ * 스냅샷과 사용자 지정 연계 조건을 기준으로 매 실행 시 정합성을 확인한다.
+ */
+const DAEJEON_ANCHOR_FIXTURE = {
+  source: "TOUR_API_FESTIVAL",
+  sourceId: "4098134",
+  contentTypeId: "15",
+  name: "유성온날",
+  eventStartDate: "2026-08-14",
+  eventEndDate: "2026-12-11",
+  plannedDate: "2026-09-10",
+  plannedDayIndex: 1,
+  timeStatus: "USER_CONFIRMED",
+  timeSlot: "CUSTOM",
+  timeStart: "15:00",
+  timeEnd: "17:00",
+  regionCode: "SGG_DAEJEON",
+  address: "대전광역시 유성구 온천로 89 (봉명동)",
+  lat: 36.3548338694,
+  lng: 127.3478052748,
+  sourceSnapshot: {
+    source: "TOUR_API_FESTIVAL",
+    sourceId: "4098134",
+    contentTypeId: "15",
+    name: "유성온날",
+    eventStartDate: "2026-08-14",
+    eventEndDate: "2026-12-11",
+    address: "대전광역시 유성구 온천로 89 (봉명동)",
+    lat: 36.3548338694,
+    lng: 127.3478052748,
+  },
+  provenance: {
+    provider: "한국관광공사",
+    dataset: "행사정보 조회(searchFestival2)",
+    regionCode: "SGG_DAEJEON",
+    travelYear: 2026,
+    travelMonth: 9,
+    eventStartDate: "2026-09-01",
+    eventEndDate: "2026-09-30",
+    fetchedAt: "2026-08-26T08:36:34.660Z",
+    apiItemCount: 1,
+    matchedItemCount: 1,
+    officialRegionCode: "30",
+    officialSigunguCode: "200",
+  },
+} as const;
+
 type FixtureKey = keyof typeof QA_PROJECT_NAMES;
 
 type QaFixture = {
@@ -26,6 +75,13 @@ type QaFixture = {
   coursePoiIds: string[];
   courseItemCount: number;
   hasAnchor: boolean;
+  anchor: {
+    sourceId: string;
+    name: string;
+    eventStartDate: string;
+    eventEndDate: string;
+    plannedDate: string;
+  } | null;
   petEvidenceCount: number;
   accessibilityEvidenceCount: number;
 };
@@ -55,6 +111,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
 function courseItems(course: unknown): Array<{ poiId?: string }> {
   const days = Array.isArray(asRecord(course).days) ? (asRecord(course).days as Array<Record<string, unknown>>) : [];
   return days.flatMap((day) => [
@@ -69,6 +136,9 @@ async function findExactProject(prisma: PrismaClient, name: string) {
     select: {
       id: true,
       name: true,
+      travelYear: true,
+      travelMonth: true,
+      region: { select: { code: true } },
       input: { select: { preferredThemes: true, transport: true } },
       selectedPlan: { select: { course: true } },
       anchor: {
@@ -88,9 +158,12 @@ async function findExactProject(prisma: PrismaClient, name: string) {
           timeSlot: true,
           timeStart: true,
           timeEnd: true,
+          regionCode: true,
           address: true,
           lat: true,
           lng: true,
+          sourceSnapshot: true,
+          provenance: true,
         },
       },
     },
@@ -100,6 +173,70 @@ async function findExactProject(prisma: PrismaClient, name: string) {
     throw new Error(`QA 프로젝트 '${name}'는 정확히 1개여야 합니다. 현재 ${projects.length}개입니다.`);
   }
   return projects[0];
+}
+
+function matchesDaejeonAnchorFixture(anchor: NonNullable<Awaited<ReturnType<typeof findExactProject>>["anchor"]>) {
+  const checks = {
+    source: anchor.source === DAEJEON_ANCHOR_FIXTURE.source,
+    sourceId: anchor.sourceId === DAEJEON_ANCHOR_FIXTURE.sourceId,
+    contentTypeId: anchor.contentTypeId === DAEJEON_ANCHOR_FIXTURE.contentTypeId,
+    name: anchor.name === DAEJEON_ANCHOR_FIXTURE.name,
+    eventStartDate: anchor.eventStartDate === DAEJEON_ANCHOR_FIXTURE.eventStartDate,
+    eventEndDate: anchor.eventEndDate === DAEJEON_ANCHOR_FIXTURE.eventEndDate,
+    plannedDate: anchor.plannedDate === DAEJEON_ANCHOR_FIXTURE.plannedDate,
+    plannedDayIndex: anchor.plannedDayIndex === DAEJEON_ANCHOR_FIXTURE.plannedDayIndex,
+    timeStatus: anchor.timeStatus === DAEJEON_ANCHOR_FIXTURE.timeStatus,
+    timeSlot: anchor.timeSlot === DAEJEON_ANCHOR_FIXTURE.timeSlot,
+    timeStart: anchor.timeStart === DAEJEON_ANCHOR_FIXTURE.timeStart,
+    timeEnd: anchor.timeEnd === DAEJEON_ANCHOR_FIXTURE.timeEnd,
+    regionCode: anchor.regionCode === DAEJEON_ANCHOR_FIXTURE.regionCode,
+    address: anchor.address === DAEJEON_ANCHOR_FIXTURE.address,
+    lat: anchor.lat === DAEJEON_ANCHOR_FIXTURE.lat,
+    lng: anchor.lng === DAEJEON_ANCHOR_FIXTURE.lng,
+    sourceSnapshot: stableJson(anchor.sourceSnapshot) === stableJson(DAEJEON_ANCHOR_FIXTURE.sourceSnapshot),
+    provenance: stableJson(anchor.provenance) === stableJson(DAEJEON_ANCHOR_FIXTURE.provenance),
+  };
+  if (!Object.values(checks).every(Boolean)) {
+    console.log(`대전 Anchor fixture 불일치 필드: ${Object.entries(checks).filter(([, matches]) => !matches).map(([field]) => field).join(", ")}`);
+  }
+  return Object.values(checks).every(Boolean);
+}
+
+async function ensureDaejeonAnchorFixture(
+  prisma: PrismaClient,
+  project: Awaited<ReturnType<typeof findExactProject>>,
+) {
+  if (!project.anchor) throw new Error(`Anchor QA 프로젝트 '${project.name}'에 ProjectAnchor가 없습니다.`);
+  if (project.travelYear !== 2026 || project.travelMonth !== 9 || project.region.code !== DAEJEON_ANCHOR_FIXTURE.regionCode) {
+    throw new Error(`대전 Anchor QA fixture의 지역·여행월이 예상과 다릅니다: ${project.name}`);
+  }
+  if (matchesDaejeonAnchorFixture(project.anchor)) return false;
+
+  const updated = await prisma.projectAnchor.update({
+    where: { id: project.anchor.id },
+    data: {
+      source: DAEJEON_ANCHOR_FIXTURE.source,
+      sourceId: DAEJEON_ANCHOR_FIXTURE.sourceId,
+      contentTypeId: DAEJEON_ANCHOR_FIXTURE.contentTypeId,
+      name: DAEJEON_ANCHOR_FIXTURE.name,
+      eventStartDate: DAEJEON_ANCHOR_FIXTURE.eventStartDate,
+      eventEndDate: DAEJEON_ANCHOR_FIXTURE.eventEndDate,
+      plannedDate: DAEJEON_ANCHOR_FIXTURE.plannedDate,
+      plannedDayIndex: DAEJEON_ANCHOR_FIXTURE.plannedDayIndex,
+      timeStatus: DAEJEON_ANCHOR_FIXTURE.timeStatus,
+      timeSlot: DAEJEON_ANCHOR_FIXTURE.timeSlot,
+      timeStart: DAEJEON_ANCHOR_FIXTURE.timeStart,
+      timeEnd: DAEJEON_ANCHOR_FIXTURE.timeEnd,
+      regionCode: DAEJEON_ANCHOR_FIXTURE.regionCode,
+      address: DAEJEON_ANCHOR_FIXTURE.address,
+      lat: DAEJEON_ANCHOR_FIXTURE.lat,
+      lng: DAEJEON_ANCHOR_FIXTURE.lng,
+      sourceSnapshot: DAEJEON_ANCHOR_FIXTURE.sourceSnapshot,
+      provenance: DAEJEON_ANCHOR_FIXTURE.provenance,
+    },
+  });
+  project.anchor = { ...project.anchor, ...updated };
+  return true;
 }
 
 function courseDays(course: unknown): CourseDay[] {
@@ -158,6 +295,13 @@ async function prepareFixtures(): Promise<FixtureMap> {
     );
     const projects = Object.fromEntries(rows) as Record<FixtureKey, Awaited<ReturnType<typeof findExactProject>>>;
 
+    const daejeonAnchorUpdated = await ensureDaejeonAnchorFixture(prisma, projects.anchorDaejeon);
+    console.log(
+      daejeonAnchorUpdated
+        ? "대전 Anchor QA fixture를 공식 행사 스냅샷으로 정합화했습니다."
+        : "대전 Anchor QA fixture가 이미 공식 행사 스냅샷과 일치합니다.",
+    );
+
     await Promise.all(
       (["anchorDaejeon", "anchorSejong", "anchorJecheon"] as const).map(async (key) => [
         key,
@@ -205,6 +349,15 @@ async function prepareFixtures(): Promise<FixtureMap> {
           coursePoiIds: poiIds,
           courseItemCount: items.length,
           hasAnchor: Boolean(project.anchor),
+          anchor: project.anchor
+            ? {
+                sourceId: project.anchor.sourceId,
+                name: project.anchor.name,
+                eventStartDate: project.anchor.eventStartDate,
+                eventEndDate: project.anchor.eventEndDate,
+                plannedDate: project.anchor.plannedDate,
+              }
+            : null,
           petEvidenceCount: evidence.filter((row) => row.conditionType === "PET").length,
           accessibilityEvidenceCount: evidence.filter((row) => row.conditionType === "ACCESSIBILITY").length,
         };
@@ -226,6 +379,8 @@ async function prepareFixtures(): Promise<FixtureMap> {
 }
 
 function printEnvironment(fixtures: FixtureMap) {
+  const anchor = fixtures.anchorDaejeon.anchor;
+  if (!anchor) throw new Error("대전 Anchor QA fixture에 확정 Anchor가 없습니다.");
   const environment = {
     QA_GYEONGJU_ID: fixtures.gyeongju.id,
     QA_CHEONGJU_ID: fixtures.cheongju.id,
@@ -234,6 +389,11 @@ function printEnvironment(fixtures: FixtureMap) {
     QA_JECHEON_EMPTY_ANCHOR_PROJECT_ID: fixtures.anchorJecheon.id,
     QA_PET_PROJECT_ID: fixtures.petAccessibility.id,
     QA_ACCESSIBILITY_PROJECT_ID: fixtures.petAccessibility.id,
+    QA_ANCHOR_EVENT_SOURCE_ID: anchor.sourceId,
+    QA_ANCHOR_EVENT_NAME: anchor.name,
+    QA_ANCHOR_EVENT_START_DATE: anchor.eventStartDate,
+    QA_ANCHOR_EVENT_END_DATE: anchor.eventEndDate,
+    QA_ANCHOR_EVENT_PLANNED_DATE: anchor.plannedDate,
   };
 
   console.log("로컬 QA fixture 확인 완료");
