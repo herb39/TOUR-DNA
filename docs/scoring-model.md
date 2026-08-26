@@ -173,9 +173,11 @@ strategyScore =
   값이 있으면 그걸 초기값으로 쓴다"는 규칙이 적용되지 않는다. KPI 메모/메모 입력란은 그대로 둔다.
 - **체류시간(`stayMinutes`)도 2026-07-22부터 직접 수정 가능하다.** 공공데이터 API에는 장소별 권장
   체류시간 필드가 없어서(TourAPI `areaBasedList2` 응답 필드: contentid/contenttypeid/title/addr1/
-  areacode/sigungucode/mapx/mapy/tel — 체류시간 없음) 초기값은 기존과 동일하게 60분 고정이고, 그 값을
-  사용자가 자유롭게 바꿀 수 있게만 했다. 체류시간은 실행 가능성 판정(아래)의 입력값이라, 값을 늘리면
-  다음 장소와의 여유가 줄어 경고가 뜰 수 있다.
+  areacode/sigungucode/mapx/mapy/tel — 장소별 권장 체류시간 없음) 일반적인 초기값은 이제
+  `recommendedPoiStayMinutes()`의 유형별 계약을 따른다(`ATTRACTION 90`, 박물관·전시 120,
+  `EXPERIENCE 120`, 레저 180, 식사 60, 카페 45, 쇼핑 60, 축제 120, 숙박 0분, 미분류 60분).
+  사용자는 실행안 편집기에서 계속 직접 바꿀 수 있다. 체류시간은 실행 가능성 판정(아래)의 입력값이라,
+  값을 늘리면 다음 장소와의 여유가 줄어 경고가 뜰 수 있다. 기존 저장 코스의 값은 자동으로 일괄 변경하지 않는다.
 - 실행안 편집기(`PlanEditor.tsx`)에서 코스를 자유롭게 고칠 수 있다 — 같은 날짜 안 순서 변경/삭제/다른
   날짜로 이동/같은 지역 POI 검색 후 추가(`searchAvailablePoisAction` → `searchPoisInRegion`)/시간·
   체류시간 직접 수정(2026-07-22). `timeSlot`은 이제 자리(순서)가 아니라 각 장소가 독립적으로 갖는 값이다

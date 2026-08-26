@@ -4,6 +4,7 @@ import {
   isFestivalAnchorItem,
   minutesToTimeSlot,
   parseTimeSlotToMinutes,
+  recommendedPoiStayMinutes,
   recomputeDayItems,
   type CourseDay,
   type CourseItem,
@@ -221,7 +222,7 @@ export function insertPoiAroundFestivalAnchor(
       poiId: poi.poiId,
       poiName: poi.poiName,
       category: poi.category,
-      stayMinutes: 60,
+      stayMinutes: recommendedPoiStayMinutes(poi),
       operatingHours: poi.operatingHours,
       closedDays: poi.closedDays,
       lat: poi.lat,
@@ -236,7 +237,7 @@ export function insertPoiAroundFestivalAnchor(
       const anchorStart = parseTimeSlotToMinutes(anchorItem.timeSlot);
       if (anchorStart !== null) {
         const travelMinutes = estimateTravel(input, anchorItem, transport).minutes ?? 0;
-        const desiredStart = Math.max(0, anchorStart - 60 - travelMinutes);
+        const desiredStart = Math.max(0, anchorStart - input.stayMinutes - travelMinutes);
         input.timeSlot = minutesToTimeSlot(Math.floor(desiredStart / 30) * 30);
       }
     }

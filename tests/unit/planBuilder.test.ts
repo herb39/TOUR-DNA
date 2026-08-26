@@ -45,6 +45,26 @@ function foodPoi(id: string, lat: number, lng: number, mealEligible: boolean): P
 }
 
 describe("buildDraftCourse", () => {
+  it("자동 초안은 POI 유형에 맞는 첫 체류시간을 사용한다", () => {
+    const museum = { ...poi("museum", 36.35, 127.38), lclsSystm2: "VE07" };
+    const nature = { ...poi("nature", 36.35, 127.39), lclsSystm1: "NA" };
+    const cafe = { ...foodPoi("cafe", 36.35, 127.4, false), foodSubcategory: "CAFE" as const };
+    const experience = { ...poi("experience", 36.35, 127.41, "EXPERIENCE"), lclsSystm1: "LS", lclsSystm2: "LS02" };
+    const shopping = poi("shopping", 36.35, 127.42, "SHOPPING");
+
+    const museumDay = buildDraftCourse([museum], "DAY_TRIP", "WALK");
+    const natureDay = buildDraftCourse([nature], "DAY_TRIP", "WALK");
+    const cafeDay = buildDraftCourse([cafe], "DAY_TRIP", "WALK");
+    const experienceDay = buildDraftCourse([experience], "DAY_TRIP", "WALK");
+    const shoppingDay = buildDraftCourse([shopping], "DAY_TRIP", "WALK");
+
+    expect(museumDay[0].items[0].stayMinutes).toBe(120);
+    expect(natureDay[0].items[0].stayMinutes).toBe(90);
+    expect(cafeDay[0].items[0].stayMinutes).toBe(45);
+    expect(experienceDay[0].items[0].stayMinutes).toBe(180);
+    expect(shoppingDay[0].items[0].stayMinutes).toBe(60);
+  });
+
   it("입력이 지그재그 순서여도 하루 안에서는 거리 순서로 재배열한다", () => {
     // 경도 127.38, 127.39, 127.40, 127.41(각 약 1.1km, 정상 이동 범위)에 일직선 배치, 입력은 0, 0.02, 0.01,
     // 0.03(지그재그) — 장거리 구간 제외 정책(2단계)과 섞이지 않도록 전 구간을 정상 이동 범위로 둔다.
@@ -165,6 +185,12 @@ describe("recomputeDayItems", () => {
 
     expect(result[0].timeSlot).toBe("11:15");
     expect(result[1].timeSlot).toBe("13:00"); // 자리(index 1) 기준 기본값
+  });
+
+  it("이미 사용자가 수정한 체류시간은 재계산해도 보존한다", () => {
+    const items = [input({ poiId: "edited", poiName: "수정 장소", stayMinutes: 135, timeSlot: "10:00" })];
+
+    expect(recomputeDayItems(items, "WALK")[0].stayMinutes).toBe(135);
   });
 
   it("최대 개수 제한 없이 5개 이상도 그대로 처리한다", () => {
@@ -293,6 +319,16 @@ describe("reorderCourseItemWithinDay / moveCourseItemToDay / insertPoiIntoDay �
     expect(poiIdsOf(result[0])).toEqual(["a", "new", "b"]);
     expect(result[0].items[1].operatingHours).toBe("10:00~18:00");
     expect(result[0].items[1].closedDays).toBe("매주 월요일");
+    expect(result[0].items[1].stayMinutes).toBe(90);
+  });
+
+  it("날짜 이동은 기존 POI의 사용자 체류시간을 새 기본값으로 덮어쓰지 않는다", () => {
+    const days = [makeDay(1, ["a", "b"]), makeDay(2, [])];
+    days[0].items[1].stayMinutes = 135;
+
+    const result = moveCourseItemToDay(days, 1, 1, 2, 0, "WALK");
+
+    expect(result[1].items[0].stayMinutes).toBe(135);
   });
 
   it("삽입 자리가 현재 길이를 넘으면(끝자리 추가와 동일) 맨 끝에 추가된다", () => {
@@ -1724,8 +1760,8 @@ describe("buildDraftCourse — 30분 단위 정렬이 실제 일정 시각·이�
     // attr1(첫 항목, 무료 이동)→attr2: 실제 이동시간이 정확히 9분이 되도록 좌표를 보정했다(도보 기준).
     // 원시 도착(11:00+9분=11:09)이 그대로 저장되거나 11:00으로 내려가면 실패해야 한다.
     const pois = [
-      poi("attr1", 0, 0, "ATTRACTION"),
-      poi("attr2", 0, 0.0055, "ATTRACTION"),
+      poi("attr1", 0, 0, "SHOPPING"),
+      poi("attr2", 0, 0.0055, "SHOPPING"),
       foodPoi("lunch-food", 0, 0.006, true),
     ];
     const travel = estimateTravel(pois[0], pois[1], "WALK");
@@ -1743,9 +1779,9 @@ describe("buildDraftCourse — 30분 단위 정렬이 실제 일정 시각·이�
     // attr2 도착(11:09)+9분=11:18"이 아니라 "정렬 후 attr2 시작(11:30)+체류60분+이동9분=12:39→13:00"으로
     // 계산돼야 한다 — 정렬 이전 시각을 기준으로 뒤 일정을 계산하면 잘못된 구현이다.
     const pois = [
-      poi("attr1", 0, 0, "ATTRACTION"),
-      poi("attr2", 0, 0.0055, "ATTRACTION"),
-      poi("attr3", 0, 0.011, "ATTRACTION"),
+      poi("attr1", 0, 0, "SHOPPING"),
+      poi("attr2", 0, 0.0055, "SHOPPING"),
+      poi("attr3", 0, 0.011, "SHOPPING"),
       foodPoi("lunch-food", 0, 0.012, true),
     ];
     const days = buildDraftCourse(pois, "DAY_TRIP", "WALK");

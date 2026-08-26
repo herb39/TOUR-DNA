@@ -26,6 +26,9 @@ import {
   type NationalityCode,
   type UserRoleCode,
 } from "./audienceContext";
+import { DEFAULT_ITEM_STAY_MINUTES, recommendedPoiStayMinutes } from "./poiStayMinutes";
+
+export { DEFAULT_ITEM_STAY_MINUTES, recommendedPoiStayMinutes } from "./poiStayMinutes";
 
 export type TransportCode = "WALK" | "PUBLIC_TRANSPORT" | "PRIVATE_VEHICLE" | "MIXED";
 
@@ -205,8 +208,6 @@ const LODGING_CATEGORY = "LODGING";
 const DEFAULT_LODGING_CHECKIN = "20:00";
 
 export const FOOD_CATEGORY = "FOOD";
-/** 새로 생성하는 일반 일정의 기본 체류시간(분). buildDraftCourse 전체에서 공용으로 쓴다(3단계에서 상수화). */
-export const DEFAULT_ITEM_STAY_MINUTES = 60;
 
 /** 식사 선호 시간대 정책(3단계) — FOOD 일정의 "시작 시각" 기준으로 판단한다. 영업시간·휴무일은
  * 이번 단계에서 다루지 않는다. */
@@ -512,7 +513,7 @@ export function insertPoiIntoDay(
       poiId: poi.id,
       poiName: poi.name,
       category: poi.category,
-      stayMinutes: 60,
+      stayMinutes: recommendedPoiStayMinutes(poi),
       operatingHours: poi.operatingHours,
       closedDays: poi.closedDays,
       lat: poi.lat,
@@ -690,8 +691,8 @@ function travelMinutesFrom(prevPoi: PoiDetail | null, to: PoiDetail, transport: 
 const END_OF_DISPLAY_DAY_MINUTES = 24 * 60 - 1;
 
 /** 이 절대 시작 분(+체류시간)이 하루 표시 범위(0~1439분) 안에 들어오는지 판단한다. */
-function fitsWithinDisplayableDay(startMinutesAbsolute: number): boolean {
-  return startMinutesAbsolute >= 0 && startMinutesAbsolute + DEFAULT_ITEM_STAY_MINUTES <= END_OF_DISPLAY_DAY_MINUTES;
+function fitsWithinDisplayableDay(startMinutesAbsolute: number, stayMinutes = DEFAULT_ITEM_STAY_MINUTES): boolean {
+  return startMinutesAbsolute >= 0 && startMinutesAbsolute + stayMinutes <= END_OF_DISPLAY_DAY_MINUTES;
 }
 
 /** 그 식사 시간대가 이 날짜의 유효 일정 범위(날짜별 고정 슬롯의 마지막 값 = 그 날의 종료 기준) 안에
@@ -747,7 +748,7 @@ function wouldMissMealWindowIfSightPlacedFirst(
 ): boolean {
   const windowEnd = parseTimeSlotToMinutes(MEAL_WINDOWS[meal].end) ?? 0;
   const sightStart = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, nextSight, transport));
-  const afterSightClock = sightStart + DEFAULT_ITEM_STAY_MINUTES;
+  const afterSightClock = sightStart + recommendedPoiStayMinutes(nextSight);
   const mealArrivalAfterSight = ceilToNext30Minutes(afterSightClock + travelMinutesFrom(nextSight, mealPoi, transport));
   return mealArrivalAfterSight > windowEnd;
 }
@@ -824,7 +825,7 @@ function scheduleDayWithMeals(
   // 시각/카테고리로 다시 추정하지 않는다.
   const place = (poi: PoiDetail, startMinutesAbsolute: number, purpose: MealPurpose) => {
     scheduled.push({ poi, timeSlot: minutesToTimeSlot(startMinutesAbsolute), purpose });
-    clockMinutes = startMinutesAbsolute + DEFAULT_ITEM_STAY_MINUTES;
+    clockMinutes = startMinutesAbsolute + recommendedPoiStayMinutes(poi);
     prevPoi = poi;
   };
 
@@ -840,7 +841,7 @@ function scheduleDayWithMeals(
 
     if (lunchPending && shouldPlaceMealNow(clockMinutes, prevPoi, lunchPending, "lunch", remainingSights[0], transport)) {
       const arrival = computeMealArrivalMinutes(clockMinutes, prevPoi, lunchPending, "lunch", transport);
-      if (fitsWithinDisplayableDay(arrival)) {
+      if (fitsWithinDisplayableDay(arrival, recommendedPoiStayMinutes(lunchPending))) {
         place(lunchPending, arrival, "LUNCH");
         placedSomething = true;
       }
@@ -849,7 +850,7 @@ function scheduleDayWithMeals(
 
     if (!placedSomething && dinnerPending && shouldPlaceMealNow(clockMinutes, prevPoi, dinnerPending, "dinner", remainingSights[0], transport)) {
       const arrival = computeMealArrivalMinutes(clockMinutes, prevPoi, dinnerPending, "dinner", transport);
-      if (fitsWithinDisplayableDay(arrival)) {
+      if (fitsWithinDisplayableDay(arrival, recommendedPoiStayMinutes(dinnerPending))) {
         place(dinnerPending, arrival, "DINNER");
         placedSomething = true;
       }
@@ -883,7 +884,7 @@ function scheduleDayWithMeals(
         // 30분 단위로 올림한 시각을 기준으로 배치 가능 여부를 판단한다(6단계) — 원시 도착 시각이
         // 하루 범위 안에 들어와도 올림 후에는 넘길 수 있으므로, 반드시 올림한 값으로 검증해야 한다.
         const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, candidate, transport));
-        if (!fitsWithinDisplayableDay(start)) {
+        if (!fitsWithinDisplayableDay(start, recommendedPoiStayMinutes(candidate))) {
           remainingSights.shift(); // 이 후보는 제외한다(재큐잉하지 않음) — 계속 다음 후보를 확인한다.
           continue;
         }
@@ -904,7 +905,7 @@ function scheduleDayWithMeals(
         } else {
           // 대체 후보가 없었다 — 미뤄뒀던 FOOD를 그대로 배치한다(생략하지 않음, 기존 정책 유지).
           const start = ceilToNext30Minutes(clockMinutes + travelMinutesFrom(prevPoi, deferredFood, transport));
-          if (fitsWithinDisplayableDay(start)) {
+          if (fitsWithinDisplayableDay(start, recommendedPoiStayMinutes(deferredFood))) {
             place(deferredFood, start, "GENERAL");
             placedSomething = true;
           }
@@ -1274,7 +1275,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           poiId: poi.id,
           poiName: poi.name,
           category: poi.category,
-          stayMinutes: DEFAULT_ITEM_STAY_MINUTES,
+          stayMinutes: recommendedPoiStayMinutes(poi),
           operatingHours: poi.operatingHours,
           closedDays: poi.closedDays,
           lat: poi.lat,
@@ -1290,7 +1291,7 @@ export function buildDraftCourse(pois: PoiDetail[], duration: DurationCode, tran
           poiId: p.id,
           poiName: p.name,
           category: p.category,
-          stayMinutes: DEFAULT_ITEM_STAY_MINUTES,
+          stayMinutes: recommendedPoiStayMinutes(p),
           operatingHours: p.operatingHours,
           closedDays: p.closedDays,
           lat: p.lat,

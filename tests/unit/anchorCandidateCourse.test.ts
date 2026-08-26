@@ -46,8 +46,10 @@ describe("Anchor 연계 일정 삽입", () => {
       "WALK",
     );
     expect(after[0].items.map((item) => item.poiId)).toEqual(["pre", "festival-anchor:anchor-1", "post"]);
+    expect(after[0].items[0].stayMinutes).toBe(90);
     expect(after[0].items[1].timeSlot).toBe("15:00");
     expect(after[0].items[1].stayMinutes).toBe(120);
+    expect(after[0].items[2].stayMinutes).toBe(90);
   });
 
   it("숙박 후보는 일반 items가 아니라 lodging 슬롯에 추가한다", () => {
@@ -61,5 +63,6 @@ describe("Anchor 연계 일정 삽입", () => {
     if (!result.ok) return;
     expect(result.days[0].items).toHaveLength(1);
     expect(result.days[0].lodging?.poiId).toBe("stay");
+    expect(result.days[0].lodging?.stayMinutes).toBe(0);
   });
 });

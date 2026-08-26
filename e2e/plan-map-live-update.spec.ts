@@ -188,6 +188,40 @@ test.describe("코스 편집 중 지도 실시간 갱신 — 청주(로컬 QA �
     await expect(candidateHandle(page, candidateName!)).toBeVisible();
   });
 
+  test("추천 후보의 유형별 기본 체류시간과 사용자 수정값은 날짜 이동·저장·재로드 후에도 유지된다", async ({ page }) => {
+    await page.goto(`/projects/${CHEONGJU_ID}/plan`);
+    await expect(page.getByTestId("course-map-container")).toBeVisible();
+
+    const candidateSection = page.locator("section", { has: page.getByRole("heading", { name: "추천 후보" }) });
+    const firstCandidateCard = candidateSection.locator("ul > li").first();
+    const candidateName = (await firstCandidateCard.locator("p.font-medium").first().textContent())?.trim();
+    expect(candidateName).toBeTruthy();
+
+    await candidateSection.getByRole("button", { name: new RegExp(`${candidateName}.*1일차에 추가`) }).click();
+    const stayInput = page.getByLabel(`${candidateName} 체류시간(분)`);
+    await expect(stayInput).toHaveValue("120");
+
+    await stayInput.fill("130");
+    await page.getByRole("button", { name: "저장" }).click();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
+    await page.reload();
+    await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
+
+    await page.getByLabel(`${candidateName} 다른 날짜로 이동`).selectOption("2");
+    await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
+
+    await page.getByRole("button", { name: "저장" }).click();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
+    await page.reload();
+    await expect(page.getByTestId("course-map-container")).toBeVisible();
+    await expect(page.getByLabel(`${candidateName} 체류시간(분)`)).toHaveValue("130");
+
+    await page.getByRole("button", { name: `${candidateName} 삭제` }).click();
+    await page.getByRole("button", { name: "저장" }).click();
+    await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
+  });
+
   test("375px 모바일 — 편집 후에도 가로 스크롤이 생기지 않는다", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 1200 });
     await page.goto(`/projects/${CHEONGJU_ID}/plan`);
