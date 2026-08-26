@@ -77,6 +77,14 @@ function formatBreakdownScore(value: number | undefined): string {
   return `${value}`;
 }
 
+/** 저장된 전략 근거의 내부 DNA 축 점수를 계산 변경 없이 사용자에게 의미가 드러나는 label로 보정한다.
+ * 숫자 자체는 그대로 두며, 상단의 DNA 상대지수(표시값)와 섞이지 않도록 계층만 명시한다. */
+function formatStrategyReasonForDisplay(reason: string): string {
+  return reason
+    .replace(/축 점수\(([-\d.]+)\)/g, "축 내부 DNA 분석점수($1)")
+    .replace(/상대적으로 (낮습니다|높습니다)\(([-\d.]+)점\)/g, "상대적으로 $1(내부 DNA 분석점수 $2)");
+}
+
 export function StrategyCard({
   strategy,
   isSelected,
@@ -97,7 +105,7 @@ export function StrategyCard({
           coreProblem: strategy.coreProblem,
           coreResource: strategy.coreResource,
           stayStyle: strategy.stayStyle,
-          reasons: strategy.reasons,
+          reasons: strategy.reasons.map(formatStrategyReasonForDisplay),
           roleFitReason: strategy.scoreBreakdown.roleFitReason,
           consumptionTouchpoints: strategy.consumptionTouchpoints,
         })
@@ -132,6 +140,9 @@ export function StrategyCard({
       <p className="mt-1 text-xs font-medium text-amber-700">
         ※ 점수는 조건 적합도이며, 매출·방문객 증가 예측치가 아닙니다.
       </p>
+      <p className="mt-1 text-[11px] text-slate-400">
+        ※ 근거의 내부 DNA 분석점수(0~100)와 상단 DNA 상대지수(10~90)는 다른 표시 계층입니다.
+      </p>
 
       {rationale ? (
         <AnimatedDetails
@@ -163,7 +174,7 @@ export function StrategyCard({
           <p className="text-xs font-medium text-slate-700">차별화 포인트</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-600">
             {strategy.reasons.slice(0, 2).map((r, i) => (
-              <li key={i}>{r}</li>
+              <li key={i}>{formatStrategyReasonForDisplay(r)}</li>
             ))}
           </ul>
           {strategy.reasons.length > 2 ? (
@@ -191,7 +202,7 @@ export function StrategyCard({
               <p className="font-medium text-slate-700">차별화 포인트(나머지)</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">
                 {strategy.reasons.slice(2).map((r, i) => (
-                  <li key={i}>{r}</li>
+                  <li key={i}>{formatStrategyReasonForDisplay(r)}</li>
                 ))}
               </ul>
             </div>

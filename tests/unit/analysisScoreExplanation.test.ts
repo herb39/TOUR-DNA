@@ -89,7 +89,9 @@ describe("전략 비교 화면 — 반복 면책 문구 통합", () => {
 
 describe("전략 비교 화면 — 전략 점수 의미 label", () => {
   it("전략 카드와 비교표가 총점을 '전략 적합도'로 표시한다", () => {
-    expect(readSource("src/components/strategy/StrategyCard.tsx")).toContain("전략 적합도");
+    const card = readSource("src/components/strategy/StrategyCard.tsx");
+    expect(card).toContain("전략 적합도");
+    expect(card).toContain("내부 DNA 분석점수");
     expect(readSource("src/components/strategy/StrategyComparisonTable.tsx")).toContain("전략 적합도 {row.totalScore}점");
   });
 });
