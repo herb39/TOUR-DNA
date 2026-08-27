@@ -52,6 +52,7 @@ import {
   deleteFestivalAnchorAction,
   saveFestivalAnchorAction,
 } from "./festivalAnchorActions";
+import { measureAnalysisComputation, measureAnalysisStage, logAnalysisTiming } from "@/lib/services/analysisTiming";
 
 export const dynamic = "force-dynamic";
 
@@ -83,12 +84,16 @@ function toEvidenceRow(e: {
 }
 
 export default async function AnalysisPage({ params }: { params: Promise<{ id: string }> }) {
+  const pageStartedAt = performance.now();
   const { id } = await params;
 
   let project: Awaited<ReturnType<typeof getProjectDetail>> = null;
   let loadError: string | null = null;
   try {
-    project = await getProjectDetail(id);
+    project = await measureAnalysisStage("analysis-page.project-load", () => getProjectDetail(id), {
+      io: "db",
+      queryCount: 1,
+    });
   } catch {
     loadError = "분석 결과를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
   }
@@ -127,12 +132,20 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   // P1-2a: 후보 조회와 프로젝트 Anchor 읽기는 서로 독립적이다. 새 Anchor 테이블이 아직 없는
   // Production에서도 읽기 결과가 UNAVAILABLE로 내려가 분석 화면 전체를 중단하지 않는다.
   const [festivalAnchorLookup, projectAnchorResult] = await Promise.all([
-    fetchFestivalAnchorCandidates({
-      regionCode: project.region.code,
-      travelYear: project.travelYear,
-      travelMonth: project.travelMonth,
+    measureAnalysisStage(
+      "analysis-page.festival-anchor",
+      () =>
+        fetchFestivalAnchorCandidates({
+          regionCode: project.region.code,
+          travelYear: project.travelYear,
+          travelMonth: project.travelMonth,
+        }),
+      { io: "external+db", cache: "NOT_APPLIED" },
+    ),
+    measureAnalysisStage("analysis-page.project-anchor", () => getProjectAnchor(project.id), {
+      io: "db",
+      cache: "PROJECT_ANCHOR_READ",
     }),
-    getProjectAnchor(project.id),
   ]);
 
   const axisData: DnaAxisChartDatum[] = AXIS_ORDER.map((axis) => {
@@ -234,14 +247,31 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     poiRows,
     poiCategoryFallback,
   ] = await Promise.all([
-    resolveRegionComparisonAnalysis({
-      regionCode: project.region.code,
-      regionName: project.region.name,
-      snapshot: analysisResult.regionComparisonSnapshot,
-      analysisOwnBaseYm,
-    }),
-    allPoiIds.length > 0 ? prisma.poi.findMany({ where: { id: { in: allPoiIds } } }) : Promise.resolve([]),
-    analysisResult.poiCategorySummary === null ? fetchPoisByCategory(project.region.code) : Promise.resolve(null),
+    measureAnalysisStage(
+      "analysis-page.region-comparison",
+      () =>
+        resolveRegionComparisonAnalysis({
+          regionCode: project.region.code,
+          regionName: project.region.name,
+          snapshot: analysisResult.regionComparisonSnapshot,
+          analysisOwnBaseYm,
+        }),
+      {
+        cache: analysisResult.regionComparisonSnapshot === null ? "MISS_RECOMPUTE" : "SNAPSHOT_HIT",
+        io: analysisResult.regionComparisonSnapshot === null ? "db" : "none",
+      },
+    ),
+    measureAnalysisStage(
+      "analysis-page.strategy-poi-load",
+      () => (allPoiIds.length > 0 ? prisma.poi.findMany({ where: { id: { in: allPoiIds } } }) : Promise.resolve([])),
+      { io: "db", queryCount: allPoiIds.length > 0 ? 1 : 0 },
+    ),
+    measureAnalysisStage(
+      "analysis-page.poi-category-fallback",
+      () =>
+        analysisResult.poiCategorySummary === null ? fetchPoisByCategory(project.region.code) : Promise.resolve(null),
+      { cache: analysisResult.poiCategorySummary === null ? "MISS_RECOMPUTE" : "SNAPSHOT_HIT" },
+    ),
   ]);
   // 이 프로젝트의 분석 기준월과 유사지역 비교에 실제로 쓰인 기준월이 다르면(예: 분석 근거에 기준월
   // 정보가 없어 대체값을 쓴 경우) 숨기지 않고 안내한다 — 분석·인쇄 화면이 이 함수를 동일하게 호출한다.
@@ -338,29 +368,39 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   });
   // 유사지역 벤치마킹 인사이트(2026-08-13) — 이미 계산된 유사지역 비교(regionComparisonAnalysis)만
   // 재사용한다(새 유사도 계산 없음). 아래에서 계산.
-  const regionBenchmarkAnalysis = buildRegionBenchmarkInsight({
-    targetAxisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
-    comparisons: regionComparisonAnalysis.comparisons,
-    role: project.role,
-  });
+  const regionBenchmarkAnalysis = measureAnalysisComputation("analysis-page.benchmark", () =>
+    buildRegionBenchmarkInsight({
+      targetAxisScores: axisData.map((a) => ({ axis: a.axisKey as DnaAxisKey, score: a.score })),
+      comparisons: regionComparisonAnalysis.comparisons,
+      role: project.role,
+    }),
+  );
 
   // 사업 사전검증 리포트를 실행안 선택 전(no-plan) 단계에도 보여준다(2026-08-13) — 이전에는 plan/print
   // 화면에만 있었다. computePreLaunchValidation()은 이미 코스가 없어도(totalCourseDays=0) POI 공급·
   // 이동 현실성을 안전하게 "확인 필요"(UNKNOWN)로 처리하도록 설계돼 있어(plan.tsx의 코스 있는 호출과
   // 동일한 함수), 이 단계에서 판단 가능한 두 신호(데이터 신뢰도·지역 차별성)만으로 새 로직 없이
   // 그대로 재사용한다. 위험·KPI는 아직 실행안이 없어 빈 배열로 전달한다.
-  const analysisStagePreLaunchValidation = computePreLaunchValidation({
-    axisScores: axisData.map((a) => ({
-      axis: a.axisKey as DnaAxisKey,
-      score: a.score,
-      evidenceProvenances: (axisEvidenceByAxis.get(a.axisKey) ?? []).map((e) => e.provenance ?? null),
-    })),
-    poiShortage: null,
-    travelNoticeCount: 0,
-    totalCourseDays: 0,
-    regionComparisonCount: regionComparisonAnalysis.comparisons.length,
-    regionUniqueStrengthNote: regionComparisonAnalysis.uniqueStrengthNote,
-    riskMitigations: [],
+  const analysisStagePreLaunchValidation = measureAnalysisComputation("analysis-page.prelaunch", () =>
+    computePreLaunchValidation({
+      axisScores: axisData.map((a) => ({
+        axis: a.axisKey as DnaAxisKey,
+        score: a.score,
+        evidenceProvenances: (axisEvidenceByAxis.get(a.axisKey) ?? []).map((e) => e.provenance ?? null),
+      })),
+      poiShortage: null,
+      travelNoticeCount: 0,
+      totalCourseDays: 0,
+      regionComparisonCount: regionComparisonAnalysis.comparisons.length,
+      regionUniqueStrengthNote: regionComparisonAnalysis.uniqueStrengthNote,
+      riskMitigations: [],
+    }),
+  );
+
+  logAnalysisTiming("analysis-page.render-preparation", performance.now() - pageStartedAt, {
+    outcome: "READY",
+    strategyCount: analysisResult.strategyResults.length,
+    evidenceCount: analysisResult.evidences.length,
   });
 
   return (

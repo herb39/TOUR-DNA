@@ -1,4 +1,5 @@
 import { recordApiRequest } from "./requestCounter";
+import { logAnalysisTiming } from "@/lib/services/analysisTiming";
 
 export interface FetchJsonOptions {
   timeoutMs?: number;
@@ -36,7 +37,19 @@ export async function fetchPublicDataJson(
 ): Promise<FetchJsonResult> {
   let lastError: string | undefined;
 
+  function endpointKind(value: string): string {
+    try {
+      const pathname = new URL(value).pathname.split("/").filter(Boolean);
+      return pathname[pathname.length - 1] ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  const endpoint = endpointKind(url);
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const attemptStartedAt = performance.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -48,6 +61,16 @@ export async function fetchPublicDataJson(
 
       if (!res.ok) {
         lastError = `HTTP ${res.status}`;
+        logAnalysisTiming("external-api", performance.now() - attemptStartedAt, {
+          source: sourceCode.split(":")[0],
+          endpoint,
+          attempt: attempt + 1,
+          retryCount: attempt,
+          timeoutMs,
+          maxRetries,
+          cache: "NOT_APPLIED",
+          outcome: `HTTP_${res.status}`,
+        });
         console.error(
           JSON.stringify({ level: "error", source: sourceCode, attempt, status: res.status, message: "non-2xx response" }),
         );
@@ -61,6 +84,16 @@ export async function fetchPublicDataJson(
       } catch {
         const bodyKind = classifyNonJsonBody(text);
         lastError = `non-JSON response (${bodyKind})`;
+        logAnalysisTiming("external-api", performance.now() - attemptStartedAt, {
+          source: sourceCode.split(":")[0],
+          endpoint,
+          attempt: attempt + 1,
+          retryCount: attempt,
+          timeoutMs,
+          maxRetries,
+          cache: "NOT_APPLIED",
+          outcome: "NON_JSON",
+        });
         console.error(
           JSON.stringify({ level: "error", source: sourceCode, attempt, message: "non-JSON response", bodyKind }),
         );
@@ -71,10 +104,30 @@ export async function fetchPublicDataJson(
         if (bodyKind === "HTML") break;
         continue;
       }
+      logAnalysisTiming("external-api", performance.now() - attemptStartedAt, {
+        source: sourceCode.split(":")[0],
+        endpoint,
+        attempt: attempt + 1,
+        retryCount: attempt,
+        timeoutMs,
+        maxRetries,
+        cache: "NOT_APPLIED",
+        outcome: "SUCCESS",
+      });
       return { ok: true, status: res.status, data };
     } catch (e) {
       clearTimeout(timer);
       lastError = e instanceof Error ? e.message : "unknown fetch error";
+      logAnalysisTiming("external-api", performance.now() - attemptStartedAt, {
+        source: sourceCode.split(":")[0],
+        endpoint,
+        attempt: attempt + 1,
+        retryCount: attempt,
+        timeoutMs,
+        maxRetries,
+        cache: "NOT_APPLIED",
+        outcome: "ERROR",
+      });
       console.error(
         JSON.stringify({ level: "error", source: sourceCode, attempt, message: lastError }),
       );

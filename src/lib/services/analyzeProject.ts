@@ -22,6 +22,7 @@ import { buildDnaEngineInput } from "./buildDnaEngineInput";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 import { fetchRegionComparisonProfiles } from "./fetchRegionComparisonProfiles";
 import { computeRegionSimilarityComparisons, type RegionComparisonAnalysis } from "@/lib/domain/regionSimilarity";
+import { measureAnalysisComputation, measureAnalysisStage, logAnalysisTiming } from "./analysisTiming";
 
 type PersistClient = typeof prisma | Prisma.TransactionClient;
 
@@ -93,17 +94,28 @@ export async function computeProjectAnalysis(input: AnalysisComputeInput): Promi
   // 그대로 썼는데, 이 값을 사람이 갱신하지 않는 한 새 데이터가 얼마나 들어와도 반영되지 않았고,
   // 반대로 검증되지 않은 값을 넣어도 막을 방법이 없었다. ACTIVE가 없으면 "최신 partial dataset을
   // 조용히 대신 쓰는" 폴백 없이 여기서 명확하게 실패한다(호출부가 사용자에게 그대로 보여준다).
-  const baseYm = await getActiveDatasetBaseYm();
+  const baseYm = await measureAnalysisStage("new-analysis.active-dataset", getActiveDatasetBaseYm, {
+    io: "db",
+    queryCount: 1,
+  });
   if (!baseYm) {
     throw new Error(
       "검증된 ACTIVE 데이터셋이 없어 분석을 진행할 수 없습니다. 관리자가 데이터셋을 활성화해야 합니다.",
     );
   }
-  const dnaInput = await buildDnaEngineInput(input.regionCode, baseYm);
-  const dna = computeDna(dnaInput);
-  const dataVersion = computeDataVersion(dnaInput);
+  const dnaInput = await measureAnalysisStage(
+    "new-analysis.dna-input",
+    () => buildDnaEngineInput(input.regionCode, baseYm),
+    { io: "db", regionCode: input.regionCode },
+  );
+  const dna = measureAnalysisComputation("new-analysis.dna-calculation", () => computeDna(dnaInput));
+  const dataVersion = measureAnalysisComputation("new-analysis.data-version", () => computeDataVersion(dnaInput));
 
-  const poisByCategory = await fetchPoisByCategory(input.regionCode);
+  const poisByCategory = await measureAnalysisStage(
+    "new-analysis.poi-categories",
+    () => fetchPoisByCategory(input.regionCode),
+    { io: "db", regionCode: input.regionCode },
+  );
   const poiCategorySummary = Object.fromEntries(
     Object.entries(poisByCategory).map(([category, pois]) => [category, pois?.length ?? 0]),
   ) as Partial<Record<PoiCategoryCode, number>>;
@@ -136,23 +148,35 @@ export async function computeProjectAnalysis(input: AnalysisComputeInput): Promi
     nationality: analysisContext.nationality,
   };
 
-  const strategies = computeStrategies(dna, scoringInput, poisByCategory, MODEL_VERSION);
-  const analysisKey = computeAnalysisKey({
-    input: { ...scoringInput, regionCode: input.regionCode, travelYear: input.travelYear, baseYm },
-    dataVersion,
-    modelVersion: MODEL_VERSION,
-  });
+  const strategies = measureAnalysisComputation(
+    "new-analysis.strategy-calculation",
+    () => computeStrategies(dna, scoringInput, poisByCategory, MODEL_VERSION),
+    { strategyCount: 3 },
+  );
+  const analysisKey = measureAnalysisComputation("new-analysis.analysis-key", () =>
+    computeAnalysisKey({
+      input: { ...scoringInput, regionCode: input.regionCode, travelYear: input.travelYear, baseYm },
+      dataVersion,
+      modelVersion: MODEL_VERSION,
+    }),
+  );
 
   // 유사지역 비교 스냅샷(2026-08-10) — 분석 시점에 딱 한 번 계산해 그대로 저장한다. 이후 데이터
   // sync로 NormalizedMetric이 갱신되거나 min-max 코호트(지원 SIGUNGU 수)가 바뀌어도, 이미 저장된
   // 분석 결과 화면은 이 스냅샷만 사용해 상단 DNA 카드와 항상 같은 숫자를 보여준다(재현성 보완) —
   // regionSimilarity.ts/fetchRegionComparisonProfiles.ts를 그대로 재사용하며 유사도 산식은 전혀
   // 바꾸지 않는다. 대상 지역의 비교 프로필을 찾지 못하면(아직 지원되지 않는 지역) null로 남긴다.
-  const regionComparisonProfiles = await fetchRegionComparisonProfiles(baseYm);
+  const regionComparisonProfiles = await measureAnalysisStage(
+    "new-analysis.region-comparison-profiles",
+    () => fetchRegionComparisonProfiles(baseYm),
+    { io: "db", execution: "parallel-regions" },
+  );
   const targetRegionProfile = regionComparisonProfiles.find((p) => p.code === input.regionCode);
-  const regionComparisonSnapshot: RegionComparisonAnalysis | null = targetRegionProfile
-    ? computeRegionSimilarityComparisons(targetRegionProfile, regionComparisonProfiles)
-    : null;
+  const regionComparisonSnapshot: RegionComparisonAnalysis | null = measureAnalysisComputation(
+    "new-analysis.region-comparison-calculation",
+    () => (targetRegionProfile ? computeRegionSimilarityComparisons(targetRegionProfile, regionComparisonProfiles) : null),
+    { profileCount: regionComparisonProfiles.length },
+  );
 
   return { dna, dataVersion, analysisKey, strategies, poiCategorySummary, regionComparisonSnapshot };
 }
@@ -261,10 +285,16 @@ export async function persistProjectAnalysis(
  * `src/app/projects/[id]/edit/actions.ts`가 `computeProjectAnalysis`/`persistProjectAnalysis`를
  * 트랜잭션으로 감싸 별도로 처리한다(Phase 6, 2026-08-01). */
 export async function runAnalysisForProject(projectId: string): Promise<string> {
-  const project = await prisma.project.findUniqueOrThrow({
-    where: { id: projectId },
-    include: { input: true, region: true },
-  });
+  const startedAt = performance.now();
+  const project = await measureAnalysisStage(
+    "new-analysis.project-load",
+    () =>
+      prisma.project.findUniqueOrThrow({
+        where: { id: projectId },
+        include: { input: true, region: true },
+      }),
+    { io: "db", queryCount: 1 },
+  );
   if (!project.input) throw new Error("ProjectInput이 없습니다. 먼저 조건 입력을 완료해주세요.");
 
   const computed = await computeProjectAnalysis({
@@ -285,8 +315,18 @@ export async function runAnalysisForProject(projectId: string): Promise<string> 
     excludedThemes: project.input.excludedThemes as string[],
   });
 
-  const analysisResultId = await persistProjectAnalysis(prisma, projectId, computed);
-  await prisma.project.update({ where: { id: projectId }, data: { status: "ANALYZED" } });
+  const analysisResultId = await measureAnalysisStage(
+    "new-analysis.persist",
+    () => persistProjectAnalysis(prisma, projectId, computed),
+    { io: "db", strategyCount: computed.strategies.length },
+  );
+  await measureAnalysisStage(
+    "new-analysis.status-update",
+    () => prisma.project.update({ where: { id: projectId }, data: { status: "ANALYZED" } }),
+    { io: "db", queryCount: 1 },
+  );
+
+  logAnalysisTiming("new-analysis.total", performance.now() - startedAt, { outcome: "SUCCESS" });
 
   return analysisResultId;
 }

@@ -8,15 +8,25 @@ import {
   extractLclsSystm2FromRawPayload,
 } from "./poiDetails";
 import { readOptionalPoiCuration, withOptionalPoiCuration } from "./optionalPoiCuration";
+import { measureAnalysisStage } from "./analysisTiming";
 
 export async function fetchPoisByCategory(
   regionCode: string,
 ): Promise<Partial<Record<PoiCategoryCode, PoiLike[]>>> {
-  const region = await prisma.region.findUniqueOrThrow({ where: { code: regionCode } });
+  const region = await measureAnalysisStage(
+    "poi-categories.region-load",
+    () => prisma.region.findUniqueOrThrow({ where: { code: regionCode } }),
+    { io: "db", queryCount: 1, regionCode },
+  );
   const where = { regionId: region.id };
-  const pois = await withOptionalPoiCuration(
-    () => prisma.poi.findMany({ where, include: { curation: true } }),
-    () => prisma.poi.findMany({ where }),
+  const pois = await measureAnalysisStage(
+    "poi-categories.poi-load",
+    () =>
+      withOptionalPoiCuration(
+        () => prisma.poi.findMany({ where, include: { curation: true } }),
+        () => prisma.poi.findMany({ where }),
+      ),
+    { io: "db", queryCount: 1, regionCode },
   );
 
   const map: Partial<Record<PoiCategoryCode, PoiLike[]>> = {};

@@ -3,10 +3,12 @@ import {
   METRIC_CODES,
   type DataProvenance,
   type DnaEngineInput,
+  type RegionMetricValue,
   type VisitorGrowthComparisonInput,
 } from "@/lib/domain/types";
 import { fetchMetricCohort } from "./metricCohort";
 import { previousBaseYm, previousYearSameMonth } from "./baseYm";
+import { measureAnalysisStage } from "./analysisTiming";
 
 const AXIS_METRIC_CODES = [
   METRIC_CODES.DEMAND_SERVICE,
@@ -16,21 +18,74 @@ const AXIS_METRIC_CODES = [
   METRIC_CODES.DIVERSITY,
 ];
 
-export async function buildDnaEngineInput(regionCode: string, baseYm: string): Promise<DnaEngineInput> {
-  const region = await prisma.region.findUniqueOrThrow({ where: { code: regionCode } });
+export interface BuildDnaEngineInputOptions {
+  /** 한 번의 유사지역 비교 계산 안에서 동일 코호트 조회를 공유하는 요청 범위 캐시. 영속 캐시가 아니다. */
+  metricCohortCache?: Map<string, Promise<RegionMetricValue[]>>;
+}
+
+function loadMetricCohort(
+  metricCode: string,
+  baseYm: string,
+  adminLevel: DnaEngineInput["adminLevel"],
+  cache?: Map<string, Promise<RegionMetricValue[]>>,
+): Promise<RegionMetricValue[]> {
+  if (!cache) return fetchMetricCohort(metricCode, baseYm, adminLevel);
+
+  const key = `${metricCode}:${baseYm}:${adminLevel}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const pending = fetchMetricCohort(metricCode, baseYm, adminLevel);
+  cache.set(key, pending);
+  return pending;
+}
+
+export async function buildDnaEngineInput(
+  regionCode: string,
+  baseYm: string,
+  options: BuildDnaEngineInputOptions = {},
+): Promise<DnaEngineInput> {
+  const region = await measureAnalysisStage(
+    "dna-input.region-load",
+    () => prisma.region.findUniqueOrThrow({ where: { code: regionCode } }),
+    { io: "db", queryCount: 1, regionCode },
+  );
 
   const cohorts: DnaEngineInput["metricCohorts"] = {};
-  for (const metricCode of AXIS_METRIC_CODES) {
-    cohorts[metricCode] = await fetchMetricCohort(metricCode, baseYm, region.level);
-  }
+  await measureAnalysisStage(
+    "dna-input.axis-cohorts",
+    async () => {
+      for (const metricCode of AXIS_METRIC_CODES) {
+        cohorts[metricCode] = await loadMetricCohort(metricCode, baseYm, region.level, options.metricCohortCache);
+      }
+    },
+    {
+      io: "db",
+      queryCount: options.metricCohortCache ? 0 : AXIS_METRIC_CODES.length,
+      execution: "sequential",
+      cache: options.metricCohortCache ? "REQUEST_SHARED" : "NONE",
+      regionCode,
+    },
+  );
 
   const prevBaseYm = previousBaseYm(baseYm);
   const yoyBaseYm = previousYearSameMonth(baseYm);
-  const [visitorCurrentCohort, visitorPrevCohort, visitorYoyCohort] = await Promise.all([
-    fetchMetricCohort(METRIC_CODES.VISITOR_CNT, baseYm, region.level),
-    fetchMetricCohort(METRIC_CODES.VISITOR_CNT, prevBaseYm, region.level),
-    fetchMetricCohort(METRIC_CODES.VISITOR_CNT, yoyBaseYm, region.level),
-  ]);
+  const [visitorCurrentCohort, visitorPrevCohort, visitorYoyCohort] = await measureAnalysisStage(
+    "dna-input.visitor-cohorts",
+    () =>
+      Promise.all([
+        loadMetricCohort(METRIC_CODES.VISITOR_CNT, baseYm, region.level, options.metricCohortCache),
+        loadMetricCohort(METRIC_CODES.VISITOR_CNT, prevBaseYm, region.level, options.metricCohortCache),
+        loadMetricCohort(METRIC_CODES.VISITOR_CNT, yoyBaseYm, region.level, options.metricCohortCache),
+      ]),
+    {
+      io: "db",
+      queryCount: options.metricCohortCache ? 0 : 3,
+      execution: "parallel",
+      cache: options.metricCohortCache ? "REQUEST_SHARED" : "NONE",
+      regionCode,
+    },
+  );
   const currentVisitor = visitorCurrentCohort.find((v) => v.regionCode === regionCode);
   const prevVisitor = visitorPrevCohort.find((v) => v.regionCode === regionCode);
   const yoyVisitor = visitorYoyCohort.find((v) => v.regionCode === regionCode);
@@ -58,7 +113,11 @@ export async function buildDnaEngineInput(regionCode: string, baseYm: string): P
     };
   })();
 
-  const pois = await prisma.poi.findMany({ where: { regionId: region.id } });
+  const pois = await measureAnalysisStage(
+    "dna-input.poi-load",
+    () => prisma.poi.findMany({ where: { regionId: region.id } }),
+    { io: "db", queryCount: 1, regionCode },
+  );
 
   // Network provenance 판정(Phase 1-E, 2026-07-23 도입 — 이후 Phase 3(2026-08-13)에서 관계 근거는
   // 완전히 제외했다. PoiRelation은 더 이상 조회하지 않는다 — 산식이 이 데이터를 전혀 쓰지 않으므로
