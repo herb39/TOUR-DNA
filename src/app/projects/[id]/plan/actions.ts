@@ -3,12 +3,13 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { searchPoisInRegion } from "@/lib/services/poiDetails";
 import type { CourseDay, PoiDetail, TransportCode } from "@/lib/domain/planBuilder";
 import { enrichCourseDaysWithRealRoutes } from "@/lib/services/route/courseRouteEnrichment";
 import { fetchCourseRouteGeometry, type RouteGeometrySegment } from "@/lib/services/route/routeGeometryService";
-import { assertProjectAccessible, projectAccessCookieName } from "@/lib/services/projectAccess";
+import { assertProjectAccessible, getProjectAccessStatus, projectAccessCookieName } from "@/lib/services/projectAccess";
 import { getProjectAnchor } from "@/lib/services/projectAnchorService";
 import { findFestivalAnchorItems, validateFestivalAnchorCourseDays } from "@/lib/domain/festivalAnchorCourse";
 import {
@@ -25,8 +26,55 @@ async function requireProjectAccess(projectId: string): Promise<void> {
   await assertProjectAccessible(projectId, cookieStore.get(projectAccessCookieName(projectId))?.value);
 }
 
+export type SavePlanErrorCode =
+  | "ACCESS_DENIED"
+  | "PAYLOAD_INVALID"
+  | "ANCHOR_VALIDATION_FAILED"
+  | "PLAN_NOT_FOUND"
+  | "DB_TRANSACTION_FAILED"
+  | "UNEXPECTED_SAVE_ERROR";
+
+const SAVE_PLAN_ERROR_MESSAGE = "변경사항을 저장하지 못했습니다. 다시 시도해주세요.";
+
+function logSaveDiagnostic(stage: string, code: SavePlanErrorCode): void {
+  // Production 로그·클라이언트에는 내부 오류 객체, payload, 식별자, 연결 정보를 남기지 않는다.
+  console.error(JSON.stringify({ level: "error", source: "savePlanAction", stage, code }));
+}
+
+function saveFailure(code: SavePlanErrorCode, message = SAVE_PLAN_ERROR_MESSAGE, stage = "result"): SavePlanFormState {
+  logSaveDiagnostic(stage, code);
+  return { success: false, code, message };
+}
+
+function isRecordNotFoundError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) return error.code === "P2025";
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2025";
+}
+
+function isCoursePayload(value: unknown): value is { days: CourseDay[] } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const days = (value as { days?: unknown }).days;
+  return (
+    Array.isArray(days) &&
+    days.every((day) => Boolean(day) && typeof day === "object" && !Array.isArray(day) && Array.isArray((day as { items?: unknown }).items))
+  );
+}
+
+async function getSaveAccessFailureCode(projectId: string): Promise<SavePlanErrorCode | null> {
+  try {
+    const cookieStore = await cookies();
+    const status = await getProjectAccessStatus(projectId, cookieStore.get(projectAccessCookieName(projectId))?.value);
+    if (status.kind === "NOT_FOUND") return "PLAN_NOT_FOUND";
+    if (status.kind === "LOCKED") return "ACCESS_DENIED";
+    return null;
+  } catch {
+    return "UNEXPECTED_SAVE_ERROR";
+  }
+}
+
 export interface SavePlanFormState {
   success: boolean;
+  code?: SavePlanErrorCode;
   message?: string;
   savedAt?: string;
   /** 저장 직후 서버가 실제로 반영한 course(카카오 실제 경로 enrichment 결과 포함)를 그대로 돌려준다.
@@ -52,10 +100,11 @@ export async function savePlanAction(
   const risksJson = String(formData.get("risksJson") ?? "");
   const kpisJson = String(formData.get("kpisJson") ?? "");
 
-  await requireProjectAccess(projectId);
+  const accessFailureCode = await getSaveAccessFailureCode(projectId);
+  if (accessFailureCode) return saveFailure(accessFailureCode, undefined, "access");
 
   if (!productName) {
-    return { success: false, message: "상품명을 입력해주세요." };
+    return saveFailure("PAYLOAD_INVALID", "상품명을 입력해주세요.", "payload");
   }
 
   let course: { days: CourseDay[] };
@@ -63,28 +112,47 @@ export async function savePlanAction(
   let risks: unknown;
   let kpis: unknown;
   try {
-    course = JSON.parse(courseJson);
+    const parsedCourse: unknown = JSON.parse(courseJson);
+    if (!isCoursePayload(parsedCourse)) throw new Error("invalid course shape");
+    course = parsedCourse;
     operationChecklist = JSON.parse(operationChecklistJson);
     risks = JSON.parse(risksJson);
     kpis = JSON.parse(kpisJson);
   } catch {
-    return { success: false, message: "실행안 데이터 형식이 올바르지 않습니다." };
+    return saveFailure("PAYLOAD_INVALID", "실행안 데이터 형식이 올바르지 않습니다.", "payload");
   }
 
   // P1-2b: 코스에 Anchor가 있을 때만 현재 ProjectAnchor를 읽어 snapshot 정합성을 확인한다.
   // Anchor가 없는 기존 실행안은 이 조회를 거치지 않아 레거시 Production 스키마에서도 계속 저장된다.
   const courseAnchorItems = findFestivalAnchorItems(course.days);
   if (courseAnchorItems.length > 0) {
-    const anchorResult = await getProjectAnchor(projectId);
+    let anchorResult: Awaited<ReturnType<typeof getProjectAnchor>>;
+    try {
+      anchorResult = await getProjectAnchor(projectId);
+    } catch {
+      return saveFailure("UNEXPECTED_SAVE_ERROR", undefined, "anchor");
+    }
     if (anchorResult.storage === "UNAVAILABLE") {
-      return { success: false, message: "축제 Anchor 저장소를 확인할 수 없어 저장할 수 없습니다. 기존 장소만 있는 실행안은 계속 저장할 수 있습니다." };
+      return saveFailure(
+        "ANCHOR_VALIDATION_FAILED",
+        "축제 Anchor 저장소를 확인할 수 없어 저장할 수 없습니다. 기존 장소만 있는 실행안은 계속 저장할 수 있습니다.",
+        "anchor",
+      );
     }
     if (!anchorResult.anchor) {
-      return { success: false, message: "현재 프로젝트에 확정된 Anchor가 없습니다. 코스에서 기존 Anchor를 먼저 코스에서만 제거해주세요." };
+      return saveFailure(
+        "ANCHOR_VALIDATION_FAILED",
+        "현재 프로젝트에 확정된 Anchor가 없습니다. 코스에서 기존 Anchor를 먼저 코스에서만 제거해주세요.",
+        "anchor",
+      );
     }
     const anchorValidation = validateFestivalAnchorCourseDays(course.days, anchorResult.anchor);
     if (!anchorValidation.ok) {
-      return { success: false, message: anchorValidation.message ?? "축제 Anchor 설정이 현재 프로젝트와 일치하지 않습니다. 다시 반영해주세요." };
+      return saveFailure(
+        "ANCHOR_VALIDATION_FAILED",
+        anchorValidation.message ?? "축제 Anchor 설정이 현재 프로젝트와 일치하지 않습니다. 다시 반영해주세요.",
+        "anchor",
+      );
     }
   }
 
@@ -102,10 +170,8 @@ export async function savePlanAction(
       const previousDays = (existing?.selectedPlan?.course as { days: CourseDay[] } | undefined)?.days ?? null;
       course = { days: await enrichCourseDaysWithRealRoutes(course.days, transport, previousDays) };
     }
-  } catch (e) {
-    console.error(
-      JSON.stringify({ level: "error", source: "savePlanAction", message: "route enrichment failed, saving haversine estimates as-is", reason: e instanceof Error ? e.message : "unknown" }),
-    );
+  } catch {
+    console.warn(JSON.stringify({ level: "warn", source: "savePlanAction", stage: "route_enrichment", outcome: "fallback" }));
   }
 
   try {
@@ -126,18 +192,15 @@ export async function savePlanAction(
       prisma.project.update({ where: { id: projectId }, data: { status: "PLANNED" } }),
     ]);
   } catch (e) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        source: "savePlanAction",
-        message: "plan save failed",
-        reason: e instanceof Error ? e.message : "unknown",
-      }),
-    );
-    return { success: false, message: "변경사항을 저장하지 못했습니다. 다시 시도해주세요." };
+    return saveFailure(isRecordNotFoundError(e) ? "PLAN_NOT_FOUND" : "DB_TRANSACTION_FAILED", undefined, "transaction");
   }
 
-  revalidatePath(`/projects/${projectId}/plan`);
+  try {
+    revalidatePath(`/projects/${projectId}/plan`);
+  } catch {
+    // DB write는 이미 성공했으므로 재검증 실패가 저장 성공을 거짓 실패로 바꾸지 않게 한다.
+    console.warn(JSON.stringify({ level: "warn", source: "savePlanAction", stage: "revalidate", outcome: "skipped" }));
+  }
   return { success: true, savedAt: new Date().toISOString(), days: course.days };
 }
 

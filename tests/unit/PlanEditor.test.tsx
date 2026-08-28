@@ -626,7 +626,11 @@ describe("PlanEditor 저장 상태 계약", () => {
 
   it("저장 실패는 ERROR 안내와 DIRTY를 유지하며, 재시도 성공 시 SAVED가 된다", async () => {
     vi.mocked(savePlanAction)
-      .mockResolvedValueOnce({ success: false, message: "변경사항을 저장하지 못했습니다. 다시 시도해주세요." })
+      .mockResolvedValueOnce({
+        success: false,
+        code: "DB_TRANSACTION_FAILED",
+        message: "변경사항을 저장하지 못했습니다. 다시 시도해주세요.",
+      })
       .mockResolvedValueOnce({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
     render(<PlanEditor plan={makePlan()} />);
 
@@ -634,11 +638,37 @@ describe("PlanEditor 저장 상태 계약", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByRole("alert");
 
-    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장하지 않은 변경사항이 있습니다.");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "DB_TRANSACTION_FAILED");
     expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText("모든 변경사항이 저장되었습니다.");
+  });
+
+  it("Server Action이 throw해도 generic ERROR와 진단 code를 표시한다", async () => {
+    vi.mocked(savePlanAction).mockRejectedValueOnce(new Error("internal detail"));
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "예외 저장 대상" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert")).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "UNEXPECTED_SAVE_ERROR");
+  });
+
+  it("예상하지 않은 Server Action 결과도 성공으로 표시하지 않는다", async () => {
+    vi.mocked(savePlanAction).mockResolvedValueOnce(undefined as unknown as SavePlanFormState);
+    render(<PlanEditor plan={makePlan()} />);
+
+    fireEvent.change(screen.getByLabelText("상품명"), { target: { value: "예상 밖 결과 대상" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await screen.findByRole("alert");
+    expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "UNEXPECTED_SAVE_ERROR");
   });
 
   it("후보 추가 후 삭제하면 저장 대상이 원복되어 CLEAN으로 돌아간다", async () => {

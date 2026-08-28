@@ -2,7 +2,12 @@
 
 import { startTransition, useActionState, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { savePlanAction, searchAvailablePoisAction, type SavePlanFormState } from "@/app/projects/[id]/plan/actions";
+import {
+  savePlanAction,
+  searchAvailablePoisAction,
+  type SavePlanErrorCode,
+  type SavePlanFormState,
+} from "@/app/projects/[id]/plan/actions";
 import {
   recomputeDayItems,
   estimateTravel,
@@ -110,6 +115,37 @@ export interface PlanEditorData {
 const initialActionState: SavePlanFormState = { success: false };
 type SaveFeedback = "CLEAN" | "SAVED" | "ERROR";
 type DisplaySaveStatus = SaveFeedback | "DIRTY" | "SAVING";
+const SAVE_PLAN_ERROR_MESSAGE = "변경사항을 저장하지 못했습니다. 다시 시도해주세요.";
+const SAVE_PLAN_ERROR_CODES = new Set<SavePlanErrorCode>([
+  "ACCESS_DENIED",
+  "PAYLOAD_INVALID",
+  "ANCHOR_VALIDATION_FAILED",
+  "PLAN_NOT_FOUND",
+  "DB_TRANSACTION_FAILED",
+  "UNEXPECTED_SAVE_ERROR",
+]);
+
+function normalizedSavePlanResult(value: unknown): SavePlanFormState {
+  if (!value || typeof value !== "object" || typeof (value as { success?: unknown }).success !== "boolean") {
+    return { success: false, code: "UNEXPECTED_SAVE_ERROR", message: SAVE_PLAN_ERROR_MESSAGE };
+  }
+
+  const result = value as SavePlanFormState;
+  if (!result.success) {
+    const code = SAVE_PLAN_ERROR_CODES.has(result.code as SavePlanErrorCode) ? result.code : "UNEXPECTED_SAVE_ERROR";
+    return {
+      success: false,
+      code,
+      message: typeof result.message === "string" ? result.message : SAVE_PLAN_ERROR_MESSAGE,
+    };
+  }
+
+  if (typeof result.savedAt !== "string" || result.savedAt.length === 0) {
+    return { success: false, code: "UNEXPECTED_SAVE_ERROR", message: SAVE_PLAN_ERROR_MESSAGE };
+  }
+  return result;
+}
+
 type PlanSaveSnapshot = Pick<PlanEditorData, "productName" | "conceptText" | "memo" | "kpiMemo" | "operationChecklist" | "risks" | "kpis"> & {
   days: CourseDay[];
 };
@@ -296,7 +332,14 @@ export function PlanEditor({
   strategyName?: string | null;
 }) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
-  const [state, formAction, isPending] = useActionState(boundSave, initialActionState);
+  const safeSave = async (previousState: SavePlanFormState, formData: FormData): Promise<SavePlanFormState> => {
+    try {
+      return normalizedSavePlanResult(await boundSave(previousState, formData));
+    } catch {
+      return { success: false, code: "UNEXPECTED_SAVE_ERROR", message: SAVE_PLAN_ERROR_MESSAGE };
+    }
+  };
+  const [state, formAction, isPending] = useActionState(safeSave, initialActionState);
 
   const [productName, setProductName] = useState(plan.productName);
   const [conceptText, setConceptText] = useState(plan.conceptText);
@@ -790,7 +833,15 @@ export function PlanEditor({
     });
   }
 
-  const displaySaveStatus: DisplaySaveStatus = isPending ? "SAVING" : isDirty ? "DIRTY" : saveFeedback;
+  const displaySaveStatus: DisplaySaveStatus = isPending
+    ? "SAVING"
+    : saveFeedback === "ERROR"
+      ? "ERROR"
+      : saveFeedback === "SAVED" && !isDirty
+        ? "SAVED"
+        : isDirty
+          ? "DIRTY"
+          : saveFeedback;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -1318,6 +1369,7 @@ export function PlanEditor({
               role="status"
               aria-label="저장 상태"
               aria-live="polite"
+              data-save-diagnostic-code={displaySaveStatus === "ERROR" ? state.code ?? "UNEXPECTED_SAVE_ERROR" : undefined}
             >
               {displaySaveStatus === "CLEAN"
                 ? "현재 저장된 내용과 같습니다."
@@ -1327,7 +1379,7 @@ export function PlanEditor({
                     ? "저장 중..."
                     : displaySaveStatus === "SAVED"
                       ? "모든 변경사항이 저장되었습니다."
-                      : "변경사항을 저장하지 못했습니다. 다시 시도해주세요."}
+                      : SAVE_PLAN_ERROR_MESSAGE}
             </p>
           </div>
           <p className="mt-1 text-xs text-slate-500">코스 편집을 마치면 저장해 실행안을 확정하세요.</p>
