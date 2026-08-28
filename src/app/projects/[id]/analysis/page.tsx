@@ -52,7 +52,7 @@ import {
   deleteFestivalAnchorAction,
   saveFestivalAnchorAction,
 } from "./festivalAnchorActions";
-import { measureAnalysisComputation, measureAnalysisStage, logAnalysisTiming } from "@/lib/services/analysisTiming";
+import { getAnalysisTimingNow, measureAnalysisComputation, measureAnalysisStage, logAnalysisTiming } from "@/lib/services/analysisTiming";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +84,7 @@ function toEvidenceRow(e: {
 }
 
 export default async function AnalysisPage({ params }: { params: Promise<{ id: string }> }) {
-  const pageStartedAt = performance.now();
+  const pageStartedAt = getAnalysisTimingNow();
   const { id } = await params;
 
   let project: Awaited<ReturnType<typeof getProjectDetail>> = null;
@@ -397,7 +397,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     }),
   );
 
-  logAnalysisTiming("analysis-page.render-preparation", performance.now() - pageStartedAt, {
+  logAnalysisTiming("analysis-page.render-preparation", getAnalysisTimingNow() - pageStartedAt, {
     outcome: "READY",
     strategyCount: analysisResult.strategyResults.length,
     evidenceCount: analysisResult.evidences.length,

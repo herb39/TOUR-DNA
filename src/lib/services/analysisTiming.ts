@@ -23,6 +23,10 @@ export function isAnalysisTimingEnabled(): boolean {
   return process.env.ANALYSIS_TIMING === "1";
 }
 
+export function getAnalysisTimingNow(): number {
+  return performance.now();
+}
+
 export function logAnalysisTiming(stage: string, ms: number, details: AnalysisTimingDetails = {}): void {
   if (!isAnalysisTimingEnabled()) return;
   if (DETAIL_STAGES.has(stage) && process.env.ANALYSIS_TIMING_DETAIL !== "1") return;
