@@ -1759,7 +1759,7 @@ function ScheduleItemRow({
               <input
                 type="number"
                 min={0}
-                step={10}
+                step={5}
                 value={item.stayMinutes}
                 onChange={(e) => onUpdateItemStayMinutes(day.dayIndex, idx, Number(e.target.value))}
                 aria-label={`${item.poiName} 체류시간(분)`}

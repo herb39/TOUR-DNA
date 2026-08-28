@@ -426,10 +426,12 @@ describe("PlanEditor 코스 추가/삭제/이동", () => {
 
     const stayInput = screen.getByLabelText("A장소 체류시간(분)") as HTMLInputElement;
     expect(stayInput.value).toBe("60");
+    expect(stayInput).toHaveAttribute("step", "5");
 
-    fireEvent.change(stayInput, { target: { value: "90" } });
+    fireEvent.change(stayInput, { target: { value: "75" } });
 
-    expect((screen.getByLabelText("A장소 체류시간(분)") as HTMLInputElement).value).toBe("90");
+    expect((screen.getByLabelText("A장소 체류시간(분)") as HTMLInputElement).value).toBe("75");
+    expect(stayInput.checkValidity()).toBe(true);
   });
 });
 
