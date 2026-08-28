@@ -89,6 +89,7 @@ test.describe("TOUR DNA 핵심 플로우 (신규 프로젝트, 상태 변경 포
     await page.getByLabel("상품명").fill(newName);
     await page.getByRole("button", { name: "저장" }).click();
     await expect(page.getByText("모든 변경사항이 저장되었습니다.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_RESOLVED");
 
     await page.reload();
     await expect(page.getByLabel("상품명")).toHaveValue(newName);

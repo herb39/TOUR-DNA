@@ -542,6 +542,7 @@ describe("PlanEditor 저장 상태 계약", () => {
     render(<PlanEditor plan={makePlan()} />);
 
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("현재 저장된 내용과 같습니다.");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "IDLE");
     expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -605,10 +606,12 @@ describe("PlanEditor 저장 상태 계약", () => {
 
     await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("저장 중..."));
     expect(screen.getByRole("button", { name: "저장 중..." })).toBeDisabled();
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_DISPATCHED");
     expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
 
     resolveSave({ success: true, savedAt: "2026-08-26T00:00:00.000Z" });
     await waitFor(() => expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("모든 변경사항이 저장되었습니다."));
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_RESOLVED");
   });
 
   it("저장 성공 후 다시 편집하면 SAVED가 사라지고 DIRTY로 돌아간다", async () => {
@@ -640,6 +643,7 @@ describe("PlanEditor 저장 상태 계약", () => {
 
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "DB_TRANSACTION_FAILED");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_RESOLVED");
     expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
@@ -657,6 +661,7 @@ describe("PlanEditor 저장 상태 계약", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveTextContent("변경사항을 저장하지 못했습니다. 다시 시도해주세요.");
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "UNEXPECTED_SAVE_ERROR");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_REJECTED");
   });
 
   it("예상하지 않은 Server Action 결과도 성공으로 표시하지 않는다", async () => {
@@ -669,6 +674,7 @@ describe("PlanEditor 저장 상태 계약", () => {
     await screen.findByRole("alert");
     expect(screen.queryByText("모든 변경사항이 저장되었습니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-diagnostic-code", "UNEXPECTED_SAVE_ERROR");
+    expect(screen.getByRole("status", { name: "저장 상태" })).toHaveAttribute("data-save-client-stage", "ACTION_RESOLVED");
   });
 
   it("후보 추가 후 삭제하면 저장 대상이 원복되어 CLEAN으로 돌아간다", async () => {

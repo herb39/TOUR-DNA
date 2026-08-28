@@ -115,6 +115,14 @@ export interface PlanEditorData {
 const initialActionState: SavePlanFormState = { success: false };
 type SaveFeedback = "CLEAN" | "SAVED" | "ERROR";
 type DisplaySaveStatus = SaveFeedback | "DIRTY" | "SAVING";
+type SaveClientStage =
+  | "IDLE"
+  | "BUTTON_CLICKED"
+  | "FORM_SUBMIT"
+  | "HANDLER_ENTERED"
+  | "ACTION_DISPATCHED"
+  | "ACTION_RESOLVED"
+  | "ACTION_REJECTED";
 const SAVE_PLAN_ERROR_MESSAGE = "변경사항을 저장하지 못했습니다. 다시 시도해주세요.";
 const SAVE_PLAN_ERROR_CODES = new Set<SavePlanErrorCode>([
   "ACCESS_DENIED",
@@ -332,10 +340,21 @@ export function PlanEditor({
   strategyName?: string | null;
 }) {
   const boundSave = savePlanAction.bind(null, plan.id, plan.projectId);
+  const [clientStage, setClientStage] = useState<SaveClientStage>("IDLE");
+  const [clientDiagnosticCode, setClientDiagnosticCode] = useState<SavePlanErrorCode | null>(null);
+
+  function recordClientStage(stage: SaveClientStage) {
+    setClientStage(stage);
+  }
+
   const safeSave = async (previousState: SavePlanFormState, formData: FormData): Promise<SavePlanFormState> => {
     try {
-      return normalizedSavePlanResult(await boundSave(previousState, formData));
+      const result = normalizedSavePlanResult(await boundSave(previousState, formData));
+      recordClientStage("ACTION_RESOLVED");
+      return result;
     } catch {
+      recordClientStage("ACTION_REJECTED");
+      setClientDiagnosticCode("UNEXPECTED_SAVE_ERROR");
       return { success: false, code: "UNEXPECTED_SAVE_ERROR", message: SAVE_PLAN_ERROR_MESSAGE };
     }
   };
@@ -404,11 +423,13 @@ export function PlanEditor({
       }
       setSavedSnapshot(nextSavedSnapshot);
       setSaveFeedback(currentStillMatchesSubmitted ? "SAVED" : "CLEAN");
+      setClientDiagnosticCode(null);
       saveRequestSnapshotRef.current = null;
       return;
     }
 
     if (!state.success) {
+      setClientDiagnosticCode(state.code ?? "UNEXPECTED_SAVE_ERROR");
       setSaveFeedback("ERROR");
       saveRequestSnapshotRef.current = null;
     }
@@ -518,6 +539,7 @@ export function PlanEditor({
   // 임시 선택, 필터·포커스·후보 재정렬처럼 snapshot에 없는 UI-only state는 이 함수를 호출하지 않는다.
   function markPlanEdited() {
     setSaveFeedback("CLEAN");
+    setClientDiagnosticCode(null);
   }
 
   function moveItem(dayIndex: number, itemIndex: number, direction: -1 | 1) {
@@ -825,12 +847,23 @@ export function PlanEditor({
    * formAction을 수동으로 호출한다(useActionState의 상태 관리·isPending은 그대로 동작).
    */
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    recordClientStage("FORM_SUBMIT");
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    saveRequestSnapshotRef.current = currentSnapshot;
-    startTransition(() => {
-      formAction(formData);
-    });
+    recordClientStage("HANDLER_ENTERED");
+    try {
+      const formData = new FormData(e.currentTarget);
+      saveRequestSnapshotRef.current = currentSnapshot;
+      setClientDiagnosticCode(null);
+      recordClientStage("ACTION_DISPATCHED");
+      startTransition(() => {
+        formAction(formData);
+      });
+    } catch {
+      recordClientStage("ACTION_REJECTED");
+      setClientDiagnosticCode("UNEXPECTED_SAVE_ERROR");
+      setSaveFeedback("ERROR");
+      saveRequestSnapshotRef.current = null;
+    }
   }
 
   const displaySaveStatus: DisplaySaveStatus = isPending
@@ -1369,7 +1402,10 @@ export function PlanEditor({
               role="status"
               aria-label="저장 상태"
               aria-live="polite"
-              data-save-diagnostic-code={displaySaveStatus === "ERROR" ? state.code ?? "UNEXPECTED_SAVE_ERROR" : undefined}
+              data-save-client-stage={clientStage}
+              data-save-diagnostic-code={
+                displaySaveStatus === "ERROR" ? clientDiagnosticCode ?? state.code ?? "UNEXPECTED_SAVE_ERROR" : undefined
+              }
             >
               {displaySaveStatus === "CLEAN"
                 ? "현재 저장된 내용과 같습니다."
@@ -1386,6 +1422,7 @@ export function PlanEditor({
           <button
             type="submit"
             disabled={isPending}
+            onClick={() => recordClientStage("BUTTON_CLICKED")}
             className="mt-3 w-full cursor-pointer rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? "저장 중..." : "저장"}
