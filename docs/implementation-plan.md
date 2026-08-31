@@ -1,5 +1,68 @@
 # TOUR DNA 구현 계획
 
+## Current Roadmap — 2026-08-31
+
+이 절이 현재 로드맵의 기준이다. 아래의 날짜별 구현 계획과 실행 기록은 당시의 판단과 작업 순서를
+삭제하지 않고 historical 기록으로 보존한다. 완료 기능을 다시 TODO로 해석하지 않으며, 제출 전 작업과
+기술 부채를 분리한다.
+
+### 현재 Production 기준
+
+- Production readiness: **READY**
+- Demo readiness: **READY**
+- Production migration: **17/17 APPLIED**
+- Production ACTIVE Dataset: **`202606`**
+- 공식 최신 확인월: **`202607`**. `202607`·`202608`은 아직 Production에 반영하지 않았다.
+- P0/P1: 없음
+
+### 완료 기능
+
+- **전국 데이터 기반**: local PostgreSQL 기준 전국 SIGUNGU `255/255` 동기화·감사 완료. Production Neon은
+  batch 처리용으로 사용하지 않는다.
+- **DNA**: 체류·소비·다양성·서비스 수요·Network 5축 진단과 근거·provenance 표시가 구현돼 있다.
+  `DEMAND_RESOURCE` 공식 코드값은 아직 미확정이므로 확정된 데이터로 과장하지 않는다.
+- **전략**: 전략 3안, 역할별 차별화, 벤치마킹과 실행 관점(KPI·위험·체크리스트)을 제공한다.
+- **Course Studio**: 자동 초안, 추천 후보 풀, 후보 추가·삭제·재정렬, 날짜 변경, 체류시간 편집,
+  지도·동선 표시와 저장/reload가 구현·검증돼 있다.
+- **Festival Anchor**: 공식 행사 후보 조회, 선택·저장, 날짜·코스 연결, 행사 전후 후보 연계가 가능하다.
+- **PET**: 공식 목록과 실제 노출 대상의 교집합에 targeted evidence를 적용한다. evidence가 없으면
+  `UNKNOWN`이며 공식 목록 밖이라는 이유로 불가 판정을 만들지 않는다.
+- **ACCESSIBILITY**: 공식 목록 교집합의 targeted evidence, 차원별 `dimensionDetails`, 사용자 advisory가
+  구현돼 있다. `UNKNOWN`은 정보 미확인이다.
+- **DataProvenance**: `LIVE_API`, `CACHED_API`, `CURATED`, `ESTIMATED`, `MISSING`과 미분류 상태를
+  구분해 실제 근거 수준을 표시한다.
+- **Promo**: 검증된 context 기반 결정론적 rule generator 경로는 시연 가능하다. 역할별 채널 문구와
+  preview·편집·저장을 지원한다.
+- **Print**: 실행안의 브라우저 인쇄·PDF 저장 흐름을 제공한다. 자동 PDF 생성 서비스로 표현하지 않는다.
+
+### 제출 전 필수·우선 작업
+
+1. `202607`을 local에서 구축하고 completeness/audit/drift를 검증한다.
+2. `202608` 공식 데이터 공개 후 같은 절차로 local에서 순차 구축·검증한다.
+3. 최종 검증된 최신 Dataset만 Production에 promotion/import한다. 대상 row·write 수와 rollback 계획을
+   사전에 확정하고, 기존 ACTIVE 보존·ARCHIVED 전환을 확인한다.
+4. 대표 프로젝트의 분석부터 Print까지 final demo QA를 수행한다.
+5. 여행월·지역 기준 Festival targeted refresh를 수행하고 행사 시각이 없으면 임의 추정하지 않는다.
+6. 최신 운영 snapshot, 기능맵, 테스트 기록과 제출·발표 자료를 최종 갱신한다.
+
+### 기술 부채와 제한 사항
+
+- 실제 모바일 touch 기기의 전체 Drag & Drop 검증은 제한적이다.
+- POI 폐업·삭제 history와 숙박·장거리 이동의 상품 realism은 추가 검토가 필요하다.
+- Promo LLM overlay는 local 구현이며 Production 안정성이 확정되지 않았다. 시연은 rule generator를 기준으로 한다.
+- `DEMAND_RESOURCE` 공식 코드값은 아직 미확정이다.
+- 위 항목들은 현재 제출을 막는 P0/P1이 아니라 제한 사항·기술 부채다.
+
+### 로드맵 운영 원칙
+
+제출 전에는 새로운 대형 기능이나 일반 알고리즘 확장보다 데이터 최신화, 시연 안정성, 문서와 제출
+완성도를 우선한다. 전국 sync·Dataset build·normalization·drift·bulk enrichment는 local PostgreSQL에서만
+수행하며, Production Neon에서는 runtime과 검증 완료 결과의 최소 promotion/import만 수행한다.
+
+> **이후 절의 성격**: 아래에 이어지는 날짜별 `현재 로드맵 갱신`, Part 1, Part 2, Part 3 및 실행 기록은
+> 당시 상태를 보존한 historical 자료다. `미구현`, `다음`, `Production 미반영` 등의 표현은 해당 작성
+> 시점의 의미이며, 현재 완료 여부는 위 Current Roadmap과 최신 canonical 문서를 기준으로 판단한다.
+
 이 문서는 두 부분으로 구성된다. **현재 로드맵 갱신**은 문서 최상단의 최신 절을 기준으로 하며,
 이전 계획과 실행 기록은 변경하지 않고 보존한다. **Part 1**은 최초 MVP 구축 당시(2026-07-20) 작성된 원본 기록으로
 그대로 보존한다. **Part 2**는 2026-07-23 `TOUR-DNA-Claude-Code-Implementation-Prompt.md`(공모전 제출판

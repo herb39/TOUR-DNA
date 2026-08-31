@@ -1,5 +1,56 @@
 # 공모전 지정과제 7번 기능 매핑 (2026-07-23 작성, 2026-07-26 Phase 4 반영 갱신)
 
+## 현재 공모전 기능맵 — 2026-08-31
+
+아래 내용이 현재 Production과 공모전 시연 기준의 기능맵이다. 뒤의 기존 표와 날짜별 절은 최초 기획과
+당시 검증 기록을 보존한 historical 자료이며, 현재 상태를 판단할 때는 이 절을 우선한다.
+
+### 핵심 서비스 스토리
+
+TOUR-DNA는 지역 관광 데이터를 진단하고, 데이터 기반 전략과 후보를 제안한 뒤, 기획자가 Course Studio에서
+실제 관광상품을 완성하고 검증하는 플랫폼이다. 자동 생성만으로 끝내지 않고, 자동 초안과 추천 후보를
+기획자가 직접 편집·저장·검증하는 흐름을 핵심 가치로 둔다.
+
+### 문제 → 기능 → 데이터 → 결과
+
+| 해결하려는 문제 | 기능 | 데이터·근거 | 결과 |
+|---|---|---|---|
+| 지역 소비·체류 부족 | DNA 5축 → 전략 3안 → Course Studio | 관광 통계 Dataset, 지역 POI, provenance | 문제 진단부터 코스·KPI·실행안까지 연결 |
+| 지역별 전략 차별화 필요 | 역할별 전략·벤치마킹 | 역할 입력, DNA·지역 비교, 기획 규칙 | 여행사·지자체·축제 기획자 관점별 실행안 |
+| 행사 중심 관광의 주변 확산 | Festival Anchor | 한국관광공사 공식 행사 후보·날짜·좌표 | 행사 전후 관광·식음·숙박을 연결한 코스 |
+| 반려동물·무장애 조건의 불확실성 | PET·ACCESSIBILITY advisory | 공식 목록과 targeted 상세 evidence | 확인된 근거는 표시하고 나머지는 `UNKNOWN`으로 보존 |
+
+### 실제 구현 상태
+
+| 기능 | 현재 상태 | 시연·표현 범위 |
+|---|---|---|
+| DNA 5축 | **READY** | 체류·소비·다양성·서비스 수요·Network 진단과 근거 표시. `DEMAND_RESOURCE` 공식 코드는 미확정 |
+| 전략 3안 | **READY** | 기회와 전략 후보, 역할별 적합도·KPI·위험·체크리스트 제공 |
+| 벤치마킹 | **READY** | 현재 지원 지역 데이터 기준 유사지역 비교와 전략 근거 제공 |
+| 역할 차별화 | **READY** | 여행사·지자체·축제 기획자 입력에 따라 전략·실행 관점을 조정하며 DNA 원값은 왜곡하지 않음 |
+| Course Studio | **READY** | 자동 초안, 추천 후보 풀, 추가·삭제·재정렬, 날짜·체류시간 편집, 저장/reload |
+| 지도·동선 | **READY** | 지도와 동선 표시. 도로 경로가 아닌 구간은 좌표 기반 추정으로 표시하고 fallback을 유지 |
+| Festival Anchor | **READY** | 공식 행사 후보 선택·저장·날짜 반영·코스 연결. 공식 시간이 없으면 임의 추정하지 않음 |
+| PET | **READY · targeted** | 공식 evidence가 있는 POI만 근거 표시. evidence 없는 POI는 `UNKNOWN`; 전국 coverage로 주장하지 않음 |
+| ACCESSIBILITY | **READY · targeted** | 차원별 공식 `dimensionDetails` advisory. 목록 밖·상세 미확인 POI는 `UNKNOWN`이며 불가가 아님 |
+| DataProvenance | **READY** | `LIVE_API`, `CACHED_API`, `CURATED`, `ESTIMATED`, `MISSING`과 미분류 상태를 구분 |
+| Promo | **READY · rule generator 기준** | 규칙 기반 홍보자료 생성·편집·복사·저장·preview 가능. LLM overlay Production 안정성은 제한적 |
+| Print | **READY · 브라우저 흐름** | 실행안의 브라우저 인쇄·PDF 저장 기준. 완성된 PDF 자동 생성으로 과장하지 않음 |
+
+### 데이터·운영 표현 원칙
+
+- Production ACTIVE Dataset은 `202606`, 공식 최신 확인월은 `202607`이며 `202607`·`202608`은 아직
+  Production에 반영하지 않았다. 9월에 local에서 두 월을 순차 구축·검증한 뒤 최신 검증월만 반영한다.
+- 전국 API sync, Dataset build, normalization·drift 검증, bulk PET/ACCESSIBILITY enrichment는 local
+  PostgreSQL에서만 수행한다. Production Neon은 runtime과 검증 완료 결과의 최소 promotion/import 용도다.
+- PET·ACCESSIBILITY 공식 목록에 없거나 상세 evidence가 없는 POI를 이용 불가로 추론하지 않는다.
+- `LIVE_API`·`CACHED_API`·`CURATED`·`ESTIMATED`·`MISSING`은 서로 다른 근거 수준이며, 추정값을 실제 API
+  근거처럼 표현하지 않는다.
+
+> **역사 기록 안내**: 아래 최초 작성 표와 날짜별 설명에는 당시의 `provenance 미적용`, Production
+> 미반영, 지역 수, LLM 미사용 등의 표현이 남아 있다. 해당 내용은 당시 상태의 기록이며 현재 기능맵의
+> 구현·배포·제한 상태로 해석하지 않는다.
+
 > 최초 기준 커밋: `5e16dec`. 2026-07-26 갱신 시점 로컬 HEAD는 Phase 5-A~5-C+보완, 문서 갱신, Phase 4
 > 순으로 이어진 최신 커밋이며, 그 시점에는 `origin/main`(당시 `a13e98d`)에 미반영이었다. 이 문서는
 > `TOUR-DNA-Claude-Code-Implementation-Prompt.md`의 최초 검토용 프롬프트 4번 항목 산출물로 시작했다.

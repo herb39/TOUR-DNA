@@ -1,5 +1,69 @@
 # 운영자 체크리스트
 
+## 현재 운영 체크리스트 — 2026-08-31
+
+아래 항목이 현재 Production 운영과 공모전 시연 전 확인의 기준이다. 이 문서 아래의 날짜별 절은
+당시 실행 기록을 보존한 historical 기록이므로, 현재 상태를 판단할 때는 이 절을 우선한다.
+
+### Production 기본 확인
+
+- [x] 운영 branch는 `main`이며, 최신 검증 커밋이 `origin/main`에 반영돼 있다.
+- [x] Production 배포 상태는 `READY`, 공모전 시연 상태는 `READY`다.
+- [x] Production migration은 `17/17 APPLIED`다. 월별 Dataset을 추가할 때 migration을 반복하지 않는다.
+- [x] Production ACTIVE Dataset은 `202606`이다.
+- [x] 공개 URL은 `https://tour-dna.lib.lc`이며, 프로젝트 생성·분석·Course Studio·저장/재진입 등
+      핵심 runtime 흐름을 사용한다.
+- [ ] 시연 직전 공개 URL에서 대표 프로젝트, DNA 5축, 전략 3안, Course Studio, 저장/reload,
+      Festival Anchor, PET, ACCESSIBILITY, Print를 순서대로 확인한다.
+
+### Neon 안전 정책
+
+- [x] Production Neon에서 전국 batch를 실행하지 않는다.
+- [x] Production Neon에서 공식 API batch, 전국 반복 조회, 대량 read, seed, backfill을 실행하지 않는다.
+- [x] 전국 API sync, Dataset build, normalization, completeness/drift 검증은 local PostgreSQL에서만 수행한다.
+- [x] PET·ACCESSIBILITY는 전국 bulk enrichment를 하지 않는다. 필요한 사용자 노출 대상의 targeted
+      근거와 검증된 최종 결과 promotion/import만 허용한다.
+- [ ] Production promotion/import 전에 대상 table, insert/update 예상 row 수, delete 여부, 총 write 수,
+      transaction 범위와 rollback 방식을 기록한다.
+- [x] `ALLOW_REMOTE_DATA_SYNC` 또는 유사한 원격 batch 허용 설정은 현재 운영에서 활성화하지 않는다.
+      Vercel Cron이 존재해도 Production 전국 수집을 재개하지 않는다.
+
+### Dataset 운영 체크
+
+- [x] 현재 ACTIVE는 `202606`이다.
+- [x] 공식 API 최신 완전월 `202607`을 확인했지만 아직 Production에 반영하지 않았다.
+- [ ] 9월에 local에서 `202607 → 202608`을 순차 구축하고 각 월의 completeness/audit를 확인한다.
+- [ ] `FAILED`·`MISSING` source와 지역별 미수집 현황을 확인한다.
+- [ ] `npm run dataset:drift -- --base-ym=YYYYMM`의 drift gate 결과가 `PASS`인지 확인한다.
+- [ ] 대표 지역·대표 프로젝트·전략 1위·유사지역 Top3 변화와 Production 예상 write 범위를 검토한다.
+- [ ] `npm run dataset:activate -- --base-ym=YYYYMM` 승격 후 기존 Dataset이 `ARCHIVED`로 보존되고
+      새 Dataset만 `ACTIVE`인지 확인한다.
+- [ ] 최종 검증된 결과만 Production에 promotion/import하고, 반영 뒤 대표 row와 Dataset 상태를 소량 확인한다.
+
+### Production 데모 체크
+
+- [ ] 대표 프로젝트에 접근해 지역·여행월·역할·기간·문제·테마·여행 조건을 확인한다.
+- [ ] DNA 5축의 진단·기회·근거와 전략 3안이 표시되는지 확인한다.
+- [ ] 전략 선택 후 Course Studio 자동 초안·추천 후보·지도·동선·체류시간 편집을 확인한다.
+- [ ] 후보 추가/삭제·순서 변경 후 저장하고 새로고침·재접속해 변경값이 유지되는지 확인한다.
+- [ ] Festival Anchor 후보·날짜·코스 연결을 확인하고, 공식 시각이 없으면 임의로 보정하지 않는다.
+- [ ] PET와 ACCESSIBILITY는 공식 evidence가 있는 POI만 근거로 표시되는지 확인하고, 없는 POI는
+      `UNKNOWN`으로 유지되는지 확인한다. `UNKNOWN`을 이용 불가로 해석하지 않는다.
+- [ ] Print/PDF는 브라우저 인쇄·PDF 저장 흐름으로 확인한다. 자동 PDF 생성이나 물리 출력 완료로
+      과장하지 않는다.
+
+### 제출 전 남은 확인과 기술 부채
+
+- 제출 전 우선순위는 9월 Dataset 최신화, drift 검증, 최종 promotion/import, targeted Festival refresh,
+  final demo QA, 문서·제출 자료 완성이다.
+- 실제 모바일 touch Drag & Drop 전체 검증, POI 폐업·삭제 history, 숙박·장거리 동선 realism,
+  Promo LLM overlay Production 안정성, `DEMAND_RESOURCE` 공식 코드 확인은 기술 부채 또는 제한 사항이다.
+- 제출 전에는 새로운 대형 기능보다 데이터 최신화, 시연 안정성, 문서와 제출 완성도를 우선한다.
+
+> **역사 기록 안내**: 아래 기존 체크리스트는 작성 당시의 배포·지역 확장·API 확인 과정을 보존한다.
+> 현재 Production 상태, Neon 정책, Dataset 기준은 위 2026-08-31 절과 `docs/deployment.md`,
+> `docs/implementation-status.md`의 최신 요약을 기준으로 한다.
+
 > **2026-08-11 갱신**: 아래 "37곳"/"Batch 3 남해군 1곳만 완료" 등은 그 시점(2026-08-08) 기록으로
 > 보존한다. 로컬 DB 기준으로는 이후 Neon 쿼터와 무관한 로컬 PostgreSQL(`tour_dna_local`)에서 배치
 > 동기화를 이어가 **전국 SIGUNGU 255/255 완료**(ERROR 0, `npm run audit:tourism-data` PASS)됐고,
