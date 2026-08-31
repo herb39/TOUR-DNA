@@ -61,8 +61,8 @@ export const ACCESSIBILITY_DIMENSION_LABEL: Record<AccessibilityDimensionKey, st
   wheelchair: "휠체어",
   elevator: "엘리베이터",
   visualGuide: "시각 안내",
-  strollerFamily: "유아·가족 편의",
-  otherSupport: "기타 지원",
+  strollerFamily: "유아차·가족 지원",
+  otherSupport: "기타 지원 정보",
 };
 
 export const ACCESSIBILITY_DIMENSION_STATUS_LABEL: Record<AccessibilityDimensionStatus, string> = {
@@ -78,6 +78,48 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+const ACCESSIBILITY_RAW_FIELD_KEYS = new Set([
+  "wheelchair",
+  "exit",
+  "elevator",
+  "restroom",
+  "guidesystem",
+  "blindhandicapetc",
+  "signguide",
+  "videoguide",
+  "hearingroom",
+  "hearinghandicapetc",
+  "stroller",
+  "lactationroom",
+  "babysparechair",
+  "infantsfamilyetc",
+  "auditorium",
+  "room",
+  "handicapetc",
+  "braileblock",
+  "helpdog",
+  "guidehuman",
+  "audioguide",
+  "bigprint",
+  "brailepromotion",
+  "parking",
+  "route",
+  "publictransport",
+  "ticketoffice",
+  "promotion",
+]);
+
+function removeAccessibilityRawFieldPrefixes(value: string): string {
+  return value
+    .split(/\s*\|\s*/)
+    .map((part) => {
+      const match = part.match(/^([a-z][a-z0-9]*)\s*:\s*(.*)$/i);
+      return match && ACCESSIBILITY_RAW_FIELD_KEYS.has(match[1].toLowerCase()) ? match[2].trim() : part.trim();
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
 /** 원문은 React 문자열로만 렌더링하고 태그·공백을 정리해 카드 영역의 overflow를 막는다. */
 export function sanitizeAccessibilityRawText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -87,7 +129,9 @@ export function sanitizeAccessibilityRawText(value: unknown): string | null {
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return null;
-  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
+  const withoutFieldPrefixes = removeAccessibilityRawFieldPrefixes(normalized);
+  if (!withoutFieldPrefixes) return null;
+  return withoutFieldPrefixes.length > 240 ? `${withoutFieldPrefixes.slice(0, 237)}...` : withoutFieldPrefixes;
 }
 
 function fetchedAtLabel(value: Date | string): string | null {

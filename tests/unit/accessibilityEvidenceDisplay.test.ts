@@ -24,6 +24,25 @@ describe("accessibilityEvidenceDisplay", () => {
     expect(result.fetchedAtLabel).toBe("2026.08.25");
   });
 
+  it("공식 원문의 내부 field key prefix를 사용자 문구에서 제거한다", () => {
+    const result = toAccessibilityEvidenceDisplay({
+      status: "SUCCESS",
+      sourceCode: "TOUR_ACCESSIBILITY_DETAIL",
+      fetchedAt: "2026-08-25T00:00:00.000Z",
+      dimensionDetails: {
+        parking: { status: "AVAILABLE", rawText: "parking: 장애인 주차장 있음" },
+        visualGuide: { status: "AVAILABLE", rawText: "braileblock: 점자유도로 있음 | signguide: 안내판 있음" },
+        otherSupport: { status: "UNAVAILABLE", rawText: "publictransport: 저상버스 없음" },
+      },
+    });
+
+    expect(result.dimensions.find((dimension) => dimension.key === "parking")?.rawText).toBe("장애인 주차장 있음");
+    expect(result.dimensions.find((dimension) => dimension.key === "visualGuide")?.rawText).toBe("점자유도로 있음 | 안내판 있음");
+    expect(result.dimensions.find((dimension) => dimension.key === "otherSupport")?.rawText).toBe("저상버스 없음");
+    expect(result.dimensions.find((dimension) => dimension.key === "strollerFamily")?.label).toBe("유아차·가족 지원");
+    expect(result.dimensions.find((dimension) => dimension.key === "otherSupport")?.label).toBe("기타 지원 정보");
+  });
+
   it("EMPTY·누락·전체 UNKNOWN은 overall 불가가 아닌 공식 정보 미확인으로 처리한다", () => {
     const empty = toAccessibilityEvidenceDisplay({
       status: "EMPTY",
