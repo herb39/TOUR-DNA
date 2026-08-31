@@ -1,5 +1,46 @@
 # 수동 테스트 시나리오
 
+## 현재 QA 요약 — 2026-08-31
+
+아래는 현재 Production 구현과 공모전 시연 기준의 최신 QA snapshot이다. 뒤의 날짜별 체크리스트와
+수치 기록은 각각의 실행 시점·환경을 보존한 historical 기록이며, 현재 판정은 이 절을 우선한다.
+
+### Production 전체 시연 흐름
+
+- **전체 판정**: Production 전체 시연 QA 완료, P0 없음, P1 없음.
+- **분석**: 대표 경주 프로젝트 신규 분석 성공(체감 약 8.93초), DNA 5축과 전략 3안 정상 표시.
+- **Course Studio**: 전략 선택 → 자동 초안 → 후보 추가·편집 → 체류시간 변경 → 지도 확인 → 저장·
+  reload persistence까지 정상 확인.
+- **Festival Anchor**: 신라문화제 후보 확인·Anchor 저장/reload·공식 행사 날짜 반영을 확인했다. 공식
+  정확한 행사 시각이 없을 때는 `UNKNOWN`/`UNCONFIRMED`로 유지한다.
+- **PET**: 감포항·나정고운모래해변의 공식 evidence UI를 확인했다. 목록 외 POI를 이용 불가로 판정하지
+  않는다.
+- **ACCESSIBILITY**: 감포항·나정고운모래해변·경주 감은사지의 `dimensionDetails`와 사용자용 한글
+  표시를 확인했다. `parking:`·`restroom:` 같은 내부 key는 사용자 화면에 노출하지 않는다.
+- **Print**: Print page에서 `NaN`·`undefined`·내부 접근성 key가 보이지 않는 것을 확인했다.
+- **Mobile**: 390px 기준 핵심 화면의 document 가로 overflow가 없는 것을 확인했다.
+
+### 최신 로컬 검증 기준
+
+- 이번 문서 작업에서 실제 실행한 `npm test -- --reporter=dot` 결과는 **133개 파일, 1,702개 테스트
+  통과**다.
+- 가장 최근 기록된 전체 로컬 E2E는 `38 passed / 2 skipped`다. 두 건의 skip은 stale/orphan Anchor
+  예외 fixture가 없는 경우의 선택적 skip이며, 이번 문서 작업에서는 E2E를 재실행하지 않았다.
+- 이번 작업에서도 `npm run typecheck`, `npm run lint`, `npm run build`를 실행해 모두 통과했다.
+
+### 현재 미검증·제한 사항
+
+- 실제 모바일 touch 기기의 전체 Drag & Drop은 제한적으로만 검증했다.
+- OS system print dialog와 최종 물리 출력은 완전 검증 범위가 아니다.
+- Promo LLM overlay의 Production 안정성은 확정하지 않았으며, 시연은 검증된 rule 생성기 결과를
+  기준으로 준비한다.
+
+> Production 전체 시연 결과는 기존 QA 실행 기록을 최신 상태 요약으로 옮긴 것이다. 이번 문서 작업은
+> Production DB/API에 접근하지 않았고, 실제 공개 URL 재검증을 새로 수행하지 않았다.
+
+> 아래 `2026-08-27` 및 그 이전 절은 실행 당시의 브라우저·fixture·timeout·데이터 기준을 보존한다.
+> 과거의 테스트 수치나 “미검증” 표현은 현재 QA 판정으로 덮어쓰지 않으며, 현재 상태는 위 요약을 따른다.
+
 ## 2026-08-27 분석 최초 응답 성능 QA
 
 신규 분석과 기존 분석 재진입을 같은 지표로 섞지 않고 각각 측정한다. 신규는 `/projects/new`에서

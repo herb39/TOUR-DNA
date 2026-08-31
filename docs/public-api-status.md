@@ -1,9 +1,54 @@
 # 공공데이터 API 연동 현황
 
-> 작성일: 2026-07-20, 2026-07-21 세 차례 갱신(1차: 지역코드/다양성/국문관광정보, 2차: 체류·소비 코드,
+## 현재 외부 API·데이터 상태 요약 — 2026-08-31
+
+아래 요약이 현재 운영 기준이다. 이후의 날짜별 API 조사 기록은 당시 확인 사실을 보존한 historical
+기록이므로, 현재 상태와 다를 수 있는 표현은 이 요약보다 우선하지 않는다.
+
+### 현재 데이터 기준
+
+| 구분 | 현재 상태 |
+|---|---|
+| Production ACTIVE Dataset | `202606` |
+| 공식 API 최신 완전월 확인 | `202607` |
+| Production 반영 상태 | `202607`·`202608` 미반영 |
+| 9월 갱신 계획 | local `202607` 구축·completeness/drift 검증 → `202608` 공개 후 순차 구축 → 최신 검증월만 promotion/import |
+
+월간 최신화 대상은 Demand·Stay·Spend·Diversity·Visitor다. 전국 sync와 Dataset build는 local에서만
+수행하며, Production Neon에서는 API batch를 실행하지 않는다. 검증된 최종 결과의 promotion/import와
+runtime 사용만 허용한다. 세부 운영 절차는 [deployment 문서](deployment.md)를 기준으로 한다.
+
+### 실제 사용 source inventory
+
+| source | 실제 사용 상태 |
+|---|---|
+| `TAR_SVC_DEM` | `AreaTarDemDsService`의 `areaTarSjrnDsList`(Stay)·`areaTarExpDsList`(Spend) |
+| `TOU_DIV_IX` | `AreaTarDivService`의 관광객·소비·국적 다양성 API. Diversity 합성에 사용 |
+| `TOU_RES_DEM` | `AreaTarResDemService`의 `areaTarSvcDemList`(Demand 서비스 수요). `areaCulResDemList` 코드값은 미확정 |
+| `VISITOR_CNT` | `DataLabService`의 `locgoRegnVisitrDDList`·`metcoRegnVisitrDDList`. 방문자 원값·증감률 계산에 사용 |
+| `TOUR_INFO` | `KorService2`의 `areaBasedList2` POI와 `searchFestival2` 행사 후보. POI는 60일 TTL 내 재사용 |
+| `KorPetTourService2` | `areaBasedList2` 목록과 `detailPetTour2` 상세를 선택된 POI에 targeted 적용. `PoiConditionEvidence(PET)`에 저장 |
+| `KorWithService2` | `areaBasedSyncList2` 목록과 `detailWithTour2` 상세를 선택된 POI에 targeted 적용. `dimensionDetails`를 포함한 `PoiConditionEvidence(ACCESSIBILITY)`에 저장 |
+
+`POI_RELATION`은 정식 서비스명·URL이 확인되지 않은 과거 관계 데이터이며 현재 Network 계산의 외부
+source로 사용하지 않는다.
+
+### 조건·행사 API 현재 상태
+
+- **POI**: `TOUR_INFO`는 baseYm에 종속되지 않는 정적 목록으로, 지역별 최근 성공 snapshot이 60일
+  TTL 안이면 전국 월간 재수집을 반복하지 않는다.
+- **Festival**: `TOUR_INFO/searchFestival2`를 지역·여행월 기준으로 targeted 조회한다. 대표 신라문화제
+  연계 흐름을 검증했으며, 공식 응답에 정확한 시각이 없으면 `UNKNOWN`/`UNCONFIRMED`로 보존한다.
+- **PET**: 공식 목록과 실제 노출 대상의 교집합에 대해 targeted evidence를 사용한다. Production 대표
+  감포항·나정고운모래해변 2건을 검증했으며, 전국 bulk 확대 계획은 없다.
+- **ACCESSIBILITY**: 공식 목록 교집합에 대해 targeted evidence를 사용한다. Production 대표 감포항·
+  나정고운모래해변·경주 감은사지 3건의 `dimensionDetails`와 사용자용 표시를 검증했다. `UNKNOWN`은
+  이용 불가가 아니라 공식 상세에서 해당 정보를 확인하지 못한 상태다.
+
+> **과거 조사 기록(2026-07-20~21)**: 세 차례 갱신(1차: 지역코드/다양성/국문관광정보, 2차: 체류·소비 코드,
 > 3차: 자원수요 서비스·다양성 전체 코드 체계·데이터 기준월 최신화). 아래 "2026-07-21 실키 검증 결과"가
 > 최신 확인 사실이며, 맨 아래 "실키 발급 전 웹 조사 결과(2026-07-20)" 섹션은 그 이전의 추정치로
-> 참고용으로만 남겨둔다.
+> 참고용으로만 남겨둔다. 현재 상태는 위의 2026-08-31 요약을 기준으로 한다.
 
 ## 데이터 기준월(baseYm) 최신화 (2026-07-21 3차 확인)
 
@@ -384,6 +429,10 @@ API가 최신 baseYm을 자동으로 알려주지 않는다.
 
 ## 2026-08-08 로컬 개발 체제 전환 및 원격 DB 안전장치
 
+> **역사 기록(2026-08-08)**: 아래 안전장치 도입 당시의 환경과 운영 판단을 보존한다. 현재 운영 정책은
+> Production Neon 전국 batch를 실행하지 않는 것이며, 아래의 원격 sync 재개 가능성 설명보다 문서 상단
+> current snapshot과 `docs/deployment.md`의 canonical 정책을 우선한다.
+
 Neon Free 플랜의 월간 데이터 전송 한도를 소진한 뒤, 개발 완료 전까지 개발·테스트·관광 데이터 배치·
 대량 분석을 전부 로컬 PostgreSQL(`tour_dna_local`)에서 수행하기로 했다. `.env.local`의
 `DATABASE_URL`을 로컬로 전환했고(`DIRECT_URL`은 아직 Neon 값이 남아 있지만 `prisma.config.ts`가
@@ -399,12 +448,10 @@ DATABASE_URL 호스트가 `localhost`/`127.0.0.1`/`::1`이 아니면 API 호출�
 없다.
 
 Vercel Production의 `vercel.json` cron(`/api/cron/sync-tourism-data`, 매월 1일 00:00 UTC)은 코드를
-수정하지 않았다 — Production의 `DATABASE_URL`은 여전히 Neon을 가리키고 `ALLOW_REMOTE_DATA_SYNC`도
-Vercel에 설정돼 있지 않으므로, 위 안전장치 덕분에 다음 실행부터는 API 호출·DB 쓰기 없이 자동으로
-실패 처리된다(Neon 데이터 자체는 전혀 건드리지 않음). 최종 배포 준비가 되면 Vercel 프로젝트 설정 →
-Environment Variables에서 `ALLOW_REMOTE_DATA_SYNC=true`를 추가하면 cron이 다시 정상 동작한다(이
-값을 Vercel에 설정하는 것은 사용자가 직접 해야 한다 — 이번 작업에서 Vercel 환경변수를 변경하지
-않았다).
+수정하지 않았다 — 당시 Production의 `DATABASE_URL`은 Neon을 가리키고 `ALLOW_REMOTE_DATA_SYNC`도
+Vercel에 설정돼 있지 않아, 안전장치가 API 호출·DB 쓰기 없이 실패 처리하도록 했다(Neon 데이터 자체는
+건드리지 않음). 당시 기록에 원격 sync 재개 방법으로 `ALLOW_REMOTE_DATA_SYNC=true`가 적혀 있지만,
+현재는 이 값을 Production에 설정하거나 Cron 전국 batch를 재개하지 않는다.
 
 ## 이번 구현에서 취한 조치 (2026-07-21, 3차 갱신 — 자원수요/다양성 전체 코드/POI 파이프라인/baseYm 최신화)
 

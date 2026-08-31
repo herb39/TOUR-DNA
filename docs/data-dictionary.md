@@ -3,6 +3,63 @@
 DB/코드에는 영문 코드값을, 화면에는 한글 라벨을 사용한다. 코드-라벨 매핑의 단일 출처는
 `src/lib/validation/codes.ts`이며, 아래 표는 그 스냅샷이다.
 
+## 현재 데이터 구조·운영 요약 — 2026-08-31
+
+아래 구조 설명은 현재 `prisma/schema.prisma`와 runtime 코드를 기준으로 한다. 현재 운영 snapshot과
+과거 지역 확장·API 조사 기록은 서로 다른 정보이므로 날짜가 붙은 기록은 당시 사실로만 해석한다.
+
+> **현재 운영 snapshot**: Production ACTIVE Dataset은 `202606`, 공식 API에서 확인한 최신 완전월은
+> `202607`이다. `202607`·`202608`은 아직 Production에 반영하지 않았으며, 9월에는 local PostgreSQL에서
+> `202607 → 202608` 순서로 구축·검증한 뒤 최종 검증된 최신월만 promotion/import한다.
+
+### Dataset 레지스트리
+
+| 필드/상태 | 의미 |
+|---|---|
+| `baseYm` | Dataset의 기준월(`YYYYMM`). `@unique`라 같은 월의 Dataset 행은 하나다. |
+| `STAGING` | 구축·감사 중인 후보 Dataset |
+| `ACTIVE` | runtime 분석이 사용할 Dataset. `activateDataset()`의 transaction이 기존 ACTIVE를 ARCHIVED로 내리고 새 ACTIVE를 만든다. |
+| `ARCHIVED` | 과거에 ACTIVE였던 Dataset. row는 삭제하지 않고 보존한다. |
+
+`ACTIVE`는 schema의 부분 unique 제약이 아니라 promotion transaction의 불변조건으로 한 번에 하나만
+유지한다. 동시에 `STAGING`은 운영 정책상 하나만 둔다. 월이 바뀌어도 기존 Dataset을 삭제하거나
+migration을 반복하지 않는다.
+
+### DataSnapshot
+
+`DataSnapshot`은 API 원문을 정규화 전 상태로 보관하는 월별·source별·지역별 row다. unique key는
+`dataSourceId + regionId + baseYm`이다.
+
+- `202607` 수집은 `202606` row와 다른 `baseYm`을 사용하므로 과거 snapshot을 overwrite하지 않는다.
+- 같은 월·source·지역을 다시 수집하면 해당 row를 upsert해 최신 상태·원문·`fetchedAt`을 갱신한다.
+- 같은 key의 수집 시도별 append history를 별도 보존하지는 않는다. 필요하면 snapshot의 현재 원문과
+  `fetchedAt`만 확인할 수 있다.
+
+### NormalizedMetric
+
+`NormalizedMetric`은 원문에서 추출한 지역별 지표를 저장하며 unique key는
+`regionId + baseYm + metricCode`다. 따라서 같은 지표라도 `202606`·`202607`·`202608` row를
+동시에 보존할 수 있고, 같은 지역·월·지표의 재수집만 해당 row를 갱신한다.
+
+`normalizedValue` 컬럼은 nullable이다. 현재 sync upsert는 `rawValue`, 단위, source, provenance 등을
+저장하며 정규화값을 필수로 영속화하지 않는다. runtime DNA 계산은 `metricCohort`의 같은 행정단위·
+기준월 코호트 raw value를 읽어 `computeDna()` 안에서 `normalizeByTransform()`으로 계산한다. 분석
+당시 계산된 값은 `Evidence.normalizedValue`에 복사되어 결과에 보존된다.
+
+### DNA 5축 source mapping
+
+| 축 | runtime metric/입력 | 주요 source·API | provenance·주의 |
+|---|---|---|---|
+| Demand | `tarSvcDemIxVal`, 선택적 `touResDemIxVal`, `visitorGrowthRateVal` | `TOU_RES_DEM`의 `areaTarSvcDemList`(1101), `areaCulResDemList`는 코드 미확정, 방문자 증감률은 `VISITOR_CNT`의 현재·직전 월 계산값 | `NormalizedMetric.provenance`를 보존한다. `LIVE_API`만 LIVE로 취급하고 `NULL`·그 외 값은 fallback으로 본다. |
+| Stay | `tarSjrnDsIxVal` | `TAR_SVC_DEM`의 `areaTarSjrnDsList`, 코드 2103 | 실 API 응답은 `LIVE_API`, 실패 시 기존 성공값 재사용은 `CACHED_API`다. |
+| Spend | `tarExpDsIxVal` | `TAR_SVC_DEM`의 `areaTarExpDsList`, 코드 2201 | 외지인 소비액 원지표를 저장하고 runtime에서 코호트 정규화한다. |
+| Diversity | `touDivIxVal` | `TOU_DIV_IX`의 `areaTouDivList`, `areaExpDivList`, `areaIntlDivList` | 연령·소비·국적 자료를 adapter에서 합성해 저장하며, 실제 API 성공 여부와 provenance를 함께 남긴다. |
+| Network | `networkPoiCount`, `networkFoodCount`, `networkLodgingCount`, `networkExperienceCount` | `TOUR_INFO` POI의 카테고리별 count | 외부 지표가 아니라 runtime 구조 산식이다. API/FIXTURE 혼합이면 보수적으로 fallback provenance를 적용한다. |
+
+Network는 `MODEL_VERSION = tour-dna-v1.1.0`의 현재 산식으로 `TOUR_INFO` POI 수만 사용한다.
+`PoiRelation`/`POI_RELATION`은 DB에 남아 있을 수 있지만 현재 Network 계산에서 조회·반영하지 않는다.
+POI 삭제·폐기 이력을 완전한 append history로 보존하는 구조도 아니다.
+
 > **2026-08-11 갱신**: 아래 지역 확장 관련 절(Batch 1/2/3, "27개"/"37개" 지역 수, "Batch 3 관광
 > 데이터 동기화 미완료" 등)은 그 시점(2026-08-07~09)까지의 기록으로 그대로 보존한다. 로컬 DB
 > 기준으로는 이후 배치 동기화가 이어져 **전국 SIGUNGU 255/255가 전부 완료**됐다(필수 source
@@ -237,7 +294,7 @@ API로 완전 검증됨"처럼 근거의 완전성까지 보장하는 표현은 
 | TOU_DIV_IX | 한국관광공사_지역별 관광 다양성 | 실 키 확인(2026-07-21) — 3개 오퍼레이션 전부, 연령대별 코드(6종×2) + 국적 다양성 코드까지 확인 |
 | TOU_RES_DEM | 한국관광공사_지역별 관광 자원 수요 | 실 키 확인(2026-07-21) — `AreaTarResDemService`. `/areaTarSvcDemList`(관광서비스수요) 확인, `/areaCulResDemList`(문화자원수요)는 파라미터명만 확인 |
 | VISITOR_CNT | 한국관광공사_빅데이터 지역별 방문자수(DataLabService) | 실 API 구조 확인(2026-07-28) — `/locgoRegnVisitrDDList`(시군구)·`/metcoRegnVisitrDDList`(광역), 지역 필터 없이 전국 조회 후 매핑 |
-| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인(2026-07-21) — `areaBasedList2`로 POI 라이브 동기화 파이프라인 연결 완료(syncService.ts). baseYm 비종속 정적 API — 2026-08-12부터 region별 최근 SUCCESS/EMPTY가 TTL(60일) 이내면 재호출하지 않고 재사용(Phase 2-D) |
+| TOUR_INFO | 한국관광공사_국문 관광정보 서비스_GW | 실 키 확인 — `areaBasedList2`로 POI 동기화. 신규 요청은 `lDongRegnCd`/`lDongSignguCd` 신 법정동 코드 사용(구 `areaCode`는 과거 데이터 호환용). baseYm 비종속 정적 API — region별 최근 SUCCESS/EMPTY가 TTL(60일) 이내면 재사용 |
 | POI_RELATION | 기초지자체 중심 관광지 및 연관 관광지 | 정식 서비스명/URL 미확인 |
 
 ## POI 카테고리 (PoiCategory)
