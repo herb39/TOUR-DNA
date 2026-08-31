@@ -9,6 +9,17 @@ TOUR-DNA는 여행자의 취향에 맞는 장소를 단순히 나열하는 서�
 - 운영 서비스: [tour-dna.lib.lc](https://tour-dna.lib.lc)
 - 저장소: [herb39/TOUR-DNA](https://github.com/herb39/TOUR-DNA)
 
+## 현재 운영 상태 — 2026-08-31
+
+- Production migration은 **17/17 적용 완료** 상태이며, `ProjectAnchor`를 포함한 핵심 기능은 READY입니다.
+- Production이 사용하는 ACTIVE Dataset은 현재 **`202606`**입니다. 공식 최신 확인월은 **`202607`**이며,
+  `202607`·`202608`은 아직 Production에 반영하지 않았습니다.
+- 9월 시연 전 `202607`을 local PostgreSQL에서 구축·검증하고, `202608` 공개 후 이어서 구축합니다.
+  최종 검증을 통과한 최신 월만 Production에 promotion/import합니다.
+- 전국 API sync, Dataset build, normalization·build 검증, bulk PET/ACCESSIBILITY enrichment는
+  local PostgreSQL에서만 수행합니다. Production Neon은 runtime과 검증 완료 데이터의 최소
+  promotion/import에만 사용합니다.
+
 ## 이 서비스가 해결하는 문제
 
 관광상품을 만들 때는 “어디가 유명한가”만으로는 충분하지 않습니다.
@@ -153,8 +164,7 @@ KPI를 선택할 때 함께 사용됩니다.
 - 반영된 Anchor는 드래그·시간·일차 변경에서 제외하고, `코스에서만 제거`로 프로젝트 확정과 분리
 
 공식 데이터가 없을 때 행사를 추정하지 않습니다. 시간대만 있거나 시각이 미확정인 Anchor는 코스에 가짜 시각으로
-넣지 않습니다. Production DB에 Anchor migration이 적용되지 않은 환경에서는 후보 확인만 가능하고 확정 저장은
-보류될 수 있습니다.
+넣지 않습니다. 현재 Production은 Anchor migration이 적용된 상태에서 확정 저장과 코스 반영을 지원합니다.
 
 고정된 Anchor의 연계 후보는 Anchor와 같은 지역의 현재 POI를 한 번에 조회해 행사 전(`PRE_EVENT`), 식사(`MEAL`),
 행사 후(`POST_EVENT`), 숙박(`STAY`) 역할로 나눠 보여줍니다. 카드는 이름·분류·적합도·연결 이유와 Anchor까지의
@@ -267,7 +277,8 @@ TOUR-DNA는 한국관광공사 공공데이터를 중심으로 지역 관광 수
 - 무장애·반려동물 조건은 모든 시설의 실제 근거가 연결된 상태가 아니므로 `확인 필요`를 우선합니다.
 - 이동시간은 이동 수단과 경로 데이터 상태에 따라 달라질 수 있습니다.
 - 축제 일정은 공식 데이터에 포함된 기간을 기준으로 하며, 정확한 행사 시각이 없으면 미확정으로 남습니다.
-- Production에 새 DB migration이 적용되지 않은 경우 해당 기능은 배포 상태에 따라 제한될 수 있습니다.
+- 별도 환경을 구성할 때는 해당 환경의 migration 적용 상태를 먼저 확인해야 합니다. 현재 Production 상태는
+  문서 상단의 운영 상태를 기준으로 합니다.
 - AI 또는 규칙으로 만들어진 문구는 실무자가 검토·수정한 뒤 외부에 사용해야 합니다.
 
 ## 문서 안내

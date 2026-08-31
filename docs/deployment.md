@@ -70,6 +70,12 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 단, Vercel 무료(Hobby) 플랜은 Cron Job 실행 시각이 정확히 맞지 않고 다소 지연될 수 있다.
 스케줄을 바꾸려면 `vercel.json`의 `schedule` 값(표준 5필드 cron 문법, UTC 기준)을 수정 후 재배포한다.
 
+> **현재 운영 정책**: `vercel.json`에 Cron 설정이 존재하더라도 Production Neon에서 전국 batch sync를
+> 실행하지 않는다. 현재 Production의 원격 DB 대상은 `runTourismDataSync`의
+> `DATA_SYNC_TARGET_GUARD`에 의해 기본 차단되며, `ALLOW_REMOTE_DATA_SYNC=true`가 없으면 API 호출과
+> DB 조회를 시작하지 않고 실패 상태로 종료한다. 정기적인 전국 수집은 local PostgreSQL에서만 수행하고,
+> 검증된 결과만 별도 승인된 promotion/import 절차로 Production에 반영한다.
+
 ## 7. 배포 후 확인
 
 - `/` 접속 → 데모 프로젝트가 보이는지 확인(`SITE_ACCESS_PASSWORD`를 설정했다면 먼저 `/login`으로
@@ -112,22 +118,31 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 
 ## 9. 검증된 데이터셋(ACTIVE Dataset) — Phase 2-A (2026-08-11)
 
-> **이 절차는 로컬 PostgreSQL(`tour_dna_local`)에서만 실행·검증했다. Production Neon DB에는 아직
-> migration을 적용하지도, ACTIVE dataset을 설정하지도 않았다** — GitHub `main` 반영과 Production
-> DB 상태는 서로 다른 사실이라는 점을 이 문서의 다른 절과 동일한 원칙으로 명시한다.
+> **과거 기록(2026-08-11 작성 당시)**: 이 절차는 local PostgreSQL(`tour_dna_local`)에서만 실행·검증했고,
+> 당시 Production Neon DB에는 migration을 적용하지도, ACTIVE Dataset을 설정하지도 않았다. 이 기록은
+> 당시 상태를 보존한 것이며, 현재 Production 상태는 아래 최신 요약을 우선한다.
+
+현재 Production은 migration **17/17 적용 완료**, ACTIVE Dataset **`202606`** 상태다. 공식 최신 확인월은
+`202607`이며 `202607`·`202608`은 아직 Production에 반영하지 않았다.
+
+### 표준 데이터 workflow
+
+`공식 API → local cache/raw snapshot → local PostgreSQL → Dataset STAGING → completeness/audit/drift
+검증 → local promotion/검증 → 최종 검증 결과만 Production promotion/import` 순서로 운영한다.
+Production에서 `공식 API → 전국 batch → 계산`을 수행하는 흐름은 사용하지 않는다.
 
 `Dataset`(baseYm+status: STAGING/ACTIVE/ARCHIVED) 모델이 추가되면서(`20260811060333_add_dataset_registry`),
 분석은 더 이상 `TOUR_DATA_BASE_YM`/`DEFAULT_BASE_YM` 같은 정적값이 아니라 이 테이블의 ACTIVE 행만
-기준으로 삼는다. Production에 실제로 이 기능을 반영하려면:
+기준으로 삼는다. 새 Dataset을 Production에 반영하려면 local에서 완전성·drift 검증을 먼저 끝낸 뒤,
+검증된 결과만 별도 promotion/import한다. 아래 절차는 Production에서 직접 실행하지 않는다.
 
-1. `npm run db:migrate`로 `20260811060333_add_dataset_registry`를 포함한 누적 migration을 적용한다
-   (additive — 신규 테이블 하나만 생성, 기존 데이터 변경 없음).
-2. 해당 baseYm의 전국 데이터가 이미 완전하다면(`npm run audit:tourism-data -- --base-ym=YYYYMM`
-   PASS) `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE 설정한다.
-3. `npm run dataset:status`로 정확히 1개의 ACTIVE만 있는지 확인한다.
-4. ACTIVE가 설정되지 않은 상태에서는 신규 프로젝트 분석이 명확한 오류로 안전하게 실패한다(다른
-   baseYm으로 조용히 대체하지 않음) — Production에 처음 도입할 때는 배포 직후 반드시 1단계를 먼저
-   수행해야 한다.
+1. schema 변경이 있을 때만 필요한 누적 migration을 확인·적용한다. 현재 Production은 **17/17 적용
+   완료**이며, 월별 Dataset을 추가할 때마다 migration을 반복하지 않는다.
+2. 해당 baseYm의 전국 데이터를 local에서 완성하고(`npm run audit:tourism-data -- --base-ym=YYYYMM`
+   PASS), local `npm run dataset:activate -- --base-ym=YYYYMM`으로 ACTIVE 승격을 검증한다.
+3. local `npm run dataset:status`로 정확히 1개의 ACTIVE와 후보 Dataset의 상태를 확인한다.
+4. 최종 검증된 Dataset만 Production promotion/import 대상으로 확정하고, Production runtime에서 대표
+   row와 Dataset 상태를 최소 범위로 확인한다.
 
 > **2026-08-12 갱신 — Production 최초 ACTIVE 설정 시 알아야 할 것**: 아래 "Phase 2-C" 절 도입 이후
 > `npm run dataset:activate`는 항상 **기존 ACTIVE와의 DNA drift 비교**를 거친다(`evaluateDatasetPromotion`이
@@ -139,17 +154,17 @@ Vercel Cron은 프로젝트에 `CRON_SECRET` 환경변수가 설정되어 있으
 > 스크립트를 그때 가서 작성)로 처리해야 하며, 이 문서가 그 절차를 먼저 확정하기 전까지는 시도하지
 > 않는다.
 
-**Phase 2-B(source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync)는 로컬에서 구현·검증 완료했지만
-(2026-08-11), 이 절차도 아직 Production에는 적용하지 않았다.** Production에 반영하려면 위 1번
-migration 적용 후:
+**Phase 2-B(source별 최신월 저비용 탐지 + STAGING 생성 + 증분 sync)는 local에서 구현·검증된 절차다.**
+현재 운영 정책상 이 절차의 전국 batch는 Production에서 실행하지 않는다. 새 월을 반영하려면 local에서
+위 schema 계약을 확인한 뒤:
 
 5. `npm run dataset:discover`로 ACTIVE보다 최신인 공통월이 있는지 저비용으로 확인한다(전국 지역을
    조회하지 않는다 — 대표 지역 1곳·2개 소스만 확인). 새 월을 발견하면 STAGING dataset만 생성한다
    (ACTIVE는 바뀌지 않는다).
-6. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 API 일일 호출
+6. `npm run sync:tourism-data -- --dataset=staging --all-regions --max-regions=N`을 local에서 API 일일 호출
    한도를 고려한 `N`으로 여러 회차에 나눠 실행해 STAGING baseYm의 전국 데이터를 채운다(이미 성공한
    지역×소스는 자동으로 건너뛰고, 429가 감지되면 그 시점까지 결과를 보존한 채 안전하게 종료한다).
-7. `npm run dataset:status`로 STAGING 진행률(완료 지역/255, ERROR, source별 현황)과 promotion
+7. `npm run dataset:status`로 local STAGING 진행률(완료 지역/255, ERROR, source별 현황)과 promotion
    readiness(`READY_FOR_DRIFT_CHECK`)를 확인한다. `READY_FOR_DRIFT_CHECK`면 읽기 전용
    `npm run dataset:drift -- --base-ym=YYYYMM`으로 DNA drift 결과를 먼저 확인한 뒤, 위 2번
    (`npm run dataset:activate`)을 실행해 승격을 시도한다.
@@ -159,7 +174,7 @@ migration 적용 후:
 (2026-08-12) — 위 2번(`npm run dataset:activate`)이 이제 자동으로 이 gate를 거친다. `--force`/
 `--skip-drift` 같은 우회 옵션은 없다. threshold는 실제 두 번째 전국 dataset의 월간 drift를 관측하기
 전이라 잠정치다(`src/lib/domain/datasetDriftGate.ts`의 `DRIFT_GATE_THRESHOLDS`). 이 절차도 아직
-Production에는 적용하지 않았고, 위 "Production 최초 ACTIVE 설정 시 알아야 할 것" 캡션에서 설명한
+Production에는 적용하지 않았고(2026-08-12 당시 기록), 위 "Production 최초 ACTIVE 설정 시 알아야 할 것" 캡션에서 설명한
 대로 **Production의 최초(첫) ACTIVE 설정에는 이 새 gate가 그대로 적용되지 않는다**(비교할 기존
 ACTIVE가 없기 때문) — 완전 자동(사람 개입 없는) 승격 스케줄링도 아직 없다.
 
@@ -206,29 +221,41 @@ Git 자동 배포를 `vercel git disconnect`로 의도적으로 중단했었다.
 
 - 개발/QA DB는 항상 local PostgreSQL(`tour_dna_local`)만 쓴다.
 - 공공데이터 API sync, Dataset STAGING/ACTIVE 작업, 대표 프로젝트 재분석은 전부 local에서만 수행한다.
-- Production Neon에는 개발용 write 작업을 하지 않는다(seed·migration·dataset activate·sync·개발용
-  reanalysis·테스트 데이터 생성·대량 보정 스크립트 전부 금지) — 정상 사용자 기능의 read/write는
-  당연히 그대로 동작한다.
+- Production Neon에는 개발용 write 작업을 하지 않는다(seed·개발용 migration·dataset activate·sync·개발용
+  reanalysis·테스트 데이터 생성·대량 보정 스크립트 전부 금지) — 정상 사용자 기능의 runtime read/write와
+  별도 승인된 검증 결과 promotion/import만 허용한다.
+- 전국 API sync, 전국 대량 read, Dataset build·normalization·drift 검증, bulk PET/ACCESSIBILITY
+  enrichment는 Production에서 실행하지 않는다.
 - Vercel Git 자동 배포가 켜져 있어도 이 원칙은 그대로다 — 자동 배포는 "코드가 자동으로 Production에
   올라간다"는 뜻일 뿐, "Production DB에 개발 작업을 해도 된다"는 뜻이 아니다.
 - 새 기능의 "완료" 조건에 Production deploy를 반드시 포함할 필요는 없다 — 로컬 검증(테스트/typecheck/
   lint/build/audit)까지만으로 완료로 볼 수 있다. 다만 자동 배포가 켜져 있으므로 `main` push 자체가
   곧 Production 배포로 이어진다는 점은 항상 인지한다.
 
-### 최종 제출 전 cutover 절차(아직 실행 전, 이 시점에 한 번에 수행)
+### 최종 제출 전 cutover 절차(데이터 최신화 후 별도 승인으로 수행)
 
-1. 로컬 DB 최종 검증: `npm run audit:tourism-data -- --base-ym=202606` PASS, 전체 테스트/typecheck/
+1. local DB 최종 검증: `npm run audit:tourism-data -- --base-ym=YYYYMM` PASS, 전체 테스트/typecheck/
    lint/build 통과.
 2. `pg_dump`로 로컬 `tour_dna_local` 최종 백업.
-3. 새 Neon 프로젝트로 restore/import(이미 1차 이관은 완료돼 있으므로 차분만 재이관하거나 전체
+3. 최종 검증된 Dataset만 새 Neon 프로젝트 또는 Production으로 restore/import(이미 1차 이관은 완료돼 있으므로 차분만 재이관하거나 전체
    재이관 중 택1 — cutover 시점에 결정).
 4. 새 Neon 대상으로 Dataset/row count/`audit:tourism-data` 재검증.
-5. Vercel 대시보드 → Settings → Environment Variables → Production에서 `DATABASE_URL`을 새 Neon
+5. Vercel 대시보드 → Settings → Environment Variables → Production에서 `DATABASE_URL`을 검증된 Neon
    pooled 연결 문자열로 교체(이미 스키마/데이터가 준비돼 있으므로 이 시점에는 migration/seed/
    dataset activate를 다시 실행할 필요가 없다 — 이미 맞는 상태를 불필요하게 덮어쓰지 않는다).
 6. Git 자동 배포는 이미 켜져 있으므로 별도 조치가 필요 없다 — env 교체 후 다음 `main` push(또는
    Vercel 대시보드의 Redeploy)로 새 `DATABASE_URL`이 반영된 배포가 자동 생성된다.
 7. 배포된 Production URL에서 브라우저 smoke test(대표 프로젝트 열람 등).
+
+### Dataset 월별 보존과 9월 최신화 순서
+
+- `Dataset`은 `baseYm`별로 별도 보존하며, 새 월을 ACTIVE로 승격할 때 이전 ACTIVE는 ARCHIVED가 된다.
+- `DataSnapshot`과 `NormalizedMetric`도 `baseYm`을 포함한 키로 저장되어 과거 월의 Snapshot·Metric을
+  덮어쓰지 않는다.
+- 운영 단순성을 위해 동시에 허용하는 STAGING Dataset은 하나다. 따라서 `202607`을 local에서 구축·
+  검증·승격하거나 정리한 뒤 `202608`을 다음 STAGING으로 만든다.
+- 권장 순서는 `202607 local 구축 → completeness/audit/drift 검증 → 필요 시 promotion/import →
+  202608 공개 후 local 구축·검증 → 최신 검증월만 Production promotion/import`이다.
 
 ### Claude Code 공통 안전 원칙
 

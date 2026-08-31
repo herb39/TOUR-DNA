@@ -1,4 +1,51 @@
-# 구현 상태 (2026-08-27 갱신 — 분석 최초 응답 성능 계측·개선 반영)
+# 구현 상태
+
+## 현재 상태 요약 — 2026-08-31
+
+현재 Production과 시연 기준 상태를 먼저 요약한다. 아래 날짜별 절은 각 시점의 개발·검증 기록이며,
+일부 내용은 이후 상태와 다를 수 있다. 현재 상태를 확인할 때는 이 절을 우선한다.
+
+### Production 현재 상태
+
+- 최신 코드: `e6243fce3c859fdc98c2f4fe23eb7af6cc0730f8` (`origin/main`과 일치)
+- Production readiness: **READY**
+- Demo readiness: **READY**
+- Production migration: **17/17 APPLIED**
+- 현재 Production ACTIVE Dataset: **`202606`**
+- 공식 최신 확인월: **`202607`**
+- 대표 Production 데모: `[PROD QA] 경주 자연·웰니스 체류형 상품`
+- P0: 없음 / P1: 없음
+
+### 기능 상태
+
+- 신규 분석·DNA·전략 3안: **READY**
+- Course Studio 편집·저장·reload: **READY**
+- Festival Anchor: **READY**
+- PET official evidence: **READY**
+- ACCESSIBILITY official evidence: **READY**
+- Promo·Print·Mobile: **READY**
+
+### 데이터 최신화와 운영 원칙
+
+- `202607`은 아직 Production에 반영하지 않았다. `202608`도 아직 batch 구축·Production promotion을
+  실행하지 않았다.
+- 9월 시연 전 `202607`을 local PostgreSQL에서 구축·검증하고, `202608` 공식 데이터가 공개되면 같은
+  방식으로 이어서 구축한다. 최종 검증을 통과한 최신 월만 Production에 promotion/import한다.
+- 전국 API sync, Dataset build, normalization·build 검증, bulk PET/ACCESSIBILITY enrichment는
+  local PostgreSQL에서만 수행한다.
+- Production Neon은 runtime과 검증 완료 데이터의 최소 promotion/import 및 필요한 targeted 검증에만
+  사용하며, 전국 batch·대량 read·개발용 seed·대량 backfill을 실행하지 않는다.
+
+### 현재 범위의 주의사항
+
+- `DEMAND_RESOURCE` 공식 유효 코드값은 아직 확정하지 않았다.
+- touch 기기의 실제 Drag & Drop 전체 검증은 제한적이다.
+- Promo LLM overlay는 local 구현 상태이며 Production 안정성은 확정하지 않았다. Production 시연은
+  검증된 rule 생성기 결과를 기준으로 준비한다.
+
+> 아래 기록의 `Production 미적용`, `9개/13개 migration`, `ProjectAnchor fallback`, PET·ACCESSIBILITY
+> pipeline 미구현, Course Studio 저장 미검증, provenance 미적용 등의 표현은 해당 날짜의 상태를 보존한
+> 역사 기록이다. 현재 Production 상태를 나타내는 표현으로 해석하지 않는다.
 
 ## 2026-08-27 갱신 — 분석 최초 응답 성능 계측 및 유사지역 중복 조회 개선
 
