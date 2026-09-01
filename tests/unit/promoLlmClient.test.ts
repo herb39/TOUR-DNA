@@ -67,6 +67,7 @@ describe("callPromoLlmTool", () => {
 
   afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_PROMO_MODEL;
     vi.restoreAllMocks();
   });
 
@@ -77,6 +78,23 @@ describe("callPromoLlmTool", () => {
     expect(result).toEqual({ ok: false, reason: "no_api_key", detail: expect.any(String) });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it.each(["openai/gpt-5", "some/provider"]) (
+    "':free'가 아닌 모델(%s)은 비용 보호를 위해 fetch 전에 차단한다",
+    async (model) => {
+      process.env.OPENROUTER_PROMO_MODEL = model;
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      const result = await callPromoLlmTool(baseOptions);
+
+      expect(result).toEqual({
+        ok: false,
+        reason: "paid_model_not_allowed",
+        detail: expect.any(String),
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 
   it("정상 응답은 message.content를 JSON.parse한 값을 반환하고, 사용량 정보를 함께 담는다", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(chatCompletion({ hello: "world" })));

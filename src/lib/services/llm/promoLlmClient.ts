@@ -8,7 +8,7 @@
  * POI 선택 등 다른 도메인 로직은 이 클라이언트를 참조하지 않는다.
  *
  * 이 프로젝트(공모전 제출·시연용)의 LLM 비용 목표는 0원이다 — 기본 모델은 항상 OpenRouter의 무료
- * 오픈모델(`qwen/qwen3-next-80b-a3b-instruct:free`)이고, `provider.allow_fallbacks: false`로 무료
+ * 오픈모델(`google/gemma-4-26b-a4b-it:free`)이고, `provider.allow_fallbacks: false`로 무료
  * endpoint를 쓸 수 없을 때 OpenRouter가 임의로 유료 provider/모델로 대체하지 못하게 막는다 — 그
  * 경우에는 이 클라이언트가 실패를 반환하고, 호출부(promoContentService.ts)가 기존 규칙 기반
  * 생성기로 대체한다.
@@ -30,14 +30,20 @@ const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
  * json_schema strict 성공, 7채널 Zod 검증 통과, 자연스러운 한국어 출력)로 확인했다. */
 const DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free";
 const DEFAULT_MAX_TOKENS = 4000;
-/** Vercel 서버리스 함수의 기본 실행 시간 내에서 fallback까지 여유 있게 끝나도록 공공데이터 API
- * timeout(8초)보다 넉넉하게 잡되, 요청이 무한정 걸리지 않도록 상한을 둔다. 무료 오픈모델은 유료
- * provider보다 응답이 느릴 수 있지만, 공모전 시연에서는 사용자가 오래 기다리는 것보다 규칙 기반
- * fallback이 빠르게 나오는 편이 낫다 — 20초를 그대로 유지한다. */
-const DEFAULT_TIMEOUT_MS = 20000;
+/** Vercel page-level Server Action 상한(60초) 안에서 저장·fallback까지 마칠 여유를 남긴다.
+ * 무료 모델은 20초를 넘겨 응답할 수 있으므로 기존 20초보다 늘리되, 함수가 종료되기 전에
+ * 규칙 기반 결과를 저장하고 응답할 수 있도록 35초에서 먼저 중단한다. */
+export const PROMO_LLM_TIMEOUT_MS = 35000;
+const FREE_MODEL_SUFFIX = ":free";
 
 export function resolvePromoLlmModel(): string {
   return process.env.OPENROUTER_PROMO_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+/** 비용 정책상 모델 ID가 명시적으로 무료임을 나타내는 경우에만 허용한다. */
+export function isPromoLlmModelAllowed(model = resolvePromoLlmModel()): boolean {
+  const normalizedModel = model.trim();
+  return normalizedModel.length > FREE_MODEL_SUFFIX.length && normalizedModel.endsWith(FREE_MODEL_SUFFIX);
 }
 
 export function isPromoLlmConfigured(): boolean {
@@ -58,6 +64,7 @@ export interface PromoLlmToolCallOptions {
 
 export type PromoLlmFailureReason =
   | "no_api_key"
+  | "paid_model_not_allowed"
   | "timeout"
   | "rate_limited"
   | "request_failed"
@@ -104,7 +111,12 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
     return { ok: false, reason: "no_api_key", detail: "OPENROUTER_API_KEY not set" };
   }
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const model = resolvePromoLlmModel();
+  if (!isPromoLlmModelAllowed(model)) {
+    return { ok: false, reason: "paid_model_not_allowed", detail: "only models with the :free suffix are allowed" };
+  }
+
+  const timeoutMs = options.timeoutMs ?? PROMO_LLM_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const fetchStart = performance.now();
@@ -126,7 +138,7 @@ export async function callPromoLlmTool(options: PromoLlmToolCallOptions): Promis
         authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: resolvePromoLlmModel(),
+        model,
         max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
         // 무료 endpoint를 쓸 수 없으면 OpenRouter가 다른(유료일 수 있는) provider/모델로 임의
         // 대체하지 않도록 막는다 — 이 프로젝트의 LLM 비용 목표는 0원이다. 실패하면 그대로 반환받아

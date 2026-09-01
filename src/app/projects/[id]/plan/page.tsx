@@ -31,6 +31,9 @@ import { getAccessibilityEvidenceForPoiIds } from "@/lib/services/accessibilityE
 import { AnimatedDetails } from "@/components/ui/AnimatedDetails";
 
 export const dynamic = "force-dynamic";
+// Next.js Server Action page-level 실행 상한. Vercel의 legacy 최소 최대치(60초)에도 맞추고,
+// LLM 35초 timeout 이후 rule fallback 저장·응답을 마칠 여유를 남긴다.
+export const maxDuration = 60;
 
 export default async function PlanPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

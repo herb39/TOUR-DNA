@@ -1,13 +1,13 @@
 # 구현 상태
 
-## 현재 상태 요약 — 2026-08-31
+## 현재 상태 요약 — 2026-09-01
 
 현재 Production과 시연 기준 상태를 먼저 요약한다. 아래 날짜별 절은 각 시점의 개발·검증 기록이며,
 일부 내용은 이후 상태와 다를 수 있다. 현재 상태를 확인할 때는 이 절을 우선한다.
 
 ### Production 현재 상태
 
-- 최신 코드: `e6243fce3c859fdc98c2f4fe23eb7af6cc0730f8` (`origin/main`과 일치)
+- 최신 코드: `5a26c6f6b594f0e54a0b90a8377a436b032b5292` (`origin/main`과 일치)
 - Production readiness: **READY**
 - Demo readiness: **READY**
 - Production migration: **17/17 APPLIED**
@@ -24,6 +24,9 @@
 - PET official evidence: **READY**
 - ACCESSIBILITY official evidence: **READY**
 - Promo·Print·Mobile: **READY**
+- Promo LLM overlay: **OPTIONAL_READY** — `:free` 모델만 허용하고, 35초 timeout·생성 대기 안내·rule
+  fallback을 적용한다. 무료 provider의 429·지연 변동성 때문에 공모전 핵심 동선의 필수 의존성으로는
+  사용하지 않는다.
 
 ### 데이터 최신화와 운영 원칙
 
@@ -35,6 +38,17 @@
   local PostgreSQL에서만 수행한다.
 - Production Neon은 runtime과 검증 완료 데이터의 최소 promotion/import 및 필요한 targeted 검증에만
   사용하며, 전국 batch·대량 read·개발용 seed·대량 backfill을 실행하지 않는다.
+
+### 2026-09-01 Promo LLM 선택 기능 고도화
+
+- `OPENROUTER_PROMO_MODEL`은 모델 ID가 `:free`로 끝나는 경우에만 허용한다. 유료 또는 무료 여부가
+  불명확한 override는 OpenRouter fetch 전에 `paid_model_not_allowed`로 차단하고 rule 결과를 저장한다.
+- `/projects/[id]/plan` page-level Server Action 상한은 60초, LLM timeout은 35초다. Vercel 공식
+  문서의 Fluid Compute 기본값 및 legacy Node.js 최소 최대치(60초)를 기준으로, fallback 저장·응답
+  여유를 남기는 보수적 값이다. 실제 프로젝트 plan·Fluid Compute 활성 여부는 Vercel 계정 조회 없이는
+  확정할 수 없다.
+- 홍보자료 생성 중에는 provider-independent 안내와 정적 처리 순서를 표시한다. 가짜 진행률이나
+  AI 성공을 미리 단정하지 않으며, 완료 후 `AI 생성`/`기본 생성` 배지로 결과를 구분한다.
 
 ### 현재 범위의 주의사항
 

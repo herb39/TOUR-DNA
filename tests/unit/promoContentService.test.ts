@@ -268,6 +268,18 @@ describe("generatePromoContentForProject — LLM 오케스트레이션(2026-08-1
     }
   });
 
+  it("허용되지 않은 모델로 LLM이 차단돼도 규칙 기반 결과로 정상 완료된다", async () => {
+    projectFindUnique.mockResolvedValue(baseProjectRow());
+    strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });
+    selectedPlanUpdateMany.mockResolvedValue({ count: 1 });
+    generatePromoContentChannelsWithLlm.mockResolvedValue({ ok: false, reason: "paid_model_not_allowed" });
+
+    const result = await generatePromoContentForProject(PROJECT_ID);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.content.generatedBy).toBe("rule");
+  });
+
   it("LLM 호출이 스키마 검증 실패(invalid_response)로 실패해도 홍보 콘텐츠 생성 자체는 정상 완료된다", async () => {
     projectFindUnique.mockResolvedValue(baseProjectRow());
     strategyResultFindUnique.mockResolvedValue({ name: "로컬미식·시장 연계형", evidences: [] });

@@ -97,6 +97,27 @@ describe("초기 상태", () => {
 });
 
 describe("생성", () => {
+  it("생성 중에는 provider와 무관한 대기 안내와 긴 처리시간 안내를 표시한다", async () => {
+    let resolveRequest: ((result: { ok: false; code: "internalError"; message: string }) => void) | undefined;
+    generatePromoContentAction.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+    render(<PromoContentEditor projectId={PROJECT_ID} initial={emptyInitial()} projectSummary={PROJECT_SUMMARY} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홍보자료 생성" }));
+
+    expect(await screen.findByText("홍보 콘텐츠 생성 중")).toBeInTheDocument();
+    expect(screen.getByText(/무료 AI 모델 사용 시 최대 수십 초/)).toBeInTheDocument();
+    expect(screen.getByText(/서비스가 멈춘 것이 아니며/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "생성 중..." })).toBeDisabled();
+    expect(screen.queryByText(/AI가 생성 중입니다/)).not.toBeInTheDocument();
+
+    resolveRequest?.({ ok: false, code: "internalError", message: "fail" });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("일시적인 오류"));
+  });
+
   it("최초 생성 시 overwrite 없이 액션을 호출한다", async () => {
     const content = sampleContent();
     generatePromoContentAction.mockResolvedValue({ ok: true, content });

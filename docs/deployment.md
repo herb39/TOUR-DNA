@@ -49,7 +49,7 @@ seed는 항상 별도 명령으로 수동/CI 스텝에서 실행한다.
    `CRON_SECRET`, `SITE_ACCESS_PASSWORD`(사이트 전체 접근 게이트 — 비워두면 로그인 없이 전체 공개
    상태가 되니 운영 배포에서는 반드시 강한 값으로 설정할 것), `OPENROUTER_API_KEY`(선택 — 홍보
    콘텐츠 LLM 생성용, 비어 있으면 rule 생성기만 동작), `OPENROUTER_PROMO_MODEL`(선택 — 기본값
-   `google/gemma-4-26b-a4b-it:free`)
+   `google/gemma-4-26b-a4b-it:free`, `:free`로 끝나지 않는 모델은 비용 보호를 위해 호출 전에 차단)
 3. Build Command는 기본값(`next build`, `npm run build`) 그대로 사용 — seed를 build 훅에 넣지 않는다
 4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tour-dna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
 

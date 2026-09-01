@@ -173,6 +173,27 @@ export function PromoContentEditor({
         </p>
       ) : null}
 
+      {isGenerating ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900"
+        >
+          <div className="flex items-center gap-2 font-semibold">
+            <span aria-hidden="true" className="inline-block size-3 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
+            <span>홍보 콘텐츠 생성 중</span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-sky-800">
+            기획 정보 정리 → 채널별 문구 구성 → 결과 검증 및 저장 순서로 처리하고 있습니다.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-sky-800">
+            무료 AI 모델 사용 시 최대 수십 초 정도 걸릴 수 있습니다. 서비스가 멈춘 것이 아니며, 생성이
+            지연되면 안정적인 기본 생성 결과를 제공합니다.
+          </p>
+        </div>
+      ) : null}
+
       {content === null ? (
         <div className="mt-4">
           {loadErrorCode === null ? <p className="text-sm text-slate-500">아직 생성된 홍보자료가 없습니다.</p> : null}
