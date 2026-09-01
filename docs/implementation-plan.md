@@ -1,6 +1,6 @@
 # TOUR DNA 구현 계획
 
-## Current Roadmap — 2026-08-31
+## Current Roadmap — 2026-09-01
 
 이 절이 현재 로드맵의 기준이다. 아래의 날짜별 구현 계획과 실행 기록은 당시의 판단과 작업 순서를
 삭제하지 않고 historical 기록으로 보존한다. 완료 기능을 다시 TODO로 해석하지 않으며, 제출 전 작업과
@@ -11,6 +11,7 @@
 - Production readiness: **READY**
 - Demo readiness: **READY**
 - Production migration: **17/17 APPLIED**
+- 최신 운영 코드: **`4190356ee48c44710466b474eac1aac7f4fdaea2`**
 - Production ACTIVE Dataset: **`202606`**
 - 공식 최신 확인월: **`202607`**. `202607`·`202608`은 아직 Production에 반영하지 않았다.
 - P0/P1: 없음
@@ -31,8 +32,9 @@
   구현돼 있다. `UNKNOWN`은 정보 미확인이다.
 - **DataProvenance**: `LIVE_API`, `CACHED_API`, `CURATED`, `ESTIMATED`, `MISSING`과 미분류 상태를
   구분해 실제 근거 수준을 표시한다.
-- **Promo**: 검증된 context 기반 결정론적 rule generator 경로는 시연 가능하다. 역할별 채널 문구와
-  preview·편집·저장을 지원한다.
+- **Promo**: 검증된 context 기반 결정론적 rule generator 경로와 optional LLM overlay를 제공한다.
+  Production QA에서 `liquid/lfm-2.5-2.6b:free` AI 생성 1회를 확인했으며, 역할별 7개 채널 문구와
+  preview·편집·저장을 지원한다. 실패 시 `generatedBy = rule`인 rule fallback으로 유지된다.
 - **Print**: 실행안의 브라우저 인쇄·PDF 저장 흐름을 제공한다. 자동 PDF 생성 서비스로 표현하지 않는다.
 
 ### 제출 전 필수·우선 작업
@@ -49,9 +51,19 @@
 
 - 실제 모바일 touch 기기의 전체 Drag & Drop 검증은 제한적이다.
 - POI 폐업·삭제 history와 숙박·장거리 이동의 상품 realism은 추가 검토가 필요하다.
-- Promo LLM overlay는 local 구현이며 Production 안정성이 확정되지 않았다. 시연은 rule generator를 기준으로 한다.
+- Promo LLM overlay는 Production 선택 기능 기준 READY지만 무료 provider의 429·지연 변동성이 있다.
+  시연은 저장된 AI 결과를 우선 사용하고 실시간 생성은 핵심 동선에 의존하지 않는다.
 - `DEMAND_RESOURCE` 공식 코드값은 아직 미확정이다.
 - 위 항목들은 현재 제출을 막는 P0/P1이 아니라 제한 사항·기술 부채다.
+
+### Promo LLM 공모전 운영 정책
+
+- 기본 시연은 이미 저장된 `AI 생성` Promo 결과를 사용한다.
+- 실시간 재생성은 선택 사항이며, 무료 provider 실패 시 `기본 생성` rule 결과로 대체된다.
+- 현재 Production 모델 `liquid/lfm-2.5-2.6b:free`를 공모전 전까지 유지한다. 새 모델 탐색·자동 순회·retry·
+  timeout 조정·prompt 대규모 변경은 동결한다.
+- LLM context에 개인정보·민감정보를 입력하지 않는다. 일반 상용화 전에는 provider 정책과 사용자 안내를
+  별도로 재검토한다.
 
 ### 로드맵 운영 원칙
 

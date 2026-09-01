@@ -1,6 +1,6 @@
 # 운영자 체크리스트
 
-## 현재 운영 체크리스트 — 2026-08-31
+## 현재 운영 체크리스트 — 2026-09-01
 
 아래 항목이 현재 Production 운영과 공모전 시연 전 확인의 기준이다. 이 문서 아래의 날짜별 절은
 당시 실행 기록을 보존한 historical 기록이므로, 현재 상태를 판단할 때는 이 절을 우선한다.
@@ -52,12 +52,24 @@
 - [ ] Print/PDF는 브라우저 인쇄·PDF 저장 흐름으로 확인한다. 자동 PDF 생성이나 물리 출력 완료로
       과장하지 않는다.
 
+### Promo LLM 운영 체크
+
+- [x] rule generator가 항상 기본 생성 경로로 동작하고, `generatedBy = rule`일 때 `기본 생성` 배지를 표시한다.
+- [x] Production QA `[PROD QA] 경주 자연·웰니스 체류형 상품`에서 `liquid/lfm-2.5-2.6b:free` 실제 생성 1회를
+      성공시켜 `generatedBy = ai`, `AI 생성`, 7개 채널 저장과 재진입 유지를 확인했다.
+- [x] 실시간 생성 실패 시 provider 원문을 노출하지 않고 rule fallback으로 유지한다.
+- [x] 공모전 기본 시연은 저장된 AI 결과를 사용하며 실시간 재생성은 핵심 동선의 필수 단계로 두지 않는다.
+- [x] 공모전 전까지 모델 탐색·자동 순회·retry·timeout 조정·prompt 대규모 변경·Production 추가 재생성을
+      동결한다.
+- [ ] LLM context에 개인정보·민감정보를 입력하지 않는다. 실제 상용화 전 provider 정책과 사용자 안내를
+      별도로 재검토한다.
+
 ### 제출 전 남은 확인과 기술 부채
 
 - 제출 전 우선순위는 9월 Dataset 최신화, drift 검증, 최종 promotion/import, targeted Festival refresh,
   final demo QA, 문서·제출 자료 완성이다.
 - 실제 모바일 touch Drag & Drop 전체 검증, POI 폐업·삭제 history, 숙박·장거리 동선 realism,
-  Promo LLM overlay Production 안정성, `DEMAND_RESOURCE` 공식 코드 확인은 기술 부채 또는 제한 사항이다.
+  무료 Promo LLM provider의 429·지연 대응, `DEMAND_RESOURCE` 공식 코드 확인은 기술 부채 또는 제한 사항이다.
 - 제출 전에는 새로운 대형 기능보다 데이터 최신화, 시연 안정성, 문서와 제출 완성도를 우선한다.
 
 > **역사 기록 안내**: 아래 기존 체크리스트는 작성 당시의 배포·지역 확장·API 확인 과정을 보존한다.

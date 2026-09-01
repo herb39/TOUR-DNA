@@ -1,6 +1,6 @@
 # 수동 테스트 시나리오
 
-## 현재 QA 요약 — 2026-08-31
+## 현재 QA 요약 — 2026-09-01
 
 아래는 현재 Production 구현과 공모전 시연 기준의 최신 QA snapshot이다. 뒤의 날짜별 체크리스트와
 수치 기록은 각각의 실행 시점·환경을 보존한 historical 기록이며, 현재 판정은 이 절을 우선한다.
@@ -19,6 +19,9 @@
   표시를 확인했다. `parking:`·`restroom:` 같은 내부 key는 사용자 화면에 노출하지 않는다.
 - **Print**: Print page에서 `NaN`·`undefined`·내부 접근성 key가 보이지 않는 것을 확인했다.
 - **Mobile**: 390px 기준 핵심 화면의 document 가로 overflow가 없는 것을 확인했다.
+- **Promo LLM**: `[PROD QA] 경주 자연·웰니스 체류형 상품`에서 Production 재생성 1회를 수행해 `AI_SUCCESS`,
+  `generatedBy = ai`, `AI 생성`, 7개 채널 저장과 재진입 유지를 확인했다. 실시간 성공을 핵심 동선의 전제로
+  삼지 않으며, 실패 시 rule fallback을 사용한다.
 
 ### 최신 로컬 검증 기준
 
@@ -32,8 +35,8 @@
 
 - 실제 모바일 touch 기기의 전체 Drag & Drop은 제한적으로만 검증했다.
 - OS system print dialog와 최종 물리 출력은 완전 검증 범위가 아니다.
-- Promo LLM overlay의 Production 안정성은 확정하지 않았으며, 시연은 검증된 rule 생성기 결과를
-  기준으로 준비한다.
+- Promo LLM overlay는 선택 기능 기준 Production 사용 가능 상태지만, 무료 provider의 429·지연 가능성이
+  있다. 시연은 저장된 AI 결과를 우선 사용하고 실시간 재생성은 선택 사항으로 둔다.
 
 > Production 전체 시연 결과는 기존 QA 실행 기록을 최신 상태 요약으로 옮긴 것이다. 이번 문서 작업은
 > Production DB/API에 접근하지 않았고, 실제 공개 URL 재검증을 새로 수행하지 않았다.

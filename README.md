@@ -9,9 +9,10 @@ TOUR-DNA는 여행자의 취향에 맞는 장소를 단순히 나열하는 서�
 - 운영 서비스: [tour-dna.lib.lc](https://tour-dna.lib.lc)
 - 저장소: [herb39/TOUR-DNA](https://github.com/herb39/TOUR-DNA)
 
-## 현재 운영 상태 — 2026-08-31
+## 현재 운영 상태 — 2026-09-01
 
 - Production migration은 **17/17 적용 완료** 상태이며, `ProjectAnchor`를 포함한 핵심 기능은 READY입니다.
+- 최신 운영 코드 기준은 `4190356ee48c44710466b474eac1aac7f4fdaea2`입니다.
 - Production이 사용하는 ACTIVE Dataset은 현재 **`202606`**입니다. 공식 최신 확인월은 **`202607`**이며,
   `202607`·`202608`은 아직 Production에 반영하지 않았습니다.
 - 9월 시연 전 `202607`을 local PostgreSQL에서 구축·검증하고, `202608` 공개 후 이어서 구축합니다.
@@ -19,6 +20,12 @@ TOUR-DNA는 여행자의 취향에 맞는 장소를 단순히 나열하는 서�
 - 전국 API sync, Dataset build, normalization·build 검증, bulk PET/ACCESSIBILITY enrichment는
   local PostgreSQL에서만 수행합니다. Production Neon은 runtime과 검증 완료 데이터의 최소
   promotion/import에만 사용합니다.
+- Promo rule generator는 **READY**, Promo LLM overlay는 **OPTIONAL READY**입니다. Production에서
+  `liquid/lfm-2.5-2.6b:free`로 AI 생성 1회를 확인했으며, 성공 결과는 `generatedBy = ai`·`AI 생성`,
+  실패 결과는 `generatedBy = rule`·`기본 생성`으로 표시됩니다. 무료 provider의 429·지연 가능성 때문에
+  시연은 저장된 AI 결과를 우선 사용하고 실시간 재생성은 핵심 동선에 의존하지 않습니다.
+- Promo LLM에는 지역·전략·코스·근거 등 기획 context가 전달될 수 있으므로 개인정보·민감정보를 입력하지
+  않습니다. 공모전 전까지 모델 탐색·retry·timeout 조정·Production 재생성을 동결합니다.
 
 ## 이 서비스가 해결하는 문제
 

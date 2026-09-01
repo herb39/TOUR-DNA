@@ -5,6 +5,18 @@
 이 문서는 Claude Code가 준비한 코드/설정을 기준으로, **실제 계정 접근이 필요한 단계는 사용자가 직접
 수행**하도록 안내한다. Claude Code는 대신 수행하지 않았다.
 
+## 현재 Production Promo LLM 기준 — 2026-09-01
+
+- Promo rule generator: **READY**
+- Promo LLM overlay: **OPTIONAL READY**
+- Production 설정: `OPENROUTER_PROMO_MODEL=liquid/lfm-2.5-2.6b:free`
+- QA 결과: `[PROD QA] 경주 자연·웰니스 체류형 상품`에서 Promo 재생성 1회, `AI_SUCCESS`, 7개 채널 저장,
+  재진입 유지 확인
+- `generatedBy = ai`는 `AI 생성`, `generatedBy = rule`은 `기본 생성`으로 표시한다. 무료 provider의 429·
+  지연 가능성 때문에 핵심 시연은 저장된 AI 결과를 우선 사용하고 실시간 재생성에 의존하지 않는다.
+- 공모전 전까지 모델 탐색·자동 순회·retry·timeout 조정·prompt 대규모 변경·Production 추가 재생성을
+  동결한다. LLM context에 개인정보·민감정보를 넣지 않는다.
+
 ## 1. Neon 프로젝트 준비 (사용자 수행)
 
 1. https://neon.tech 에서 프로젝트 생성
@@ -48,8 +60,9 @@ seed는 항상 별도 명령으로 수동/CI 스텝에서 실행한다.
    Dataset)" 참고), `NEXT_PUBLIC_KAKAO_MAP_KEY`, `NEXT_PUBLIC_APP_URL`(운영 URL로), `DATA_MODE`,
    `CRON_SECRET`, `SITE_ACCESS_PASSWORD`(사이트 전체 접근 게이트 — 비워두면 로그인 없이 전체 공개
    상태가 되니 운영 배포에서는 반드시 강한 값으로 설정할 것), `OPENROUTER_API_KEY`(선택 — 홍보
-   콘텐츠 LLM 생성용, 비어 있으면 rule 생성기만 동작), `OPENROUTER_PROMO_MODEL`(선택 — 기본값
-   `google/gemma-4-26b-a4b-it:free`, `:free`로 끝나지 않는 모델은 비용 보호를 위해 호출 전에 차단)
+   콘텐츠 LLM 생성용, 비어 있으면 rule 생성기만 동작), `OPENROUTER_PROMO_MODEL`(선택 — 코드 기본값은
+   `google/gemma-4-26b-a4b-it:free`, 현재 Production override는 `liquid/lfm-2.5-2.6b:free`, `:free`로
+   끝나지 않는 모델은 비용 보호를 위해 호출 전에 차단)
 3. Build Command는 기본값(`next build`, `npm run build`) 그대로 사용 — seed를 build 훅에 넣지 않는다
 4. 배포 후 `DNS` 탭에서 안내하는 값으로 `tour-dna.lib.lc`의 CNAME을 등록(사용자의 DNS 관리 콘솔에서)
 

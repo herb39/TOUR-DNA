@@ -68,7 +68,7 @@ npm run dev
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 공공데이터 서비스키. 없으면 snapshot·fixture 경로 사용 |
 | `TOUR_DATA_BASE_YM` | 동기화 시 사용할 기준월 보조 설정. 분석은 검증된 `ACTIVE Dataset`을 기준으로 함 |
 | `OPENROUTER_API_KEY` | 선택적 홍보 문구 생성 API 키. 없으면 결정론적 rule 생성기를 사용 |
-| `OPENROUTER_PROMO_MODEL` | 선택적 홍보 문구 모델 지정 |
+| `OPENROUTER_PROMO_MODEL` | `:free`로 끝나는 선택적 홍보 문구 모델. Production 현재값은 `liquid/lfm-2.5-2.6b:free` |
 | `NEXT_PUBLIC_KAKAO_MAP_KEY` | Kakao Map JavaScript SDK 키 |
 | `KAKAO_REST_API_KEY` | Kakao Mobility 서버 REST 경로 조회 키. 클라이언트·문서·로그에 노출하지 않음 |
 | `NEXT_PUBLIC_APP_URL` | 애플리케이션 기준 URL |
@@ -77,6 +77,8 @@ npm run dev
 | `SITE_ACCESS_PASSWORD` | 선택적 사이트 접근 게이트 비밀번호 |
 
 운영 환경변수는 Vercel에서 관리합니다. 실제 값은 문서·소스·로그에 기록하지 않습니다.
+현재 Production Promo LLM 모델은 공모전 전까지 동결하며, 무료 provider의 429·지연 시 rule fallback을
+사용합니다. LLM context에 개인정보·민감정보를 입력하지 않습니다.
 
 ## 4. 실제 `package.json` 명령어
 

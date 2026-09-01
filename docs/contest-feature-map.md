@@ -1,6 +1,6 @@
 # 공모전 지정과제 7번 기능 매핑 (2026-07-23 작성, 2026-07-26 Phase 4 반영 갱신)
 
-## 현재 공모전 기능맵 — 2026-08-31
+## 현재 공모전 기능맵 — 2026-09-01
 
 아래 내용이 현재 Production과 공모전 시연 기준의 기능맵이다. 뒤의 기존 표와 날짜별 절은 최초 기획과
 당시 검증 기록을 보존한 historical 자료이며, 현재 상태를 판단할 때는 이 절을 우선한다.
@@ -34,7 +34,7 @@ TOUR-DNA는 지역 관광 데이터를 진단하고, 데이터 기반 전략과 
 | PET | **READY · targeted** | 공식 evidence가 있는 POI만 근거 표시. evidence 없는 POI는 `UNKNOWN`; 전국 coverage로 주장하지 않음 |
 | ACCESSIBILITY | **READY · targeted** | 차원별 공식 `dimensionDetails` advisory. 목록 밖·상세 미확인 POI는 `UNKNOWN`이며 불가가 아님 |
 | DataProvenance | **READY** | `LIVE_API`, `CACHED_API`, `CURATED`, `ESTIMATED`, `MISSING`과 미분류 상태를 구분 |
-| Promo | **READY · rule generator 기준** | 규칙 기반 홍보자료 생성·편집·복사·저장·preview 가능. LLM overlay Production 안정성은 제한적 |
+| Promo | **READY · optional LLM overlay** | rule 기반 기본 생성과 optional AI 문구 생성을 모두 제공. Production QA에서 `liquid/lfm-2.5-2.6b:free` 실제 생성 1회 성공을 확인했으며, 성공은 `AI 생성`, 실패는 `기본 생성`으로 표시하고 무료 provider 429·지연 시 rule fallback |
 | Print | **READY · 브라우저 흐름** | 실행안의 브라우저 인쇄·PDF 저장 기준. 완성된 PDF 자동 생성으로 과장하지 않음 |
 
 ### 데이터·운영 표현 원칙

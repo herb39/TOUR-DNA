@@ -7,7 +7,7 @@
 
 ### Production 현재 상태
 
-- 최신 코드: `5a26c6f6b594f0e54a0b90a8377a436b032b5292` (`origin/main`과 일치)
+- 최신 검증된 구현 기준: `4190356ee48c44710466b474eac1aac7f4fdaea2` (이번 작업은 문서만 변경)
 - Production readiness: **READY**
 - Demo readiness: **READY**
 - Production migration: **17/17 APPLIED**
@@ -25,8 +25,8 @@
 - ACCESSIBILITY official evidence: **READY**
 - Promo·Print·Mobile: **READY**
 - Promo LLM overlay: **OPTIONAL_READY** — `:free` 모델만 허용하고, 35초 timeout·생성 대기 안내·rule
-  fallback을 적용한다. 무료 provider의 429·지연 변동성 때문에 공모전 핵심 동선의 필수 의존성으로는
-  사용하지 않는다.
+  fallback을 적용한다. Production QA에서 `liquid/lfm-2.5-2.6b:free` 실제 생성 1회를 `AI_SUCCESS`로
+  확인했으며, 무료 provider의 429·지연 변동성 때문에 공모전 핵심 동선의 필수 의존성으로는 사용하지 않는다.
 
 ### 데이터 최신화와 운영 원칙
 
@@ -50,12 +50,28 @@
 - 홍보자료 생성 중에는 provider-independent 안내와 정적 처리 순서를 표시한다. 가짜 진행률이나
   AI 성공을 미리 단정하지 않으며, 완료 후 `AI 생성`/`기본 생성` 배지로 결과를 구분한다.
 
+### 2026-09-01 Production Promo LLM smoke QA
+
+- Production Vercel에 `OPENROUTER_PROMO_MODEL=liquid/lfm-2.5-2.6b:free`를 설정하고 redeploy한 뒤,
+  `[PROD QA] 경주 자연·웰니스 체류형 상품`에서 재생성을 정확히 1회 실행했다.
+- Promo server action 1회와 LLM overlay 1회를 확인했고, 7개 채널이 모두 채워진 `AI_SUCCESS` 결과가
+  저장됐다. 화면은 `generatedBy = ai`와 `AI 생성` 배지를 표시했으며 새로고침 후에도 유지됐다.
+- DNA·전략·코스·Festival Anchor·KPI는 변경되지 않았다. 브라우저 콘솔 오류는 없었고, 사용자 화면에
+  provider 오류 원문·원시 JSON은 노출되지 않았다.
+- 생성 시작부터 최종 상태 확인까지 약 83.4초가 걸렸으나 성공 메시지가 자동 소멸한 뒤 최종 상태를
+  확인한 값이므로, 이를 순수 모델 latency로 단정하지 않는다.
+- Production 시연은 저장된 AI 결과를 우선 사용한다. 실시간 재생성은 선택 사항이며 무료 provider의
+  429·지연 시 기존 rule generator fallback으로 정상 유지된다.
+- 공모전 전까지 모델 추가 탐색·자동 순회·retry·timeout 조정·prompt 대규모 변경·Production 재생성을
+  동결한다. LLM context에 개인정보·민감정보를 넣지 않으며, 실제 상용화 전 provider 정책을 재검토한다.
+
 ### 현재 범위의 주의사항
 
 - `DEMAND_RESOURCE` 공식 유효 코드값은 아직 확정하지 않았다.
 - touch 기기의 실제 Drag & Drop 전체 검증은 제한적이다.
-- Promo LLM overlay는 local 구현 상태이며 Production 안정성은 확정하지 않았다. Production 시연은
-  검증된 rule 생성기 결과를 기준으로 준비한다.
+- Promo LLM overlay는 Production에서 선택 기능 기준 READY로 확인됐다. 다만 무료 provider의 429·지연
+  가능성은 남아 있으므로 Production 시연은 저장된 AI 결과를 우선 사용하고, 실시간 생성 성공을 핵심
+  동선의 전제조건으로 삼지 않는다.
 
 > 아래 기록의 `Production 미적용`, `9개/13개 migration`, `ProjectAnchor fallback`, PET·ACCESSIBILITY
 > pipeline 미구현, Course Studio 저장 미검증, provenance 미적용 등의 표현은 해당 날짜의 상태를 보존한
