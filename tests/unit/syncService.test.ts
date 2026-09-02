@@ -1170,6 +1170,101 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
     expect(isTouDivIxRawComplete(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload)).toBe(true);
   });
 
+  it("기존 12/13 snapshot은 새 1/13 + 429 응답으로 덮어쓰지 않는다", async () => {
+    mockRegions([REGION]);
+    const previousRaw = touDivRawWithAllCodes({ missing: ["3103"] });
+    dataSnapshotStore.set(`src-tou-div-ix|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 12,
+      rawPayload: previousRaw,
+    });
+    const previousMetric = {
+      regionId: REGION.id,
+      baseYm: "202606",
+      metricCode: "touDivIxVal",
+      rawValue: 90.46,
+      provenance: "LIVE_API",
+    };
+    normalizedMetricStore.set(`${REGION.id}|202606|touDivIxVal`, previousMetric);
+    vi.mocked(fetchTouDivIx).mockResolvedValue({
+      status: "SUCCESS",
+      composite: 25,
+      breakdown: { visitorAgeEvenness: 25, spendAgeEvenness: null, nationalityDiversity: null, composite: 25 },
+      itemCount: 1,
+      raw: touDivRawWithAllCodes({ missing: [
+        ...TOU_DIV_CODES.slice(1),
+        ...EXP_DIV_CODES,
+        INTL_DIV_CODE_NATIONALITY,
+      ] }),
+      quotaSignal: "HTTP 429",
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.stoppedDueToQuota).toBe(true);
+    expect(result.results.find((r) => r.sourceCode === `TOU_DIV_IX:${REGION.code}`)?.status).toBe("FAILED");
+    expect(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload).toEqual(previousRaw);
+    expect(normalizedMetricStore.get(`${REGION.id}|202606|touDivIxVal`)).toEqual(previousMetric);
+  });
+
+  it("기존 5/13 snapshot은 새 3/13 partial 응답으로 덮어쓰지 않는다", async () => {
+    mockRegions([REGION]);
+    const previousRaw = touDivRawWithAllCodes({
+      missing: ["3104", "3105", "3106", "3201", "3202", "3203", "3204", "3205"],
+    });
+    dataSnapshotStore.set(`src-tou-div-ix|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 5,
+      rawPayload: previousRaw,
+    });
+    vi.mocked(fetchTouDivIx).mockResolvedValue({
+      status: "SUCCESS",
+      composite: 35,
+      breakdown: { visitorAgeEvenness: 35, spendAgeEvenness: null, nationalityDiversity: null, composite: 35 },
+      itemCount: 3,
+      raw: touDivRawWithAllCodes({
+        missing: ["3104", "3105", "3106", "3201", "3202", "3203", "3204", "3205", "3206", "3303"],
+      }),
+      quotaSignal: null,
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.results.find((r) => r.sourceCode === `TOU_DIV_IX:${REGION.code}`)?.status).toBe("PARTIAL");
+    expect(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload).toEqual(previousRaw);
+  });
+
+  it("기존 5/13 snapshot은 새 8/13 partial 응답으로도 교체하지 않는다(atomic repair 정책)", async () => {
+    mockRegions([REGION]);
+    const previousRaw = touDivRawWithAllCodes({
+      missing: ["3104", "3105", "3106", "3201", "3202", "3203", "3204", "3205"],
+    });
+    dataSnapshotStore.set(`src-tou-div-ix|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 5,
+      rawPayload: previousRaw,
+    });
+    vi.mocked(fetchTouDivIx).mockResolvedValue({
+      status: "SUCCESS",
+      composite: 58,
+      breakdown: { visitorAgeEvenness: 58, spendAgeEvenness: null, nationalityDiversity: null, composite: 58 },
+      itemCount: 8,
+      raw: touDivRawWithAllCodes({ missing: ["3202", "3203", "3204", "3205", "3206"] }),
+      quotaSignal: null,
+    });
+
+    const result = await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(result.results.find((r) => r.sourceCode === `TOU_DIV_IX:${REGION.code}`)?.status).toBe("PARTIAL");
+    expect(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload).toEqual(previousRaw);
+  });
+
   it("이미 EMPTY로 완료된 지역×데이터소스도 SUCCESS와 동일하게 건너뛴다(과거 확정월은 재조회해도 바뀌지 않음)", async () => {
     mockRegions([REGION]);
     dataSnapshotStore.set(`src-tar-svc-dem|${REGION.id}|202606`, {
@@ -1293,6 +1388,7 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
       ),
     ).toBe(false);
     expect(normalizedMetricStore.has(`${REGION.id}|202606|touDivIxVal`)).toBe(false);
+    expect(isTouDivIxRawComplete(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload)).toBe(false);
   });
 
   it("TOU_DIV_IX가 부분 429(quotaSignal)만 있어도 status와 무관하게 quota 중단으로 처리한다", async () => {

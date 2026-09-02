@@ -403,15 +403,20 @@ async function syncTouDivIxForRegion(params: {
     signguCd: region.apiSigunguCode!,
     baseYm,
   });
+  const existing = await getExistingTouDivIxSnapshot(source.id, region.id, baseYm);
+  const completeResponse = res.status === "SUCCESS" && isTouDivIxRawComplete(res.raw);
+  const partialResponse = res.status === "SUCCESS" && !completeResponse;
+  const preserveExistingSuccess = existing?.status === "SUCCESS" && !completeResponse;
   // fetchTouDivIx는 일부 코드 응답이 실패해도 나머지 값으로 composite를 계산할 수 있다. 그러나
   // 부분 응답을 최종 다양성 metric으로 저장하면 불완전한 값이 이후 분석에 사용될 수 있으므로,
-  // 13개 필수 코드가 모두 있는 경우에만 이번 실행의 metric을 갱신한다. snapshot 원본은 재개를
-  // 위해 그대로 보존하고, 아래 resume 판정이 완전성을 확인해 부분 응답을 다시 호출 대상으로 만든다.
-  if (res.status === "SUCCESS" && res.composite !== null && isTouDivIxRawComplete(res.raw)) {
+  // 13개 필수 코드가 모두 있는 경우에만 이번 실행의 metric을 갱신한다. 기존 SUCCESS snapshot을
+  // repair하는 중이라면 같은 조건을 만족할 때만 snapshot도 교체한다. 실패한 repair의 partial
+  // raw는 기존에 저장된 더 완전한 raw를 덮어쓰지 않고, 다음 resume에서 다시 시도할 수 있게 한다.
+  if (completeResponse && res.composite !== null) {
     await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", source.id, "LIVE_API");
   }
   const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
-  if (hasRealDivData) {
+  if (hasRealDivData && !preserveExistingSuccess) {
     const outcome = await upsertSnapshot({
       dataSourceId: source.id,
       regionId: region.id,
@@ -427,16 +432,16 @@ async function syncTouDivIxForRegion(params: {
     }
   }
   // res.quotaSignal은 res.status와 별개다 — 13개 코드 중 일부만 quota/429를 맞아도 나머지가 정상이면
-  // res.status는 SUCCESS/EMPTY로 정상 계산되지만(이미 위에서 그 값 그대로 저장함), 이 지역이 실제로
-  // quota 초과를 겪었다는 사실 자체는 감춰서는 안 된다 — FAILED로 강제해 아래 호출부의
-  // isQuotaOrRateLimitSignal이 배치를 즉시 중단하게 한다(2026-08-10 수정, 저장된 데이터는 이미
-  // 위에서 정상 처리됐으므로 여기서 상태를 바꿔도 데이터 정합성에 영향 없음).
+  // res.status는 SUCCESS/EMPTY로 정상 계산될 수 있지만, 이 지역이 실제로 quota 초과를 겪었다는
+  // 사실 자체는 감춰서는 안 된다 — FAILED로 강제해 아래 호출부의 isQuotaOrRateLimitSignal이
+  // 배치를 즉시 중단하게 한다(2026-08-10 수정). 기존 SUCCESS snapshot이 있는 repair라면 위의
+  // 보존 조건이 먼저 적용되어 부분 raw가 기존 데이터를 덮어쓰지 않는다.
   if (res.quotaSignal) {
     return { sourceCode: `TOU_DIV_IX:${region.code}`, status: "FAILED", itemCount: 0, errorMessage: res.quotaSignal };
   }
   return {
     sourceCode: `TOU_DIV_IX:${region.code}`,
-    status: res.status === "ERROR" ? "FAILED" : "SUCCESS",
+    status: res.status === "ERROR" ? "FAILED" : partialResponse ? "PARTIAL" : "SUCCESS",
     itemCount: res.status === "ERROR" ? 0 : 1,
     errorMessage: res.status === "ERROR" ? res.resultMsg : undefined,
   };
@@ -813,6 +818,17 @@ async function getExistingSnapshotStatus(
   return existing?.status ?? null;
 }
 
+async function getExistingTouDivIxSnapshot(
+  dataSourceId: string,
+  regionId: string,
+  baseYm: string,
+): Promise<{ status: "SUCCESS" | "EMPTY" | "ERROR"; rawPayload: unknown } | null> {
+  return prisma.dataSnapshot.findUnique({
+    where: { dataSourceId_regionId_baseYm: { dataSourceId, regionId, baseYm } },
+    select: { status: true, rawPayload: true },
+  });
+}
+
 /**
  * TOU_DIV_IX만은 status가 SUCCESS여도 rawPayload가 13개 필수 코드보다 적을 수 있다. 이 경우
  * 기존 SUCCESS를 보존하면서도 다음 resume에서 재호출해야 하므로, 일반 source의 status-only
@@ -823,10 +839,7 @@ async function getExistingTouDivIxSnapshotStatus(
   regionId: string,
   baseYm: string,
 ): Promise<"SUCCESS" | "EMPTY" | "ERROR" | null> {
-  const existing = await prisma.dataSnapshot.findUnique({
-    where: { dataSourceId_regionId_baseYm: { dataSourceId, regionId, baseYm } },
-    select: { status: true, rawPayload: true },
-  });
+  const existing = await getExistingTouDivIxSnapshot(dataSourceId, regionId, baseYm);
   if (existing?.status === "SUCCESS" && !isTouDivIxRawComplete(existing.rawPayload)) return null;
   return existing?.status ?? null;
 }
