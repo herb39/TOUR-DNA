@@ -197,7 +197,10 @@ dataSourceFindUnique.mockImplementation(async (args?: { where?: { code?: string 
 
 // 실제 외부 API를 호출하지 않는다 — 5개 어댑터를 전부 mock으로 대체한다.
 vi.mock("@/lib/public-data/adapters/tarSvcDem", () => ({ fetchTarSvcDem: vi.fn() }));
-vi.mock("@/lib/public-data/adapters/touDivIx", () => ({ fetchTouDivIx: vi.fn() }));
+vi.mock("@/lib/public-data/adapters/touDivIx", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/public-data/adapters/touDivIx")>();
+  return { ...actual, fetchTouDivIx: vi.fn() };
+});
 vi.mock("@/lib/public-data/adapters/touResDem", () => ({ fetchTouResDem: vi.fn() }));
 // importOriginal로 partial mock — fetchLocgoRegnVisitr/fetchMetcoRegnVisitr만 vi.fn()으로 바꾸고,
 // monthToYmdRange 등 나머지 실제 export는 그대로 둔다. 이 모듈을 통째로 stub하면
@@ -231,7 +234,13 @@ vi.mock("@/lib/db", () => ({
 
 import { runTourismDataSync, runResumableLocalBatchSync } from "@/lib/services/syncService";
 import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
-import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
+import {
+  EXP_DIV_CODES,
+  INTL_DIV_CODE_NATIONALITY,
+  TOU_DIV_CODES,
+  fetchTouDivIx,
+  isTouDivIxRawComplete,
+} from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo } from "@/lib/public-data/adapters/tourInfo";
@@ -283,6 +292,18 @@ function resetAdapterMocksToNoRealBody() {
     resultMsg: "mock: no body",
     raw: { pages: [] },
   });
+}
+
+function touDivRawWithAllCodes(options: { missing?: string[] } = {}) {
+  const missing = new Set(options.missing ?? []);
+  return {
+    tou: TOU_DIV_CODES.map((code) => ({ code, data: missing.has(code) ? null : { value: 1 } })),
+    exp: EXP_DIV_CODES.map((code) => ({ code, data: missing.has(code) ? null : { value: 1 } })),
+    intl: {
+      code: INTL_DIV_CODE_NATIONALITY,
+      data: missing.has(INTL_DIV_CODE_NATIONALITY) ? null : { value: 1 },
+    },
+  };
 }
 
 beforeEach(() => {
@@ -1107,6 +1128,48 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
     logSpy.mockRestore();
   });
 
+  it("TOU_DIV_IX의 13/13 SUCCESS snapshot은 API를 재호출하지 않고 건너뛴다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tou-div-ix|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 13,
+      rawPayload: touDivRawWithAllCodes(),
+    });
+
+    await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTouDivIx).not.toHaveBeenCalled();
+  });
+
+  it("TOU_DIV_IX의 12/13 SUCCESS snapshot은 재시도하고, 완전 응답에서 metric을 upsert한다", async () => {
+    mockRegions([REGION]);
+    dataSnapshotStore.set(`src-tou-div-ix|${REGION.id}|202606`, {
+      status: "SUCCESS",
+      resultCode: "0000",
+      resultMsg: "OK",
+      itemCount: 12,
+      rawPayload: touDivRawWithAllCodes({ missing: ["3103"] }),
+    });
+    vi.mocked(fetchTouDivIx).mockResolvedValue({
+      status: "SUCCESS",
+      composite: 72.5,
+      breakdown: { visitorAgeEvenness: 70, spendAgeEvenness: 75, nationalityDiversity: 72.5, composite: 72.5 },
+      itemCount: 13,
+      raw: touDivRawWithAllCodes(),
+      quotaSignal: null,
+    });
+
+    await runResumableLocalBatchSync({ baseYm: "202606", triggeredBy: "CLI", maxRegions: 10 });
+
+    expect(fetchTouDivIx).toHaveBeenCalledTimes(1);
+    expect(normalizedMetricStore.get(`${REGION.id}|202606|touDivIxVal`)).toEqual(
+      expect.objectContaining({ rawValue: 72.5, provenance: "LIVE_API" }),
+    );
+    expect(isTouDivIxRawComplete(dataSnapshotStore.get(`src-tou-div-ix|${REGION.id}|202606`)?.rawPayload)).toBe(true);
+  });
+
   it("이미 EMPTY로 완료된 지역×데이터소스도 SUCCESS와 동일하게 건너뛴다(과거 확정월은 재조회해도 바뀌지 않음)", async () => {
     mockRegions([REGION]);
     dataSnapshotStore.set(`src-tar-svc-dem|${REGION.id}|202606`, {
@@ -1229,6 +1292,7 @@ describe("runResumableLocalBatchSync — 전국 재개형 로컬 배치(2026-08-
         (r) => r.sourceCode.includes(REGION_B.code) && !r.sourceCode.startsWith("VISITOR_CNT:"),
       ),
     ).toBe(false);
+    expect(normalizedMetricStore.has(`${REGION.id}|202606|touDivIxVal`)).toBe(false);
   });
 
   it("TOU_DIV_IX가 부분 429(quotaSignal)만 있어도 status와 무관하게 quota 중단으로 처리한다", async () => {

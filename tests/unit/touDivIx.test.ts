@@ -16,7 +16,13 @@ vi.mock("../../src/lib/public-data/client", () => ({
   fetchPublicDataJson: (...args: unknown[]) => fetchPublicDataJson(...args),
 }));
 
-import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
+import {
+  EXP_DIV_CODES,
+  INTL_DIV_CODE_NATIONALITY,
+  TOU_DIV_CODES,
+  fetchTouDivIx,
+  isTouDivIxRawComplete,
+} from "@/lib/public-data/adapters/touDivIx";
 
 function emptyEnvelope() {
   return {
@@ -49,6 +55,19 @@ const params = {
   signguCd: "28125",
   baseYm: "202606",
 };
+
+function rawForCodes(codes: readonly string[]) {
+  return {
+    tou: TOU_DIV_CODES.filter((code) => codes.includes(code)).map((code) => ({ code, data: { value: 1 } })),
+    exp: EXP_DIV_CODES.filter((code) => codes.includes(code)).map((code) => ({ code, data: { value: 1 } })),
+    intl: {
+      code: INTL_DIV_CODE_NATIONALITY,
+      data: codes.includes(INTL_DIV_CODE_NATIONALITY) ? { value: 1 } : null,
+    },
+  };
+}
+
+const allRequiredCodes = [...TOU_DIV_CODES, ...EXP_DIV_CODES, INTL_DIV_CODE_NATIONALITY];
 
 beforeEach(() => {
   fetchPublicDataJson.mockReset();
@@ -85,6 +104,26 @@ describe("fetchTouDivIx — EMPTY vs ERROR 판정", () => {
 
     expect(result.status).toBe("SUCCESS");
     expect(result.composite).not.toBeNull();
+  });
+});
+
+describe("isTouDivIxRawComplete — 부분 snapshot 재개 판정", () => {
+  it("13개 필수 코드가 모두 값과 함께 있으면 완전한 snapshot이다", () => {
+    expect(isTouDivIxRawComplete(rawForCodes(allRequiredCodes))).toBe(true);
+  });
+
+  it("12/13 snapshot은 SUCCESS status와 무관하게 불완전하다", () => {
+    expect(isTouDivIxRawComplete(rawForCodes(allRequiredCodes.filter((code) => code !== "3103")))).toBe(false);
+  });
+
+  it("5/13 snapshot은 불완전하다", () => {
+    expect(isTouDivIxRawComplete(rawForCodes(allRequiredCodes.slice(0, 5)))).toBe(false);
+  });
+
+  it("필수 코드 하나가 중복되고 다른 필수 코드가 빠진 payload는 불완전하다", () => {
+    const raw = rawForCodes(allRequiredCodes.filter((code) => code !== "3103"));
+    raw.tou.push({ code: "3101", data: { value: 1 } });
+    expect(isTouDivIxRawComplete(raw)).toBe(false);
   });
 });
 

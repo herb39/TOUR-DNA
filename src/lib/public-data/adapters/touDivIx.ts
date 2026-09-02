@@ -46,9 +46,14 @@ export interface TouDivIxParams {
   baseYm: string;
 }
 
-const TOU_DIV_CODES = ["3101", "3102", "3103", "3104", "3105", "3106"];
-const EXP_DIV_CODES = ["3201", "3202", "3203", "3204", "3205", "3206"];
-const INTL_DIV_CODE_NATIONALITY = "3303"; // "외국인 방문객 국적 다양성" — 이미 그 자체로 다양성 지수
+export const TOU_DIV_CODES = ["3101", "3102", "3103", "3104", "3105", "3106"] as const;
+export const EXP_DIV_CODES = ["3201", "3202", "3203", "3204", "3205", "3206"] as const;
+export const INTL_DIV_CODE_NATIONALITY = "3303" as const; // "외국인 방문객 국적 다양성" — 이미 그 자체로 다양성 지수
+export const TOU_DIV_REQUIRED_CODES = [
+  ...TOU_DIV_CODES,
+  ...EXP_DIV_CODES,
+  INTL_DIV_CODE_NATIONALITY,
+] as const;
 
 export interface DiversityBreakdown {
   visitorAgeEvenness: number | null;
@@ -124,6 +129,37 @@ export interface TouDivIxRaw {
   tou: Array<{ code: string; data: unknown }>;
   exp: Array<{ code: string; data: unknown }>;
   intl: { code: string; data: unknown };
+}
+
+/**
+ * TOU_DIV_IX의 DataSnapshot이 재개 시점에 "완료"로 간주될 수 있는지 판정한다.
+ *
+ * fetchTouDivIx는 일부 코드가 실패해도 받은 원본을 보존하면서 composite를 계산할 수 있다.
+ * 따라서 result status만 보면 12/13 또는 5/13인 부분 응답도 SUCCESS로 보일 수 있다. 이
+ * helper는 실제 응답에 13개 필수 코드의 값이 모두 있는지를 확인해, 부분 snapshot은 다음
+ * resume에서 재수집 대상으로 남긴다. 필수 코드 집합은 fetchTouDivIx가 호출하는 상수에서
+ * 파생하므로 이 목록과 resume 판정이 서로 어긋나지 않는다.
+ */
+export function isTouDivIxRawComplete(raw: unknown): raw is TouDivIxRaw {
+  if (!raw || typeof raw !== "object") return false;
+  const candidate = raw as Partial<TouDivIxRaw>;
+  const entries: unknown[] = [
+    ...(Array.isArray(candidate.tou) ? candidate.tou : []),
+    ...(Array.isArray(candidate.exp) ? candidate.exp : []),
+    ...(candidate.intl ? [candidate.intl] : []),
+  ];
+  const dataCodes = entries
+    .filter((entry) => Boolean(entry) && typeof entry === "object")
+    .map((entry) => entry as { code?: unknown; data?: unknown })
+    .filter((entry) => typeof entry.code === "string" && entry.data !== null && entry.data !== undefined)
+    .map((entry) => entry.code);
+  const uniqueCodes = new Set(dataCodes);
+
+  return (
+    dataCodes.length === TOU_DIV_REQUIRED_CODES.length &&
+    uniqueCodes.size === TOU_DIV_REQUIRED_CODES.length &&
+    TOU_DIV_REQUIRED_CODES.every((code) => uniqueCodes.has(code))
+  );
 }
 
 /** syncService.ts의 isQuotaOrRateLimitSignal과 동일한 판정 기준 — 13개 코드 중 일부만 quota/429를

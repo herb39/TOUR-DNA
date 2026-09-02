@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { fetchTarSvcDem } from "@/lib/public-data/adapters/tarSvcDem";
-import { fetchTouDivIx } from "@/lib/public-data/adapters/touDivIx";
+import { fetchTouDivIx, isTouDivIxRawComplete } from "@/lib/public-data/adapters/touDivIx";
 import { fetchTouResDem } from "@/lib/public-data/adapters/touResDem";
 import { fetchLocgoRegnVisitr, fetchMetcoRegnVisitr, type VisitorCntFetchResult } from "@/lib/public-data/adapters/visitorCnt";
 import { fetchTourInfo, mapContentTypeToPoiCategory } from "@/lib/public-data/adapters/tourInfo";
@@ -403,7 +403,11 @@ async function syncTouDivIxForRegion(params: {
     signguCd: region.apiSigunguCode!,
     baseYm,
   });
-  if (res.status === "SUCCESS" && res.composite !== null) {
+  // fetchTouDivIx는 일부 코드 응답이 실패해도 나머지 값으로 composite를 계산할 수 있다. 그러나
+  // 부분 응답을 최종 다양성 metric으로 저장하면 불완전한 값이 이후 분석에 사용될 수 있으므로,
+  // 13개 필수 코드가 모두 있는 경우에만 이번 실행의 metric을 갱신한다. snapshot 원본은 재개를
+  // 위해 그대로 보존하고, 아래 resume 판정이 완전성을 확인해 부분 응답을 다시 호출 대상으로 만든다.
+  if (res.status === "SUCCESS" && res.composite !== null && isTouDivIxRawComplete(res.raw)) {
     await upsertMetric(region.id, region.level, baseYm, METRIC_CODES.DIVERSITY, res.composite, "지수", source.id, "LIVE_API");
   }
   const hasRealDivData = res.raw.tou.some((t) => t.data !== null) || res.raw.exp.some((e) => e.data !== null) || res.raw.intl.data !== null;
@@ -810,6 +814,24 @@ async function getExistingSnapshotStatus(
 }
 
 /**
+ * TOU_DIV_IX만은 status가 SUCCESS여도 rawPayload가 13개 필수 코드보다 적을 수 있다. 이 경우
+ * 기존 SUCCESS를 보존하면서도 다음 resume에서 재호출해야 하므로, 일반 source의 status-only
+ * skip과 분리해 원본 완전성을 함께 확인한다.
+ */
+async function getExistingTouDivIxSnapshotStatus(
+  dataSourceId: string,
+  regionId: string,
+  baseYm: string,
+): Promise<"SUCCESS" | "EMPTY" | "ERROR" | null> {
+  const existing = await prisma.dataSnapshot.findUnique({
+    where: { dataSourceId_regionId_baseYm: { dataSourceId, regionId, baseYm } },
+    select: { status: true, rawPayload: true },
+  });
+  if (existing?.status === "SUCCESS" && !isTouDivIxRawComplete(existing.rawPayload)) return null;
+  return existing?.status ?? null;
+}
+
+/**
  * VISITOR_CNT는 지역 필터 없는 전국 1회 호출이라(syncVisitorCnt 참고) 위 `getExistingSnapshotStatus`의
  * 지역×소스 단위 스킵 모델을 그대로 쓸 수 없다 — 대신 "이번 배치의 대상 지역 전체가 이미 이 baseYm에
  * 대해 SUCCESS/EMPTY인가"를 한 번의 쿼리로 확인한다(2026-08-10 도입). 전국 배치는 매번 sigunguRegions에
@@ -1044,7 +1066,10 @@ async function runResumableLocalBatchSyncImpl(
         continue;
       }
 
-      const existingStatus = await getExistingSnapshotStatus(source.id, region.id, baseYm);
+      const existingStatus =
+        sourceCode === "TOU_DIV_IX"
+          ? await getExistingTouDivIxSnapshotStatus(source.id, region.id, baseYm)
+          : await getExistingSnapshotStatus(source.id, region.id, baseYm);
       if (existingStatus === "SUCCESS" || existingStatus === "EMPTY") {
         console.log(`[${idx + 1}/${totalRegions}] ${region.name} - ${sourceCode} 건너뜀(이미 완료)`);
         results.push({
