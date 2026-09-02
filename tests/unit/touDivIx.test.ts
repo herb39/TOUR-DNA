@@ -105,6 +105,24 @@ describe("fetchTouDivIx — EMPTY vs ERROR 판정", () => {
     expect(result.status).toBe("SUCCESS");
     expect(result.composite).not.toBeNull();
   });
+
+  it("13개 필수 코드가 모두 정상 응답이면 13/13 SUCCESS를 유지한다", async () => {
+    fetchPublicDataJson.mockImplementation((url: string) => {
+      const parsed = new URL(url);
+      const isTou = url.includes("areaTouDivList");
+      const isExp = url.includes("areaExpDivList");
+      const code = parsed.searchParams.get(isTou ? "touDivIxCd" : isExp ? "expDivIxCd" : "intlDivIxCd") ?? "3303";
+      const valueKey = isTou ? "touDivIxVal" : isExp ? "expDivIxVal" : "intlDivIxVal";
+      return Promise.resolve(successEnvelope(code, valueKey, 50));
+    });
+
+    const result = await fetchTouDivIx(params);
+
+    expect(result.status).toBe("SUCCESS");
+    expect(isTouDivIxRawComplete(result.raw)).toBe(true);
+    expect(fetchPublicDataJson).toHaveBeenCalledTimes(13);
+    expect(fetchPublicDataJson.mock.calls.every(([, options]) => (options as { retryOn429?: boolean }).retryOn429 === false)).toBe(true);
+  });
 });
 
 describe("isTouDivIxRawComplete — 부분 snapshot 재개 판정", () => {

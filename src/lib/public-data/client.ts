@@ -4,6 +4,8 @@ import { logAnalysisTiming } from "@/lib/services/analysisTiming";
 export interface FetchJsonOptions {
   timeoutMs?: number;
   maxRetries?: number;
+  /** HTTP 429를 재시도할지 여부. 생략하면 기존처럼 재시도한다. */
+  retryOn429?: boolean;
   sourceCode: string; // 로그 식별용 (예: "TAR_SVC_DEM")
 }
 
@@ -33,7 +35,7 @@ export function classifyNonJsonBody(text: string): "EMPTY" | "HTML" | "XML" | "U
 /** 서비스키/전체 요청 URL을 로그에 남기지 않고, timeout과 제한된 retry로 공공데이터 API를 호출한다. */
 export async function fetchPublicDataJson(
   url: string,
-  { timeoutMs = 8000, maxRetries = 2, sourceCode }: FetchJsonOptions,
+  { timeoutMs = 8000, maxRetries = 2, retryOn429 = true, sourceCode }: FetchJsonOptions,
 ): Promise<FetchJsonResult> {
   let lastError: string | undefined;
 
@@ -74,6 +76,10 @@ export async function fetchPublicDataJson(
         console.error(
           JSON.stringify({ level: "error", source: sourceCode, attempt, status: res.status, message: "non-2xx response" }),
         );
+        // HTTP 429는 같은 실행 안에서 즉시 반복해도 quota를 더 소모할 가능성이 높다. 호출부가 명시적으로
+        // 재시도를 끄면 이 시도만 실패로 반환하고, 상위 TOU_DIV 배치가 quota 신호를 받아 안전하게 중단한다.
+        // 기본값은 true로 유지해 다른 데이터소스의 기존 timeout/5xx/429 retry 계약은 바꾸지 않는다.
+        if (res.status === 429 && !retryOn429) break;
         continue;
       }
 

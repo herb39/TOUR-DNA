@@ -112,7 +112,10 @@ async function fetchCode<T extends { [k: string]: unknown }>(
   schema: z.ZodType<T>,
   valueKey: keyof T,
 ): Promise<CodeFetchResult> {
-  const res = await fetchPublicDataJson(url, { sourceCode });
+  // AreaTarDivService는 지역당 13개 코드를 호출하고, 429는 일일 quota 신호일 가능성이 높다. 이
+  // 데이터소스에 한해서만 동일 실행 내 429 retry를 막아 13개 요청이 최대 39개로 불어나는 것을 방지한다.
+  // timeout/5xx는 client의 기존 기본 retry 정책을 그대로 유지한다.
+  const res = await fetchPublicDataJson(url, { sourceCode, retryOn429: false });
   if (!res.ok) return { value: null, ok: false, errorMessage: res.errorMessage, raw: null };
   try {
     const parsed = parsePublicDataEnvelope(schema, res.data);

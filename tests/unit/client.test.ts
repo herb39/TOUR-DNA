@@ -32,6 +32,10 @@ describe("fetchPublicDataJson — 비-JSON 응답 처리(2026-07-27 VISITOR_CNT 
     return { ok, status: ok ? 200 : 500, text: async () => body } as Response;
   }
 
+  function errorResponse(status: number) {
+    return { ok: false, status, text: async () => "" } as Response;
+  }
+
   it("HTML 응답이면 재시도 없이 즉시 실패로 끝난다(불필요한 반복 호출 방지) — baseUrl이 게이트웨이가 아닐 때의 전형적 증상", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       textResponse("<!DOCTYPE html><html><body>소개 페이지</body></html>"),
@@ -62,5 +66,24 @@ describe("fetchPublicDataJson — 비-JSON 응답 처리(2026-07-27 VISITOR_CNT 
 
     expect(result.ok).toBe(true);
     expect(result.data).toEqual({ response: { header: { resultCode: "0000" } } });
+  });
+
+  it("retryOn429=false면 429를 같은 실행에서 재시도하지 않는다", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(errorResponse(429));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const results = await Promise.all(
+      Array.from({ length: 13 }, (_, index) =>
+        fetchPublicDataJson(`https://example.test/tou-div/${index}`, {
+          sourceCode: "TOU_DIV_IX:tou",
+          maxRetries: 2,
+          retryOn429: false,
+        }),
+      ),
+    );
+
+    expect(results.every((result) => result.ok === false && result.errorMessage === "HTTP 429")).toBe(true);
+    // 13개 논리 호출은 모두 최초 1회만 시도되어, 기존 39회 상한으로 재시도 폭증하지 않는다.
+    expect(fetchSpy).toHaveBeenCalledTimes(13);
   });
 });
