@@ -24,8 +24,14 @@ vi.mock("@/lib/services/fetchRegionComparisonProfiles", () => ({
   fetchRegionComparisonProfiles: (...args: unknown[]) => fetchRegionComparisonProfiles(...args),
 }));
 
+const fetchCommonCohortProfiles = vi.fn();
+vi.mock("@/lib/services/fetchCommonCohortProfiles", () => ({
+  fetchCommonCohortProfiles: (...args: unknown[]) => fetchCommonCohortProfiles(...args),
+}));
+
 import { computeDatasetDriftReport, DRIFT_QA_SCENARIOS } from "@/lib/services/datasetDriftReport";
-import { METRIC_CODES, type DnaEngineInput, type RegionMetricValue } from "@/lib/domain/types";
+import { computeDna } from "@/lib/domain/dna";
+import { METRIC_CODES, type DnaEngineInput, type DnaResult, type RegionMetricValue } from "@/lib/domain/types";
 import type { RegionAxisProfile } from "@/lib/domain/regionSimilarity";
 
 const ACTIVE_BASE_YM = "202606";
@@ -99,6 +105,7 @@ beforeEach(() => {
   buildDnaEngineInput.mockReset();
   fetchPoisByCategory.mockReset();
   fetchRegionComparisonProfiles.mockReset();
+  fetchCommonCohortProfiles.mockReset();
 
   fetchPoisByCategory.mockResolvedValue({ FOOD: [], ATTRACTION: [] });
 
@@ -121,7 +128,7 @@ beforeEach(() => {
 
 describe("computeDatasetDriftReport — 실제 production 함수 조합", () => {
   it("5축 axisReports를 전부 생성하고, active/candidate 프로필 조회를 정확한 baseYm으로 호출한다", async () => {
-    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM, "CURRENT");
 
     expect(fetchRegionComparisonProfiles).toHaveBeenCalledWith(ACTIVE_BASE_YM);
     expect(fetchRegionComparisonProfiles).toHaveBeenCalledWith(CANDIDATE_BASE_YM);
@@ -133,7 +140,7 @@ describe("computeDatasetDriftReport — 실제 production 함수 조합", () => 
   });
 
   it("similarity drift가 seed 지역(강릉/경주/제천)에 대해 Top3를 실제로 계산한다", async () => {
-    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM, "CURRENT");
 
     const gangneung = report.similarity.results.find((r) => r.code === "SGG_GANGNEUNG");
     expect(gangneung).toBeDefined();
@@ -145,7 +152,7 @@ describe("computeDatasetDriftReport — 실제 production 함수 조합", () => 
   });
 
   it("대표 QA 시나리오 3개 전부에 대해 실제 computeStrategies를 호출해 top3 templateId를 만든다", async () => {
-    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM, "CURRENT");
 
     expect(report.strategy.scenarios).toHaveLength(DRIFT_QA_SCENARIOS.length);
     for (const s of report.strategy.scenarios) {
@@ -160,7 +167,38 @@ describe("computeDatasetDriftReport — 실제 production 함수 조합", () => 
   });
 
   it("strength/weakness drift를 두 baseYm의 axisScores로부터 계산한다", async () => {
-    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM, "CURRENT");
     expect(report.strengthWeakness.comparedRegionCount).toBe(5);
+  });
+
+  it("COMMON_COHORT를 기본 정책으로 사용하고 비교 cohort 메타데이터를 반환한다", async () => {
+    const dna = (code: string, baseYm: string, bump: number): DnaResult => computeDna(scenarioDnaInput(code, baseYm, bump));
+    const activeProfiles = [
+      profile("SGG_GANGNEUNG", "강릉시", ACTIVE_BASE_YM, 70),
+      profile("SGG_GYEONGJU", "경주시", ACTIVE_BASE_YM, 40),
+      profile("SGG_JECHEON", "제천시", ACTIVE_BASE_YM, 55),
+      profile("R_LOW", "저점지역", ACTIVE_BASE_YM, 10),
+      profile("R_MID", "중간지역", ACTIVE_BASE_YM, 50),
+    ];
+    const candidateProfiles = activeProfiles.map((p) => ({ ...p, baseYm: CANDIDATE_BASE_YM }));
+    fetchCommonCohortProfiles.mockResolvedValue({
+      activeProfiles,
+      candidateProfiles,
+      activeDnaByCode: new Map(activeProfiles.map((p) => [p.code, dna(p.code, ACTIVE_BASE_YM, 0)])),
+      candidateDnaByCode: new Map(candidateProfiles.map((p) => [p.code, dna(p.code, CANDIDATE_BASE_YM, 10)])),
+      fullAxisCommonRegionCodes: activeProfiles.map((p) => p.code),
+      metricCohortReports: {
+        tarSvcDemIxVal: { activeRegionCount: 5, candidateRegionCount: 5, commonRegionCount: 5, asymmetricRegionCount: 0 },
+      },
+      fullAxisCommonCohortSize: 5,
+    });
+
+    const report = await computeDatasetDriftReport(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+
+    expect(fetchCommonCohortProfiles).toHaveBeenCalledWith(ACTIVE_BASE_YM, CANDIDATE_BASE_YM);
+    expect(fetchRegionComparisonProfiles).not.toHaveBeenCalled();
+    expect(report.policy).toBe("COMMON_COHORT");
+    expect(report.fullAxisCommonCohortSize).toBe(5);
+    expect(report.metricCohortReports.tarSvcDemIxVal.commonRegionCount).toBe(5);
   });
 });

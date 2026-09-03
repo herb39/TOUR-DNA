@@ -18,6 +18,10 @@ import {
 import { buildDnaEngineInput } from "./buildDnaEngineInput";
 import { fetchPoisByCategory } from "./fetchPoisByCategory";
 import { fetchRegionComparisonProfiles } from "./fetchRegionComparisonProfiles";
+import { fetchCommonCohortProfiles } from "./fetchCommonCohortProfiles";
+
+export type DatasetDriftPolicy = "CURRENT" | "COMMON_COHORT";
+export const DEFAULT_DATASET_DRIFT_POLICY: DatasetDriftPolicy = "COMMON_COHORT";
 
 /**
  * Phase 2-C(2026-08-12): 두 baseYm(ACTIVE와 STAGING candidate) 사이의 DNA drift를 실제로 계산한다.
@@ -105,9 +109,12 @@ export const DRIFT_QA_SCENARIOS: readonly DriftQaScenario[] = [
   },
 ] as const;
 
-async function computeScenarioTop3TemplateIds(scenario: DriftQaScenario, baseYm: string): Promise<string[]> {
-  const dnaInput = await buildDnaEngineInput(scenario.regionCode, baseYm);
-  const dna = computeDna(dnaInput);
+async function computeScenarioTop3TemplateIds(
+  scenario: DriftQaScenario,
+  baseYm: string,
+  diagnosticDnaByCode?: Map<string, ReturnType<typeof computeDna>>,
+): Promise<string[]> {
+  const dna = diagnosticDnaByCode?.get(scenario.regionCode) ?? computeDna(await buildDnaEngineInput(scenario.regionCode, baseYm));
   const poisByCategory = await fetchPoisByCategory(scenario.regionCode);
   const analysisContext = buildAnalysisContext({
     role: scenario.role,
@@ -132,6 +139,17 @@ async function computeScenarioTop3TemplateIds(scenario: DriftQaScenario, baseYm:
 export interface DatasetDriftReport {
   activeBaseYm: string;
   candidateBaseYm: string;
+  policy: DatasetDriftPolicy;
+  metricCohortReports: Record<
+    string,
+    {
+      activeRegionCount: number;
+      candidateRegionCount: number;
+      commonRegionCount: number;
+      asymmetricRegionCount: number;
+    }
+  >;
+  fullAxisCommonCohortSize: number;
   axisReports: AxisDriftReport[];
   strengthWeakness: StrengthWeaknessChangeReport;
   similarity: SimilarityDriftReport;
@@ -144,11 +162,15 @@ export interface DatasetDriftReport {
  * 신규 성능 문제는 아니다). similarity/strategy는 성능을 고려해 명시적으로 관리되는 대표 seed/시나리오
  * 목록(랜덤 아님)만 사용한다.
  */
-export async function computeDatasetDriftReport(activeBaseYm: string, candidateBaseYm: string): Promise<DatasetDriftReport> {
-  const [activeProfiles, candidateProfiles] = await Promise.all([
-    fetchRegionComparisonProfiles(activeBaseYm),
-    fetchRegionComparisonProfiles(candidateBaseYm),
-  ]);
+export async function computeDatasetDriftReport(
+  activeBaseYm: string,
+  candidateBaseYm: string,
+  policy: DatasetDriftPolicy = DEFAULT_DATASET_DRIFT_POLICY,
+): Promise<DatasetDriftReport> {
+  const commonCohort = policy === "COMMON_COHORT" ? await fetchCommonCohortProfiles(activeBaseYm, candidateBaseYm) : null;
+  const [activeProfiles, candidateProfiles] = commonCohort
+    ? [commonCohort.activeProfiles, commonCohort.candidateProfiles]
+    : await Promise.all([fetchRegionComparisonProfiles(activeBaseYm), fetchRegionComparisonProfiles(candidateBaseYm)]);
   const activeByCode = new Map(activeProfiles.map((p) => [p.code, p]));
   const candidateByCode = new Map(candidateProfiles.map((p) => [p.code, p]));
   const allCodes = new Set([...activeByCode.keys(), ...candidateByCode.keys()]);
@@ -162,7 +184,8 @@ export async function computeDatasetDriftReport(activeBaseYm: string, candidateB
     return computeAxisDriftReport(axis, samples);
   });
 
-  const strengthWeaknessRegions = [...allCodes].map((code) => ({
+  const strengthWeaknessCodes = commonCohort?.fullAxisCommonRegionCodes ?? [...allCodes];
+  const strengthWeaknessRegions = strengthWeaknessCodes.map((code) => ({
     code,
     activeScores: Object.fromEntries(DNA_AXES.map((a) => [a, activeByCode.get(code)?.axisScores[a].score ?? null])) as Partial<
       Record<DnaAxisKey, number | null>
@@ -173,14 +196,24 @@ export async function computeDatasetDriftReport(activeBaseYm: string, candidateB
   }));
   const strengthWeakness = computeStrengthWeaknessDrift(strengthWeaknessRegions);
 
+  const similarityProfiles = commonCohort
+    ? commonCohort.fullAxisCommonRegionCodes
+        .map((code) => activeByCode.get(code))
+        .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined)
+    : activeProfiles;
+  const candidateSimilarityProfiles = commonCohort
+    ? commonCohort.fullAxisCommonRegionCodes
+        .map((code) => candidateByCode.get(code))
+        .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined)
+    : candidateProfiles;
   const similaritySeedResults = SIMILARITY_DRIFT_SEED_REGION_CODES.map((code) => {
     const activeTarget = activeByCode.get(code);
     const candidateTarget = candidateByCode.get(code);
     if (!activeTarget || !candidateTarget) {
       return { code, activeTop3: null, candidateTop3: null };
     }
-    const activeTop3 = computeRegionSimilarityComparisons(activeTarget, activeProfiles).comparisons.map((c) => c.regionCode);
-    const candidateTop3 = computeRegionSimilarityComparisons(candidateTarget, candidateProfiles).comparisons.map(
+    const activeTop3 = computeRegionSimilarityComparisons(activeTarget, similarityProfiles).comparisons.map((c) => c.regionCode);
+    const candidateTop3 = computeRegionSimilarityComparisons(candidateTarget, candidateSimilarityProfiles).comparisons.map(
       (c) => c.regionCode,
     );
     return { code, activeTop3, candidateTop3 };
@@ -190,13 +223,33 @@ export async function computeDatasetDriftReport(activeBaseYm: string, candidateB
   const strategyScenarioResults = await Promise.all(
     DRIFT_QA_SCENARIOS.map(async (scenario) => {
       const [activeTop3TemplateIds, candidateTop3TemplateIds] = await Promise.all([
-        computeScenarioTop3TemplateIds(scenario, activeBaseYm),
-        computeScenarioTop3TemplateIds(scenario, candidateBaseYm),
+        commonCohort
+          ? computeScenarioTop3TemplateIds(scenario, activeBaseYm, commonCohort.activeDnaByCode)
+          : computeScenarioTop3TemplateIds(scenario, activeBaseYm),
+        commonCohort
+          ? computeScenarioTop3TemplateIds(scenario, candidateBaseYm, commonCohort.candidateDnaByCode)
+          : computeScenarioTop3TemplateIds(scenario, candidateBaseYm),
       ]);
       return { scenarioId: scenario.id, activeTop3TemplateIds, candidateTop3TemplateIds };
     }),
   );
   const strategy = summarizeStrategyDrift(strategyScenarioResults);
 
-  return { activeBaseYm, candidateBaseYm, axisReports, strengthWeakness, similarity, strategy };
+  const fullAxisCommonCohortSize =
+    commonCohort?.fullAxisCommonCohortSize ??
+    [...allCodes].filter((code) =>
+      DNA_AXES.every((axis) => activeByCode.get(code)?.axisScores[axis].score !== null && candidateByCode.get(code)?.axisScores[axis].score !== null),
+    ).length;
+
+  return {
+    activeBaseYm,
+    candidateBaseYm,
+    policy,
+    metricCohortReports: commonCohort?.metricCohortReports ?? {},
+    fullAxisCommonCohortSize,
+    axisReports,
+    strengthWeakness,
+    similarity,
+    strategy,
+  };
 }

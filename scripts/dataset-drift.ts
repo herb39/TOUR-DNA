@@ -48,6 +48,17 @@ async function main() {
 
   if (evaluation.driftReport) {
     const d = evaluation.driftReport;
+    console.log(`\n[dataset:drift] promotion policy: ${d.policy}`);
+    if (Object.keys(d.metricCohortReports).length > 0) {
+      console.log("[dataset:drift] === metric별 공통 비교 cohort ===");
+      for (const [metricCode, cohort] of Object.entries(d.metricCohortReports)) {
+        console.log(
+          `  ${metricCode}: 이전 ${cohort.activeRegionCount}곳, 후보 ${cohort.candidateRegionCount}곳, ` +
+            `공통 ${cohort.commonRegionCount}곳, 비대칭 제외 ${cohort.asymmetricRegionCount}곳`,
+        );
+      }
+      console.log(`[dataset:drift] 전체 5축 공통 cohort: ${d.fullAxisCommonCohortSize}곳`);
+    }
     console.log("\n[dataset:drift] === DNA 축별 drift ===");
     for (const axis of d.axisReports) {
       console.log(
